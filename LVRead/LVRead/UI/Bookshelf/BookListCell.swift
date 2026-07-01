@@ -17,6 +17,7 @@ final class BookListCell: UITableViewCell {
     private let progressBar = UIProgressView()
     private let sourceBadge = UILabel()
     private let detailLabel = UILabel()
+    private let zodiacBadge = UIImageView()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -52,6 +53,9 @@ final class BookListCell: UITableViewCell {
 
 
         [coverImageView, titleLabel, authorLabel, progressLabel, progressBar, sourceBadge, detailLabel].forEach {
+            contentView.addSubview($0)
+        }
+        [coverImageView, titleLabel, authorLabel, progressLabel, progressBar, sourceBadge, detailLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
 
@@ -84,6 +88,24 @@ final class BookListCell: UITableViewCell {
             detailLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -40),
 
         ])
+
+        // Zodiac badge (positioned in layoutSubviews)
+        zodiacBadge.tag = 999
+        zodiacBadge.contentMode = .scaleAspectFit
+        zodiacBadge.alpha = 0.75
+        contentView.addSubview(zodiacBadge)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if !zodiacBadge.isHidden {
+            let s: CGFloat = 20, p: CGFloat = 2
+            zodiacBadge.frame = CGRect(
+                x: coverImageView.frame.maxX - s - p,
+                y: coverImageView.frame.maxY - s - p,
+                width: s, height: s
+            )
+        }
     }
 
     func configure(with book: Book) {
@@ -97,26 +119,12 @@ final class BookListCell: UITableViewCell {
 
         // Zodiac watermark badge on cover
         let settings = ReadingSettingsRepository.shared.load()
-        let zodiacOverlay: UIImageView? = {
-            guard let zodiac = settings.zodiacWatermark,
-                  let img = zodiac.loadImageCompat() else { return nil }
-            let iv = UIImageView(image: img)
-            iv.contentMode = .scaleAspectFit
-            iv.alpha = 0.75
-            iv.translatesAutoresizingMaskIntoConstraints = false
-            return iv
-        }()
-
-        coverImageView.subviews.forEach { if $0.tag == 999 { $0.removeFromSuperview() } }
-        if let overlay = zodiacOverlay {
-            overlay.tag = 999
-            coverImageView.addSubview(overlay)
-            NSLayoutConstraint.activate([
-                overlay.trailingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: -2),
-                overlay.bottomAnchor.constraint(equalTo: coverImageView.bottomAnchor, constant: -2),
-                overlay.widthAnchor.constraint(equalToConstant: 20),
-                overlay.heightAnchor.constraint(equalToConstant: 20)
-            ])
+        if let zodiac = settings.zodiacWatermark,
+           let img = zodiac.loadImageCompat() {
+            zodiacBadge.image = img
+            zodiacBadge.isHidden = false
+        } else {
+            zodiacBadge.isHidden = true
         }
 
         if let coverPath = book.resolvedCoverPath() {

@@ -19,6 +19,7 @@ final class BookCell: UICollectionViewCell {
     private let sourceBadge = PaddedLabel()
     private let formatBadge = PaddedLabel()
     private let shadowView = UIView()
+    private let zodiacBadge = UIImageView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -85,6 +86,12 @@ final class BookCell: UICollectionViewCell {
 
         // Add subviews
         containerView.addSubviews(coverImageView, titleLabel, authorLabel, progressBar, progressLabel, sourceBadge, formatBadge)
+
+        // Zodiac badge (positioned in layoutSubviews)
+        zodiacBadge.tag = 999
+        zodiacBadge.contentMode = .scaleAspectFit
+        zodiacBadge.alpha = 0.75
+        containerView.addSubview(zodiacBadge)
 
         setupConstraints()
     }
@@ -165,27 +172,12 @@ final class BookCell: UICollectionViewCell {
 
         // Zodiac watermark badge on cover
         let settings = ReadingSettingsRepository.shared.load()
-        let zodiacOverlay: UIImageView? = {
-            guard let zodiac = settings.zodiacWatermark,
-                  let img = zodiac.loadImageCompat() else { return nil }
-            let iv = UIImageView(image: img)
-            iv.contentMode = .scaleAspectFit
-            iv.alpha = 0.75
-            iv.translatesAutoresizingMaskIntoConstraints = false
-            return iv
-        }()
-
-        // Remove old zodiac overlay
-        coverImageView.subviews.forEach { if $0.tag == 999 { $0.removeFromSuperview() } }
-        if let overlay = zodiacOverlay {
-            overlay.tag = 999
-            coverImageView.addSubview(overlay)
-            NSLayoutConstraint.activate([
-                overlay.trailingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: -4),
-                overlay.bottomAnchor.constraint(equalTo: coverImageView.bottomAnchor, constant: -4),
-                overlay.widthAnchor.constraint(equalToConstant: 28),
-                overlay.heightAnchor.constraint(equalToConstant: 28)
-            ])
+        if let zodiac = settings.zodiacWatermark,
+           let img = zodiac.loadImageCompat() {
+            zodiacBadge.image = img
+            zodiacBadge.isHidden = false
+        } else {
+            zodiacBadge.isHidden = true
         }
 
         // Load cover
@@ -236,6 +228,18 @@ final class BookCell: UICollectionViewCell {
                 let iconSize: CGFloat = 36
                 icon.draw(in: CGRect(x: (size.width - iconSize) / 2, y: size.height / 2 - iconSize / 2, width: iconSize, height: iconSize))
             }
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if !zodiacBadge.isHidden {
+            let s: CGFloat = 28, p: CGFloat = 4
+            zodiacBadge.frame = CGRect(
+                x: coverImageView.frame.maxX - s - p,
+                y: coverImageView.frame.maxY - s - p,
+                width: s, height: s
+            )
         }
     }
 

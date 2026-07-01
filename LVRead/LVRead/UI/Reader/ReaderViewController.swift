@@ -18,6 +18,17 @@ final class PageContainerView: UIView {
         ctx.setFillColor(pageBackgroundColor.cgColor)
         ctx.fill(rect)
 
+        // Draw zodiac watermark in UIKit coordinates (BEFORE CoreText flip)
+        if let zodiac = settings.zodiacWatermark,
+           let zodiacImage = zodiac.loadImageCompat() {
+            let imgW = bounds.width * 0.45
+            let imgH = zodiacImage.size.height * (imgW / zodiacImage.size.width)
+            let imgX = (bounds.width - imgW) / 2
+            let imgY = (bounds.height - imgH) / 2
+            let imgRect = CGRect(x: imgX, y: imgY, width: imgW, height: imgH)
+            zodiacImage.draw(in: imgRect, blendMode: .normal, alpha: 0.07)
+        }
+
         // Flip coordinate system for CoreText
         ctx.textMatrix = .identity
         ctx.translateBy(x: 0, y: bounds.height)
@@ -40,21 +51,6 @@ final class PageContainerView: UIView {
 
         let marginH = CGFloat(settings.pageMarginHorizontal) * bounds.width / 100
         let textRect = bounds.insetBy(dx: marginH, dy: 8)
-        // Draw zodiac watermark behind text
-        if let zodiac = settings.zodiacWatermark,
-           let zodiacImage = zodiac.loadImageCompat() {
-            ctx.saveGState()
-            ctx.scaleBy(x: 1, y: -1)
-            ctx.translateBy(x: 0, y: -bounds.height)
-            let imgW = bounds.width * 0.45
-            let imgH = zodiacImage.size.height * (imgW / zodiacImage.size.width)
-            let imgX = (bounds.width - imgW) / 2
-            let imgY = (bounds.height - imgH) / 2
-            let imgRect = CGRect(x: imgX, y: imgY, width: imgW, height: imgH)
-            zodiacImage.draw(in: imgRect, blendMode: .normal, alpha: 0.07)
-            ctx.restoreGState()
-        }
-
         let framesetter = CTFramesetterCreateWithAttributedString(attr)
         let path = CGPath(rect: textRect, transform: nil)
         let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, nil)

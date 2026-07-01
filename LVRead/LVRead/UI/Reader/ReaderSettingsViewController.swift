@@ -72,7 +72,7 @@ final class ReaderSettingsViewController: UIViewController {
             scrollView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 20),
             scrollView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
             scrollView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
-            scrollView.bottomAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            scrollView.bottomAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.bottomAnchor, constant: -20),
 
             contentStack.topAnchor.constraint(equalTo: scrollView.topAnchor),
             contentStack.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
@@ -80,6 +80,8 @@ final class ReaderSettingsViewController: UIViewController {
             contentStack.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
             contentStack.widthAnchor.constraint(equalTo: scrollView.widthAnchor)
         ])
+
+        scrollView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 20, right: 0)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissPanel))
         dimmingView.addGestureRecognizer(tap)
