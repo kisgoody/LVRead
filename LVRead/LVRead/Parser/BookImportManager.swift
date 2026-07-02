@@ -235,31 +235,10 @@ final class BookImportManager {
         reportProgress(progressHandler, percent: 0.50, message: "文件已拷贝", operation: operation)
         guard !operation.isCancelled else { return }
 
-        // Step 50% → 60%: Save cover image.
-        let coverImagePath: String?
-        if let coverData = metadata.coverImageData {
-            coverImagePath = saveCoverImage(coverData, bookHash: fileHash)
-            if let coverPath = coverImagePath,
-               let coverImage = UIImage(data: coverData) {
-                ImageCacheManager.shared.cacheImage(coverImage, forKey: fileHash)
-            }
-        } else if format == .pdf {
-            // Try generating a cover from the first page.
-            if let pdfParser = parser as? PDFParser,
-               let pdfCover = pdfParser.renderPageAsImage(filePath: destPath, pageIndex: 0) {
-                if let pngData = pdfCover.pngData() {
-                    coverImagePath = saveCoverImage(pngData, bookHash: fileHash)
-                    ImageCacheManager.shared.cacheImage(pdfCover, forKey: fileHash)
-                } else {
-                    coverImagePath = nil
-                }
-            } else {
-                coverImagePath = nil
-            }
-        } else {
-            coverImagePath = nil
-        }
-        reportProgress(progressHandler, percent: 0.60, message: "封面已处理", operation: operation)
+        // Covers are intentionally disabled for the bookshelf to avoid decoding
+        // large embedded images into memory.
+        let coverImagePath: String? = nil
+        reportProgress(progressHandler, percent: 0.60, message: "已跳过封面处理", operation: operation)
         guard !operation.isCancelled else { return }
 
         // Step 60% → 70%: Build book model.

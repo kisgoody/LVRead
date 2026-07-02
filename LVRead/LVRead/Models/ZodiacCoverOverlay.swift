@@ -14,26 +14,15 @@ final class ZodiacCoverOverlay {
             // Draw original cover
             coverImage.draw(in: CGRect(origin: .zero, size: targetSize))
 
-            // Draw zodiac overlay in bottom-right corner
-            let zodiacSize = min(targetSize.width, targetSize.height) * 0.25
-            let padding: CGFloat = 8
-            let x = targetSize.width - zodiacSize - padding
-            let y = targetSize.height - zodiacSize - padding
-            let zodiacRect = CGRect(x: x, y: y, width: zodiacSize, height: zodiacSize)
-
-            // Semi-transparent background circle for the zodiac badge
-            let circleCenter = CGPoint(x: zodiacRect.midX, y: zodiacRect.midY)
-            let circleRadius = zodiacSize * 0.55
-            UIColor.black.withAlphaComponent(0.15).setFill()
-            let circlePath = UIBezierPath(ovalIn: CGRect(
-                x: circleCenter.x - circleRadius,
-                y: circleCenter.y - circleRadius,
-                width: circleRadius * 2,
-                height: circleRadius * 2
-            ))
-            circlePath.fill()
-
-            zodiacImage.draw(in: zodiacRect, blendMode: .normal, alpha: 0.85)
+            let scale = max(targetSize.width / zodiacImage.size.width, targetSize.height / zodiacImage.size.height)
+            let imageSize = CGSize(width: zodiacImage.size.width * scale, height: zodiacImage.size.height * scale)
+            let imageRect = CGRect(
+                x: (targetSize.width - imageSize.width) / 2,
+                y: (targetSize.height - imageSize.height) / 2,
+                width: imageSize.width,
+                height: imageSize.height
+            )
+            zodiacImage.draw(in: imageRect, blendMode: .softLight, alpha: 0.55)
         }
     }
 

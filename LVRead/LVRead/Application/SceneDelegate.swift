@@ -38,6 +38,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidEnterBackground(_ scene: UIScene) {
         WebSyncServer.shared.stopIfNeeded()
         TransferManager.shared.handleBackgroundTransition()
+        PageCacheManager.shared.handleBackgroundTransition()
+        ImageCacheManager.shared.handleBackgroundTransition()
     }
 
     func sceneWillEnterForeground(_ scene: UIScene) {

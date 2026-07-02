@@ -20,6 +20,7 @@ final class BookCell: UICollectionViewCell {
     private let formatBadge = PaddedLabel()
     private let shadowView = UIView()
     private let zodiacBadge = UIImageView()
+    private var representedBookId: String?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -87,10 +88,11 @@ final class BookCell: UICollectionViewCell {
         // Add subviews
         containerView.addSubviews(coverImageView, titleLabel, authorLabel, progressBar, progressLabel, sourceBadge, formatBadge)
 
-        // Zodiac badge (positioned in layoutSubviews)
+        // Zodiac watermark over the whole cover (positioned in layoutSubviews)
         zodiacBadge.tag = 999
-        zodiacBadge.contentMode = .scaleAspectFit
-        zodiacBadge.alpha = 0.75
+        zodiacBadge.contentMode = .scaleAspectFill
+        zodiacBadge.clipsToBounds = true
+        zodiacBadge.alpha = 0.32
         containerView.addSubview(zodiacBadge)
 
         setupConstraints()
@@ -156,6 +158,7 @@ final class BookCell: UICollectionViewCell {
     }
 
     func configure(with book: Book) {
+        representedBookId = book.id
         titleLabel.text = book.title
         authorLabel.text = book.author
         
@@ -170,33 +173,9 @@ final class BookCell: UICollectionViewCell {
         sourceBadge.backgroundColor = UIColor(hex: book.source.displayColor)
         formatBadge.backgroundColor = UIColor(hex: book.fileFormat.badgeColor)
 
-        // Zodiac watermark badge on cover
-        let settings = ReadingSettingsRepository.shared.load()
-        if let zodiac = settings.zodiacWatermark,
-           let img = zodiac.loadImageCompat() {
-            zodiacBadge.image = img
-            zodiacBadge.isHidden = false
-        } else {
-            zodiacBadge.isHidden = true
-        }
-
-        // Load cover
-        if let coverPath = book.resolvedCoverPath() {
-            if let cachedImage = ImageCacheManager.shared.getImage(forKey: coverPath) {
-                coverImageView.image = cachedImage
-            } else {
-                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                    if let image = UIImage(contentsOfFile: coverPath) {
-                        ImageCacheManager.shared.cacheImage(image, forKey: coverPath)
-                        DispatchQueue.main.async {
-                            self?.coverImageView.image = image
-                        }
-                    }
-                }
-            }
-        } else {
-            coverImageView.image = generatePlaceholderCover(for: book)
-        }
+        zodiacBadge.image = nil
+        zodiacBadge.isHidden = true
+        coverImageView.image = generatePlaceholderCover(for: book)
     }
 
     private func generatePlaceholderCover(for book: Book) -> UIImage? {
@@ -234,19 +213,19 @@ final class BookCell: UICollectionViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         if !zodiacBadge.isHidden {
-            let s: CGFloat = 28, p: CGFloat = 4
-            zodiacBadge.frame = CGRect(
-                x: coverImageView.frame.maxX - s - p,
-                y: coverImageView.frame.maxY - s - p,
-                width: s, height: s
-            )
+            zodiacBadge.frame = coverImageView.frame
+            containerView.bringSubviewToFront(sourceBadge)
+            containerView.bringSubviewToFront(formatBadge)
         }
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        representedBookId = nil
         coverImageView.image = nil
         progressBar.progress = 0
+        zodiacBadge.image = nil
+        zodiacBadge.isHidden = true
     }
     
     // MARK: - Selection Animation

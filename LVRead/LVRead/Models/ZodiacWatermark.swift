@@ -50,6 +50,30 @@ enum ZodiacAnimal: String, Codable, CaseIterable, Hashable {
     /// Load image that works on older iOS (non-namespace asset folders)
     func loadImageCompat() -> UIImage? {
         if let img = loadImage() { return img }
-        return UIImage(named: rawValue)
+        if let img = UIImage(named: rawValue) { return img }
+        if let img = UIImage(named: "\(rawValue).png") { return img }
+        if let url = Bundle.main.url(forResource: rawValue, withExtension: "png"),
+           let img = UIImage(contentsOfFile: url.path) {
+            return img
+        }
+        return nil
+    }
+
+    func loadDisplayImage(maxPixel: CGFloat) -> UIImage? {
+        guard let image = loadImageCompat() else { return nil }
+        let longest = max(image.size.width, image.size.height) * image.scale
+        guard longest > maxPixel else { return image }
+
+        let ratio = maxPixel / longest
+        let targetSize = CGSize(
+            width: image.size.width * image.scale * ratio,
+            height: image.size.height * image.scale * ratio
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
     }
 }

@@ -125,6 +125,30 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
         }
     }
 
+    var panelColor: String {
+        switch self {
+        case .white: return "#F7F7F5"
+        case .warmYellow: return "#F4E5C8"
+        case .mint: return "#DCEFE1"
+        case .latte: return "#E7D2BA"
+        case .midnight: return "#24283A"
+        case .oled: return "#111111"
+        case .custom: return "#F7F7F5"
+        }
+    }
+
+    var controlSurfaceColor: String {
+        switch self {
+        case .white: return "#FFFFFF"
+        case .warmYellow: return "#FFF6E5"
+        case .mint: return "#F0FAF2"
+        case .latte: return "#F5E7D8"
+        case .midnight: return "#30364D"
+        case .oled: return "#1C1C1C"
+        case .custom: return "#FFFFFF"
+        }
+    }
+
     var displayName: String {
         switch self {
         case .white: return "纯白经典"

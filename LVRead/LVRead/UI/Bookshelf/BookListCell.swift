@@ -18,6 +18,7 @@ final class BookListCell: UITableViewCell {
     private let sourceBadge = UILabel()
     private let detailLabel = UILabel()
     private let zodiacBadge = UIImageView()
+    private var representedBookId: String?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -89,26 +90,23 @@ final class BookListCell: UITableViewCell {
 
         ])
 
-        // Zodiac badge (positioned in layoutSubviews)
+        // Zodiac watermark over the whole cover (positioned in layoutSubviews)
         zodiacBadge.tag = 999
-        zodiacBadge.contentMode = .scaleAspectFit
-        zodiacBadge.alpha = 0.75
+        zodiacBadge.contentMode = .scaleAspectFill
+        zodiacBadge.clipsToBounds = true
+        zodiacBadge.alpha = 0.32
         contentView.addSubview(zodiacBadge)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         if !zodiacBadge.isHidden {
-            let s: CGFloat = 20, p: CGFloat = 2
-            zodiacBadge.frame = CGRect(
-                x: coverImageView.frame.maxX - s - p,
-                y: coverImageView.frame.maxY - s - p,
-                width: s, height: s
-            )
+            zodiacBadge.frame = coverImageView.frame
         }
     }
 
     func configure(with book: Book) {
+        representedBookId = book.id
         titleLabel.text = book.title
         authorLabel.text = book.author
         progressBar.progress = Float(book.readingProgress.progressPercent / 100.0)
@@ -117,31 +115,19 @@ final class BookListCell: UITableViewCell {
         sourceBadge.text = book.source.displayName
         sourceBadge.textColor = UIColor(hex: book.source.displayColor)
 
-        // Zodiac watermark badge on cover
-        let settings = ReadingSettingsRepository.shared.load()
-        if let zodiac = settings.zodiacWatermark,
-           let img = zodiac.loadImageCompat() {
-            zodiacBadge.image = img
-            zodiacBadge.isHidden = false
-        } else {
-            zodiacBadge.isHidden = true
-        }
+        zodiacBadge.image = nil
+        zodiacBadge.isHidden = true
+        coverImageView.image = nil
+        coverImageView.backgroundColor = UIColor(hex: book.source.displayColor).withAlphaComponent(0.2)
+    }
 
-        if let coverPath = book.resolvedCoverPath() {
-            if let cached = ImageCacheManager.shared.getImage(forKey: coverPath) {
-                coverImageView.image = cached
-            } else {
-                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                    if let image = UIImage(contentsOfFile: coverPath) {
-                        ImageCacheManager.shared.cacheImage(image, forKey: coverPath)
-                        DispatchQueue.main.async {
-                            self?.coverImageView.image = image
-                        }
-                    }
-                }
-            }
-        } else {
-            coverImageView.backgroundColor = UIColor(hex: book.source.displayColor).withAlphaComponent(0.2)
-        }
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        representedBookId = nil
+        coverImageView.image = nil
+        coverImageView.backgroundColor = UIColor(white: 0.95, alpha: 1)
+        progressBar.progress = 0
+        zodiacBadge.image = nil
+        zodiacBadge.isHidden = true
     }
 }

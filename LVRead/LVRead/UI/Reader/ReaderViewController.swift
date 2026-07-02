@@ -12,6 +12,8 @@ fileprivate extension UIView {
 final class PageContainerView: UIView {
     var pageData: PageData?
     var pageBackgroundColor: UIColor = .white
+    private static var watermarkCache: [ZodiacAnimal: UIImage] = [:]
+
     override func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext(), let page = pageData else { return }
         // Fill background
@@ -20,13 +22,13 @@ final class PageContainerView: UIView {
 
         // Draw zodiac watermark in UIKit coordinates (BEFORE CoreText flip)
         if let zodiac = settings.zodiacWatermark,
-           let zodiacImage = zodiac.loadImageCompat() {
-            let imgW = bounds.width * 0.45
+           let zodiacImage = watermarkImage(for: zodiac) {
+            let imgW = bounds.width * 0.62
             let imgH = zodiacImage.size.height * (imgW / zodiacImage.size.width)
             let imgX = (bounds.width - imgW) / 2
             let imgY = (bounds.height - imgH) / 2
             let imgRect = CGRect(x: imgX, y: imgY, width: imgW, height: imgH)
-            zodiacImage.draw(in: imgRect, blendMode: .normal, alpha: 0.07)
+            zodiacImage.draw(in: imgRect, blendMode: .multiply, alpha: watermarkAlpha)
         }
 
         // Flip coordinate system for CoreText
@@ -65,6 +67,66 @@ final class PageContainerView: UIView {
         self.pageBackgroundColor = UIColor(hex: settings.backgroundColor)
         setNeedsDisplay()
     }
+
+    func clear() {
+        pageData = nil
+        layer.contents = nil
+        setNeedsDisplay()
+    }
+
+    static func clearWatermarkCache() {
+        watermarkCache.removeAll()
+    }
+
+    private var watermarkAlpha: CGFloat {
+        switch settings.readingTheme {
+        case .midnight, .oled:
+            return 0.18
+        default:
+            return 0.24
+        }
+    }
+
+    private func watermarkImage(for zodiac: ZodiacAnimal) -> UIImage? {
+        if let cached = Self.watermarkCache[zodiac] { return cached }
+        guard let image = zodiac.loadDisplayImage(maxPixel: 512)?.lv_removingNearWhiteBackground() else { return nil }
+        Self.watermarkCache[zodiac] = image
+        return image
+    }
+}
+
+private extension UIImage {
+    func lv_removingNearWhiteBackground() -> UIImage? {
+        guard let cgImage else { return self }
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+
+        guard let ctx = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return self }
+
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        for offset in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
+            let r = pixels[offset]
+            let g = pixels[offset + 1]
+            let b = pixels[offset + 2]
+            if r > 238, g > 238, b > 238 {
+                pixels[offset + 3] = 0
+            }
+        }
+
+        guard let output = ctx.makeImage() else { return self }
+        return UIImage(cgImage: output, scale: scale, orientation: imageOrientation)
+    }
 }
 
 // MARK: - Main Reader
@@ -81,6 +143,8 @@ final class ReaderViewController: UIViewController {
     private var currentChapterIndex: Int = 0
     private var currentPageIndex: Int = 0
     private var chapterPages: [[PageData]] = []
+    private var loadedChapterPages: [Int: [PageData]] = [:]
+    private let residentPageRadius = 5
 
     private var readingStartTime: Date?
     private var totalReadingSeconds: Int = 0
@@ -89,7 +153,11 @@ final class ReaderViewController: UIViewController {
     private var autoReadRemainingSeconds: Int = 0
 
     // Page turn state
-   private var isPageFlipping = false
+    private var isPageFlipping = false
+    private var activePanDirection: PageTurnDirection?
+    private var activePanPreparedTurn: PreparedPageTurn?
+    private var pendingPanLoadDirection: PageTurnDirection?
+    private var isClosing = false
     private let interactiveState = PageFlipState()
     private var smoothScrollHandler: SmoothScrollHandler?
 
@@ -104,12 +172,23 @@ final class ReaderViewController: UIViewController {
     private let bottomPageLabel = UILabel()
     private let bottomTimeLabel = UILabel()
     private let batteryView = LVBatteryView()
+    private let topMenuBar = UIView()
+    private let menuBackButton = UIButton(type: .system)
+    private let bookTitleLabel = UILabel()
+    private let menuChapterLabel = UILabel()
     private let toolBar = UIView()
     private var toolBtnStack: UIStackView!
     private let eyeCareOverlay = UIView()
+    private var chromeVisible = false
     private let dateFormatter: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
     }()
+
+    private struct PreparedPageTurn {
+        let chapterIndex: Int
+        let pageIndex: Int
+        let pages: [PageData]
+    }
 
     // MARK: Init
 
@@ -144,9 +223,17 @@ final class ReaderViewController: UIViewController {
         stopReadingTimer()
         stopAutoRead()
         WebSyncServer.shared.stop()
+        if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            releaseReaderResources()
+        }
     }
 
-    override var prefersStatusBarHidden: Bool { true }
+    deinit {
+        releaseReaderResources()
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override var prefersStatusBarHidden: Bool { !chromeVisible }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 
     // MARK: Layout
@@ -197,8 +284,24 @@ final class ReaderViewController: UIViewController {
         updateEyeCareOverlay()
 
         // Tool bar
-        toolBar.backgroundColor = UIColor(red: 0.96, green: 0.94, blue: 0.91, alpha: 0.95)
+        toolBar.backgroundColor = UIColor(hex: settings.readingTheme.panelColor).withAlphaComponent(0.96)
         toolBar.alpha = 0
+
+        topMenuBar.backgroundColor = UIColor(hex: settings.readingTheme.panelColor).withAlphaComponent(0.96)
+        topMenuBar.alpha = 0
+        menuBackButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)), for: .normal)
+        menuBackButton.tintColor = tc.withAlphaComponent(0.85)
+        menuBackButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+        bookTitleLabel.text = book.title
+        bookTitleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        bookTitleLabel.textColor = tc.withAlphaComponent(0.9)
+        bookTitleLabel.textAlignment = .center
+        bookTitleLabel.lineBreakMode = .byTruncatingTail
+        menuChapterLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        menuChapterLabel.textColor = tc.withAlphaComponent(0.65)
+        menuChapterLabel.textAlignment = .right
+        menuChapterLabel.lineBreakMode = .byTruncatingTail
+        topMenuBar.addSubviews(menuBackButton, bookTitleLabel, menuChapterLabel)
 
         func makeBtn(_ icon: String, action: Selector) -> UIButton {
             let b = UIButton(type: .system)
@@ -221,9 +324,9 @@ final class ReaderViewController: UIViewController {
         toolBar.addSubview(toolBtnStack)
 
         view.addSubviews(containerView, scrollView, eyeCareOverlay, backButton, topChapterLabel,
-                        bottomPageLabel, bottomTimeLabel, batteryView, toolBar)
+                        bottomPageLabel, bottomTimeLabel, batteryView, topMenuBar, toolBar)
         [containerView, currentPageView, nextPageView, scrollView, backButton, topChapterLabel,
-         bottomPageLabel, bottomTimeLabel, batteryView, toolBar, toolBtnStack,
+         bottomPageLabel, bottomTimeLabel, batteryView, topMenuBar, menuBackButton, bookTitleLabel, menuChapterLabel, toolBar, toolBtnStack,
          eyeCareOverlay].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
 
         let safe = view.safeAreaLayoutGuide
@@ -271,13 +374,29 @@ final class ReaderViewController: UIViewController {
             batteryView.widthAnchor.constraint(equalToConstant: 26),
             batteryView.heightAnchor.constraint(equalToConstant: 13),
 
-            toolBar.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
+            topMenuBar.topAnchor.constraint(equalTo: view.topAnchor),
+            topMenuBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topMenuBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topMenuBar.bottomAnchor.constraint(equalTo: safe.topAnchor, constant: 52),
+            menuBackButton.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 6),
+            menuBackButton.bottomAnchor.constraint(equalTo: topMenuBar.bottomAnchor, constant: -4),
+            menuBackButton.widthAnchor.constraint(equalToConstant: 44),
+            menuBackButton.heightAnchor.constraint(equalToConstant: 44),
+            bookTitleLabel.centerYAnchor.constraint(equalTo: menuBackButton.centerYAnchor),
+            bookTitleLabel.centerXAnchor.constraint(equalTo: topMenuBar.centerXAnchor),
+            bookTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: menuBackButton.trailingAnchor, constant: 8),
+            bookTitleLabel.widthAnchor.constraint(lessThanOrEqualTo: topMenuBar.widthAnchor, multiplier: 0.42),
+            menuChapterLabel.centerYAnchor.constraint(equalTo: menuBackButton.centerYAnchor),
+            menuChapterLabel.leadingAnchor.constraint(equalTo: bookTitleLabel.trailingAnchor, constant: 10),
+            menuChapterLabel.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -14),
+
+            toolBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             toolBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             toolBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            toolBar.heightAnchor.constraint(equalToConstant: 64),
+            toolBar.topAnchor.constraint(equalTo: toolBtnStack.topAnchor, constant: -10),
 
             toolBtnStack.centerXAnchor.constraint(equalTo: toolBar.centerXAnchor),
-            toolBtnStack.bottomAnchor.constraint(equalTo: toolBar.bottomAnchor, constant: -8)
+            toolBtnStack.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -8)
         ])
     }
 
@@ -312,7 +431,7 @@ final class ReaderViewController: UIViewController {
                     self?.updateOverlayLabels()
                 }
             }
-            if let pages = chapterPages.first {
+            if let pages = currentPages() {
                 smoothScrollHandler?.loadChapter(currentChapterIndex, pages: pages, settings: settings, initialPage: currentPageIndex)
             }
 
@@ -341,33 +460,27 @@ final class ReaderViewController: UIViewController {
     // MARK: Scroll Mode
 
     private func buildScrollContent() {
-        guard let pages = chapterPages.first else { return }
+        guard let pages = currentPages() else { return }
         smoothScrollHandler?.loadChapter(currentChapterIndex, pages: pages, settings: settings, initialPage: currentPageIndex)
     }
 
     private func refreshScrollContent() {
         guard settings.pageFlipMode == .scroll else { return }
-        guard let pages = chapterPages.first else { return }
+        guard let pages = currentPages() else { return }
         smoothScrollHandler?.loadChapter(currentChapterIndex, pages: pages, settings: settings, initialPage: currentPageIndex)
     }
 
     private func preloadChapterForScroll(_ chapterIndex: Int) {
+        guard !isClosing else { return }
         guard chapterIndex >= 0, chapterIndex < chapters.count else { return }
-        let sz = containerView.bounds.size
-        let ch = chapters[chapterIndex]
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self else { return }
-            let p = BookImportManager.shared.parserFor(format: self.book.fileFormat)
-            guard let content = try? p.parseChapterContent(
-                filePath: self.book.resolvedFilePath(),
-                chapter: ch,
-                encoding: self.book.encoding ?? "UTF-8"
-            ) else { return }
-            let pages = self.paginateContent(content, fit: sz, settings: self.settings)
-            DispatchQueue.main.async {
-                self.smoothScrollHandler?.appendChapter(chapterIndex, pages: pages)
-                self.cachePages(pages)
-            }
+        if let pages = loadedChapterPages[chapterIndex] {
+            smoothScrollHandler?.appendChapter(chapterIndex, pages: pages)
+            return
+        }
+        loadPagesForChapter(chapterIndex, target: .first) { [weak self] prepared in
+            guard let self, !self.isClosing, let prepared else { return }
+            self.smoothScrollHandler?.appendChapter(prepared.chapterIndex, pages: prepared.pages)
+            self.cachePages(prepared.pages)
         }
     }
 
@@ -380,6 +493,13 @@ final class ReaderViewController: UIViewController {
     // MARK: Tap (for non-scroll modes)
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        if chromeVisible {
+            let point = gesture.location(in: view)
+            if topMenuBar.frame.contains(point) || toolBar.frame.contains(point) { return }
+            toggleToolBar()
+            return
+        }
+
         let x = gesture.location(in: view).x
         let w = view.bounds.width
         let mode = settings.pageFlipMode
@@ -408,112 +528,156 @@ final class ReaderViewController: UIViewController {
 
     private func animatePageTurn(direction: PageTurnDirection) {
         guard !isPageFlipping else { return }
-        
-        // Check boundaries
-        guard let pages = chapterPages.first, !pages.isEmpty else { return }
-        let targetIndex = direction == .next ? currentPageIndex + 1 : currentPageIndex - 1
-        
-        // Boundary check: prevent out-of-bounds access
-        if targetIndex < 0 {
-            // Already at first page, go to previous chapter if available
-            if currentChapterIndex > 0 {
-                goToPrevChapter()
-            }
+        if let prepared = preparedTurn(for: direction) {
+            animatePreparedPageTurn(prepared, direction: direction)
             return
         }
-        if targetIndex >= pages.count {
-            // Already at last page, go to next chapter if available
-            if currentChapterIndex < chapters.count - 1 {
-                goToNextChapter()
-            }
-            return
-        }
-        
-       prerenderPage(at: targetIndex, in: nextPageView)
 
-       let animDirection: PageFlipDirection = direction == .next ? .next : .prev
+        let targetChapter = direction == .next ? currentChapterIndex + 1 : currentChapterIndex - 1
+        guard targetChapter >= 0, targetChapter < chapters.count else { return }
+
+        isPageFlipping = true
+        loadPagesForChapter(targetChapter, target: direction == .next ? .first : .last) { [weak self] prepared in
+            guard let self else { return }
+            self.isPageFlipping = false
+            guard let prepared else { return }
+            self.animatePreparedPageTurn(prepared, direction: direction)
+        }
+    }
+
+    private func animatePreparedPageTurn(_ prepared: PreparedPageTurn, direction: PageTurnDirection) {
+        guard let prepared = preparePageTurnForRender(prepared),
+              let page = prepared.pages[safe: prepared.pageIndex] else {
+            isPageFlipping = false
+            return
+        }
+
+        nextPageView.render(page: page, with: settings)
+        nextPageView.setNeedsDisplay()
+        nextPageView.layer.displayIfNeeded()
+
+        let animDirection: PageFlipDirection = direction == .next ? .next : .prev
         let mode = settings.pageFlipMode
 
         if mode == .none {
-            if direction == .next { goToNextPage() } else { goToPrevPage() }
+            applyPreparedPageTurn(prepared)
+            isPageFlipping = false
             return
         }
 
         isPageFlipping = true
 
-       PageFlipAnimator.animateTap(
-           from: currentPageView,
-           to: nextPageView,
-           direction: animDirection,
-           mode: mode,
+        PageFlipAnimator.animateTap(
+            from: currentPageView,
+            to: nextPageView,
+            direction: animDirection,
+            mode: mode,
             backgroundColor: UIColor(hex: settings.backgroundColor),
             container: containerView
-       ) { [weak self] in
+        ) { [weak self] in
             guard let self = self else { return }
+            self.applyPreparedPageTurn(prepared)
             self.resetFlipState()
-            if direction == .next { self.goToNextPage() } else { self.goToPrevPage() }
             self.isPageFlipping = false
         }
+    }
+
+    private func applyPreparedPageTurn(_ prepared: PreparedPageTurn) {
+        guard let page = prepared.pages[safe: prepared.pageIndex] else { return }
+        currentChapterIndex = prepared.chapterIndex
+        currentPageIndex = prepared.pageIndex
+        storeLoadedChapter(prepared.chapterIndex, pages: prepared.pages, center: prepared.pageIndex)
+        currentPageView.render(page: pageData(at: currentPageIndex) ?? page, with: settings)
+        updateOverlayLabels()
+        updateProgressDisplay()
+        cachePages(prepared.pages, centerPage: prepared.pageIndex)
+    }
+
+    private func preparedTurn(for direction: PageTurnDirection) -> PreparedPageTurn? {
+        guard var pages = currentPages(), !pages.isEmpty else { return nil }
+        let targetIndex = direction == .next ? currentPageIndex + 1 : currentPageIndex - 1
+        if targetIndex >= 0, targetIndex < pages.count {
+            guard let page = pageData(at: targetIndex) else { return nil }
+            pages[targetIndex] = page
+            return PreparedPageTurn(chapterIndex: currentChapterIndex, pageIndex: targetIndex, pages: pages)
+        }
+
+        let targetChapter = direction == .next ? currentChapterIndex + 1 : currentChapterIndex - 1
+        guard targetChapter >= 0,
+              targetChapter < chapters.count,
+              var targetPages = loadedChapterPages[targetChapter],
+              !targetPages.isEmpty else { return nil }
+        let pageIndex = direction == .next ? 0 : targetPages.count - 1
+        guard let page = pageData(in: &targetPages, chapterIndex: targetChapter, pageIndex: pageIndex) else { return nil }
+        targetPages[pageIndex] = page
+        return PreparedPageTurn(chapterIndex: targetChapter, pageIndex: pageIndex, pages: targetPages)
     }
 
     // MARK: Pan Gesture (interactive page flip)
 
     @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
-       let fmode = settings.pageFlipMode
-       guard fmode == .simulation || fmode == .cover || fmode == .slide else { return }
-       
-       let velocity = pan.velocity(in: view)
-       let isSwipingNext = velocity.x < 0
-       
-      if isSwipingNext {
-           guard let pages = chapterPages.first, currentPageIndex < pages.count - 1 else {
-               if currentChapterIndex < chapters.count - 1 { goToNextChapter() }
-               return
-           }
-       } else {
-           guard currentPageIndex > 0 else {
-               if currentChapterIndex > 0 { goToPrevChapter() }
-               return
-           }
-       }
-       
-        let mode = fmode
+        let fmode = settings.pageFlipMode
+        guard !chromeVisible else { return }
+        guard fmode == .simulation || fmode == .cover || fmode == .slide else { return }
 
-        let loc = pan.translation(in: view)
-       let progress = min(1.0, max(0, abs(loc.x) / view.bounds.width * 1.2))
-       let dir: PageTurnDirection = loc.x < 0 ? .next : .prev
-        let animDir: PageFlipDirection = dir == .next ? .next : .prev
+        let mode = fmode
+        let translation = pan.translation(in: view)
+        let progress = min(1.0, max(0, abs(translation.x) / max(view.bounds.width, 1) * 1.15))
 
         switch pan.state {
         case .began:
             guard !isPageFlipping else { return }
-            isPageFlipping = true
-
-            let targetIndex = dir == .next ? currentPageIndex + 1 : currentPageIndex - 1
-            prerenderPage(at: targetIndex, in: nextPageView)
-
-            PageFlipAnimator.beginInteractive(
-                from: currentPageView,
-                to: nextPageView,
-                direction: animDir,
-                mode: mode,
-                container: containerView,
-                state: interactiveState
-            )
+            activePanDirection = nil
+            pendingPanLoadDirection = nil
 
         case .changed:
+            if activePanDirection == nil {
+                guard abs(translation.x) > 8 else { return }
+                let direction: PageTurnDirection = translation.x < 0 ? .next : .prev
+                guard let prepared = preparedTurn(for: direction) else {
+                    prepareBoundaryTurnForPan(direction, pan: pan, mode: mode)
+                    return
+                }
+
+                activePanDirection = direction
+                activePanPreparedTurn = prepared
+                isPageFlipping = true
+
+                prerender(prepared, in: nextPageView)
+
+                PageFlipAnimator.beginInteractive(
+                    from: currentPageView,
+                    to: nextPageView,
+                    direction: direction.pageFlipDirection,
+                    mode: mode,
+                    container: containerView,
+                    state: interactiveState
+                )
+            }
             PageFlipAnimator.updateInteractive(progress: progress, mode: mode, state: interactiveState)
 
         case .ended, .cancelled:
+            guard let direction = activePanDirection, interactiveState.isActive else {
+                activePanDirection = nil
+                pendingPanLoadDirection = nil
+                isPageFlipping = false
+                return
+            }
             let vx = pan.velocity(in: view).x
-            let shouldCommit = progress > 0.25 || abs(vx) > 400
+            let shouldCommit = progress > 0.28 || abs(vx) > 450
 
             PageFlipAnimator.finishInteractive(commit: shouldCommit, mode: mode, state: interactiveState) { [weak self] committed in
                 guard let self = self else { return }
-                self.resetFlipState()
+                let prepared = self.activePanPreparedTurn
                 if committed {
-                    if dir == .next { self.goToNextPage() } else { self.goToPrevPage() }
+                    if let prepared {
+                        self.applyPreparedPageTurn(prepared)
+                    }
                 }
+                self.resetFlipState()
+                self.activePanDirection = nil
+                self.activePanPreparedTurn = nil
+                self.pendingPanLoadDirection = nil
                 self.isPageFlipping = false
             }
 
@@ -521,10 +685,78 @@ final class ReaderViewController: UIViewController {
         }
     }
 
+    private func canTurnPage(_ direction: PageTurnDirection) -> Bool {
+        guard let pages = currentPages(), !pages.isEmpty else { return false }
+        switch direction {
+        case .next:
+            return currentPageIndex < pages.count - 1
+        case .prev:
+            return currentPageIndex > 0
+        }
+    }
+
+    private func turnPage(_ direction: PageTurnDirection) {
+        switch direction {
+        case .next: goToNextPage()
+        case .prev: goToPrevPage()
+        }
+    }
+
+    private func prepareBoundaryTurnForPan(_ direction: PageTurnDirection, pan: UIPanGestureRecognizer, mode: PageFlipMode) {
+        guard pendingPanLoadDirection == nil else { return }
+        let targetChapter = direction == .next ? currentChapterIndex + 1 : currentChapterIndex - 1
+        guard targetChapter >= 0, targetChapter < chapters.count else { return }
+
+        pendingPanLoadDirection = direction
+        loadPagesForChapter(targetChapter, target: direction == .next ? .first : .last) { [weak self, weak pan] prepared in
+            guard let self,
+                  let pan,
+                  self.pendingPanLoadDirection == direction,
+                  self.activePanDirection == nil,
+                  let prepared else {
+                self?.pendingPanLoadDirection = nil
+                return
+            }
+
+            let state = pan.state
+            guard state == .began || state == .changed else {
+                self.pendingPanLoadDirection = nil
+                return
+            }
+
+            let translation = pan.translation(in: self.view)
+            let progress = min(1.0, max(0, abs(translation.x) / max(self.view.bounds.width, 1) * 1.15))
+            self.activePanDirection = direction
+            self.activePanPreparedTurn = prepared
+            self.pendingPanLoadDirection = nil
+            self.isPageFlipping = true
+
+            self.prerender(prepared, in: self.nextPageView)
+            PageFlipAnimator.beginInteractive(
+                from: self.currentPageView,
+                to: self.nextPageView,
+                direction: direction.pageFlipDirection,
+                mode: mode,
+                container: self.containerView,
+                state: self.interactiveState
+            )
+            PageFlipAnimator.updateInteractive(progress: progress, mode: mode, state: self.interactiveState)
+        }
+    }
+
+    private enum ChapterPageTarget {
+        case first
+        case last
+        case index(Int)
+    }
+
     // MARK: - Reset flip state
 
     private func resetFlipState() {
         interactiveState.cleanup()
+        activePanDirection = nil
+        activePanPreparedTurn = nil
+        pendingPanLoadDirection = nil
         currentPageView.layer.transform = CATransform3DIdentity
         currentPageView.transform = .identity
         currentPageView.alpha = 1
@@ -534,20 +766,55 @@ final class ReaderViewController: UIViewController {
         layoutPageViews()
     }
 
+    private func releaseReaderResources() {
+        guard !isClosing else { return }
+        isClosing = true
+        readingTimer?.invalidate()
+        autoReadTimer?.invalidate()
+        smoothScrollHandler?.invalidate()
+        smoothScrollHandler = nil
+        loadedChapterPages.removeAll()
+        chapterPages.removeAll()
+        currentPageView.clear()
+        nextPageView.clear()
+        PageContainerView.clearWatermarkCache()
+        PageCacheManager.shared.clearBookCache(book.id)
+    }
+
     private func layoutPageViews() {
         currentPageView.frame = containerView.bounds
         nextPageView.frame = containerView.bounds
     }
 
     private func prerenderPage(at index: Int, in view: PageContainerView) {
-        guard let pages = chapterPages.first, index >= 0, index < pages.count else {
+        guard let pages = currentPages(), index >= 0, index < pages.count else {
             view.render(page: PageData(pageIndex: 0, startCharOffset: 0, endCharOffset: 0, content: "", chapterTitle: "", chapterIndex: 0), with: settings)
             return
         }
-        view.render(page: pages[index], with: settings)
+        view.render(page: pageData(at: index) ?? pages[index], with: settings)
         // Force immediate draw so the page is ready when animation starts
         view.setNeedsDisplay()
         view.layer.displayIfNeeded()
+    }
+
+    private func prerender(_ prepared: PreparedPageTurn, in view: PageContainerView) {
+        guard let prepared = preparePageTurnForRender(prepared),
+              let page = prepared.pages[safe: prepared.pageIndex] else { return }
+        view.render(page: page, with: settings)
+        view.setNeedsDisplay()
+        view.layer.displayIfNeeded()
+    }
+
+    private func preparePageTurnForRender(_ prepared: PreparedPageTurn) -> PreparedPageTurn? {
+        var pages = prepared.pages
+        guard let page = pageData(in: &pages, chapterIndex: prepared.chapterIndex, pageIndex: prepared.pageIndex) else {
+            return nil
+        }
+        pages[prepared.pageIndex] = page
+        let preparedPages = settings.pageFlipMode == .scroll ? pages : pageWindow(from: pages, center: prepared.pageIndex)
+        storeLoadedChapter(prepared.chapterIndex, pages: preparedPages, center: prepared.pageIndex)
+        cachePages(preparedPages, centerPage: prepared.pageIndex)
+        return PreparedPageTurn(chapterIndex: prepared.chapterIndex, pageIndex: prepared.pageIndex, pages: preparedPages)
     }
 
     enum PageTurnDirection { case next, prev }
@@ -567,46 +834,46 @@ final class ReaderViewController: UIViewController {
         if chapters.isEmpty {
             chapters = [Chapter(bookId: book.id, title: "正文", level: 1, orderIndex: 0)]
         }
-        loadCurrentChapter()
+        loadCurrentChapter(target: .index(currentPageIndex))
     }
 
-    private func loadCurrentChapter() {
+    private func loadCurrentChapter(target: ChapterPageTarget = .first) {
+        guard !isClosing else { return }
         guard currentChapterIndex < chapters.count else { return }
-        let ch = chapters[currentChapterIndex]
+        let chapterIndex = currentChapterIndex
+        if let pages = loadedChapterPages[chapterIndex] {
+            displayChapter(chapterIndex, pages: pages, target: target)
+            return
+        }
+
+        let ch = chapters[chapterIndex]
         let sz = self.containerView.bounds.size
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
+            if self.isClosing { return }
             let p = BookImportManager.shared.parserFor(format: self.book.fileFormat)
             do {
                 let content = try p.parseChapterContent(filePath: self.book.resolvedFilePath(), chapter: ch, encoding: self.book.encoding ?? "UTF-8")
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.count < 50, self.currentChapterIndex + 1 < self.chapters.count {
+                if trimmed.count < 50, chapterIndex + 1 < self.chapters.count {
                     DispatchQueue.main.async {
-                        self.currentChapterIndex += 1
-                        self.loadCurrentChapter()
+                        self.currentChapterIndex = chapterIndex + 1
+                        self.loadCurrentChapter(target: .first)
                     }
                     return
                 }
-                let pages = self.paginateContent(content, fit: sz, settings: self.settings)
-                self.chapterPages = [pages]
+                let pages = self.paginateContent(content, fit: sz, settings: self.settings, chapterIndex: chapterIndex)
+                let pageIndex = self.pageIndex(for: target, pageCount: pages.count)
+                PageCacheManager.shared.cachePages(pages, bookId: self.book.id, centerPage: pageIndex)
 
                 DispatchQueue.main.async {
-                    let savedPage = self.currentPageIndex
-                    self.currentPageIndex = min(savedPage, max(0, pages.count - 1))
-                    if let page = pages[safe: self.currentPageIndex] {
-                        self.currentPageView.render(page: page, with: self.settings)
-                    } else if let first = pages.first {
-                        self.currentPageView.render(page: first, with: self.settings)
-                    }
-                        self.updateOverlayLabels()
-                        self.updateProgressDisplay()
-                    self.cachePages(pages)
-                    self.prefetchNextChapter()
-                    // Refresh scroll content if in scroll mode
-                    self.refreshScrollContent()
+                    guard !self.isClosing else { return }
+                    guard self.currentChapterIndex == chapterIndex else { return }
+                    self.displayChapter(chapterIndex, pages: pages, target: target)
                 }
             } catch {
                 DispatchQueue.main.async {
+                    guard !self.isClosing else { return }
                     let fm = FileManager.default
                     if !fm.fileExists(atPath: self.book.resolvedFilePath()) {
                         LVToast.show(message: "书籍文件丢失，请重新导入", style: .error)
@@ -619,33 +886,44 @@ final class ReaderViewController: UIViewController {
         }
     }
 
-    private func loadChapter(_ index: Int) {
+    private func loadChapter(_ index: Int, target: ChapterPageTarget = .first) {
+        guard !isClosing else { return }
         guard index < chapters.count else { return }
         currentChapterIndex = index
+        if let pages = loadedChapterPages[index] {
+            displayChapter(index, pages: pages, target: target)
+            return
+        }
+
         let ch = chapters[index]
         let sz = self.containerView.bounds.size
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
+            if self.isClosing { return }
             let p = BookImportManager.shared.parserFor(format: self.book.fileFormat)
             do {
                 let content = try p.parseChapterContent(filePath: self.book.resolvedFilePath(), chapter: ch, encoding: self.book.encoding ?? "UTF-8")
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.count < 50, index + 1 < self.chapters.count {
-                    DispatchQueue.main.async { self.loadChapter(index + 1) }
-                    return
-                }
-                let pages = self.paginateContent(content, fit: sz, settings: self.settings)
-                self.chapterPages = [pages]
-                DispatchQueue.main.async {
-                    self.currentPageIndex = 0
-                    if let first = pages.first {
-                        self.currentPageView.render(page: first, with: self.settings)
-                        self.updateOverlayLabels()
-                        self.updateProgressDisplay()
+                if trimmed.count < 50 {
+                    let nextIndex: Int?
+                    switch target {
+                    case .last:
+                        nextIndex = index > 0 ? index - 1 : nil
+                    case .first, .index(_):
+                        nextIndex = index + 1 < self.chapters.count ? index + 1 : nil
                     }
-                    self.cachePages(pages)
-                    self.prefetchNextChapter()
-                    self.refreshScrollContent()
+                    if let nextIndex {
+                        DispatchQueue.main.async { self.loadChapter(nextIndex, target: target) }
+                        return
+                    }
+                }
+                let pages = self.paginateContent(content, fit: sz, settings: self.settings, chapterIndex: index)
+                let pageIndex = self.pageIndex(for: target, pageCount: pages.count)
+                PageCacheManager.shared.cachePages(pages, bookId: self.book.id, centerPage: pageIndex)
+                DispatchQueue.main.async {
+                    guard !self.isClosing else { return }
+                    guard self.currentChapterIndex == index else { return }
+                    self.displayChapter(index, pages: pages, target: target)
                 }
             } catch {
                 DispatchQueue.main.async { LVToast.show(message: "读取失败", style: .error) }
@@ -653,9 +931,187 @@ final class ReaderViewController: UIViewController {
         }
     }
 
+    private func loadPagesForChapter(_ index: Int, target: ChapterPageTarget, completion: @escaping (PreparedPageTurn?) -> Void) {
+        guard !isClosing else {
+            completion(nil)
+            return
+        }
+        guard index >= 0, index < chapters.count else {
+            completion(nil)
+            return
+        }
+        if let pages = loadedChapterPages[index] {
+            let pageIndex = pageIndex(for: target, pageCount: pages.count)
+            var preparedPages = pages
+            guard let page = pageData(in: &preparedPages, chapterIndex: index, pageIndex: pageIndex) else {
+                completion(nil)
+                return
+            }
+            preparedPages[pageIndex] = page
+            completion(PreparedPageTurn(chapterIndex: index, pageIndex: pageIndex, pages: preparedPages))
+            return
+        }
+
+        let ch = chapters[index]
+        let sz = containerView.bounds.size
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            if self.isClosing {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            let parser = BookImportManager.shared.parserFor(format: self.book.fileFormat)
+            do {
+                let content = try parser.parseChapterContent(
+                    filePath: self.book.resolvedFilePath(),
+                    chapter: ch,
+                    encoding: self.book.encoding ?? "UTF-8"
+                )
+                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.count < 50 {
+                    let nextIndex: Int?
+                    switch target {
+                    case .last:
+                        nextIndex = index > 0 ? index - 1 : nil
+                    case .first, .index(_):
+                        nextIndex = index + 1 < self.chapters.count ? index + 1 : nil
+                    }
+                    DispatchQueue.main.async {
+                        guard !self.isClosing else { return }
+                        if let nextIndex {
+                            self.loadPagesForChapter(nextIndex, target: target, completion: completion)
+                        } else {
+                            completion(nil)
+                        }
+                    }
+                    return
+                }
+
+                let pages = self.paginateContent(content, fit: sz, settings: self.settings, chapterIndex: index)
+                let pageIndex = self.pageIndex(for: target, pageCount: pages.count)
+                PageCacheManager.shared.cachePages(pages, bookId: self.book.id, centerPage: pageIndex)
+                DispatchQueue.main.async {
+                    guard !self.isClosing else { return }
+                    let preparedPages = self.settings.pageFlipMode == .scroll ? pages : self.pageWindow(from: pages, center: pageIndex)
+                    self.storeLoadedChapter(index, pages: pages, center: pageIndex)
+                    completion(PreparedPageTurn(chapterIndex: index, pageIndex: pageIndex, pages: preparedPages))
+                }
+            } catch {
+                DispatchQueue.main.async { completion(nil) }
+            }
+        }
+    }
+
+    private func pageIndex(for target: ChapterPageTarget, pageCount: Int) -> Int {
+        guard pageCount > 0 else { return 0 }
+        switch target {
+        case .first:
+            return 0
+        case .last:
+            return pageCount - 1
+        case .index(let index):
+            return min(max(index, 0), pageCount - 1)
+        }
+    }
+
+    private func currentPages() -> [PageData]? {
+        loadedChapterPages[currentChapterIndex] ?? chapterPages.first
+    }
+
+    private func displayChapter(_ index: Int, pages: [PageData], target: ChapterPageTarget) {
+        currentChapterIndex = index
+        currentPageIndex = pageIndex(for: target, pageCount: pages.count)
+        syncCurrentPageCacheWindow(pages: pages)
+        storeLoadedChapter(index, pages: pages)
+        if let page = pageData(at: currentPageIndex) ?? pages[safe: currentPageIndex] ?? pages.first {
+            currentPageView.render(page: page, with: settings)
+        }
+        updateOverlayLabels()
+        updateProgressDisplay()
+        cachePages(pages, centerPage: currentPageIndex)
+        refreshScrollContent()
+        preloadBoundaryChapters()
+    }
+
+    private func storeLoadedChapter(_ index: Int, pages: [PageData], center: Int? = nil) {
+        let windowCenter = center ?? (index == currentChapterIndex ? currentPageIndex : 0)
+        loadedChapterPages[index] = settings.pageFlipMode == .scroll ? pages : pageWindow(from: pages, center: windowCenter)
+        if index == currentChapterIndex {
+            chapterPages = [loadedChapterPages[index] ?? pages]
+        }
+        let validRange = (currentChapterIndex - 1)...(currentChapterIndex + 1)
+        loadedChapterPages = loadedChapterPages.filter { validRange.contains($0.key) }
+    }
+
+    private func pageData(at pageIndex: Int) -> PageData? {
+        guard var pages = currentPages(), pageIndex >= 0, pageIndex < pages.count else { return nil }
+        return pageData(in: &pages, chapterIndex: currentChapterIndex, pageIndex: pageIndex)
+    }
+
+    private func pageData(in pages: inout [PageData], chapterIndex: Int, pageIndex: Int) -> PageData? {
+        guard pageIndex >= 0, pageIndex < pages.count else { return nil }
+        if !pages[pageIndex].content.isEmpty {
+            return pages[pageIndex]
+        }
+        guard let cached = PageCacheManager.shared.getPage(bookId: book.id, chapterIndex: chapterIndex, pageIndex: pageIndex) else {
+            return nil
+        }
+        pages[pageIndex] = cached
+        hydratePageWindow(&pages, chapterIndex: chapterIndex, center: pageIndex)
+        loadedChapterPages[chapterIndex] = pages
+        if chapterIndex == currentChapterIndex {
+            chapterPages = [pages]
+        }
+        return cached
+    }
+
+    private func hydratePageWindow(_ pages: inout [PageData], chapterIndex: Int, center: Int) {
+        guard let range = residentPageRange(pageCount: pages.count, center: center) else { return }
+        for index in range where pages[index].content.isEmpty {
+            if let cached = PageCacheManager.shared.getPage(bookId: book.id, chapterIndex: chapterIndex, pageIndex: index) {
+                pages[index] = cached
+            }
+        }
+    }
+
+    private func pageWindow(from pages: [PageData], center: Int) -> [PageData] {
+        guard let range = residentPageRange(pageCount: pages.count, center: center) else { return pages }
+        return pages.map { page in
+            guard !range.contains(page.pageIndex) else { return page }
+            return PageData(
+                pageIndex: page.pageIndex,
+                startCharOffset: page.startCharOffset,
+                endCharOffset: page.endCharOffset,
+                content: "",
+                chapterTitle: page.chapterTitle,
+                chapterIndex: page.chapterIndex
+            )
+        }
+    }
+
+    private func residentPageRange(pageCount: Int, center: Int) -> ClosedRange<Int>? {
+        guard pageCount > 0 else { return nil }
+        let residentCount = residentPageRadius * 2 + 1
+        guard pageCount > residentCount else { return 0...(pageCount - 1) }
+        let maxStart = pageCount - residentCount
+        let start = min(max(center - residentPageRadius, 0), maxStart)
+        return start...(start + residentCount - 1)
+    }
+
+    private func preloadBoundaryChapters() {
+        guard settings.pageFlipMode != .scroll else { return }
+        for (index, target) in [(currentChapterIndex - 1, ChapterPageTarget.last), (currentChapterIndex + 1, ChapterPageTarget.first)] {
+            guard index >= 0, index < chapters.count, loadedChapterPages[index] == nil else { continue }
+            loadPagesForChapter(index, target: target) { _ in }
+        }
+    }
+
     // MARK: Pagination
 
-    private func paginateContent(_ content: String, fit size: CGSize, settings: ReadingSettings) -> [PageData] {
+    private func paginateContent(_ content: String, fit size: CGSize, settings: ReadingSettings, chapterIndex: Int? = nil) -> [PageData] {
         let marginH = CGFloat(settings.pageMarginHorizontal) * size.width / 100
         let textWidth = size.width - marginH * 2
         let textHeight = size.height - 16  // top/bottom inset
@@ -672,6 +1128,9 @@ final class ReaderViewController: UIViewController {
         var pages: [PageData] = []
         var currentOffset = 0
         let totalLen = attr.length
+
+        let pageChapterIndex = chapterIndex ?? currentChapterIndex
+        let pageChapterTitle = chapters[safe: pageChapterIndex]?.title ?? ""
 
         while currentOffset < totalLen {
             let textRect = CGRect(x: 0, y: 0, width: textWidth, height: textHeight)
@@ -690,15 +1149,15 @@ final class ReaderViewController: UIViewController {
                 startCharOffset: visible.location,
                 endCharOffset: visible.location + visible.length,
                 content: pageContent,
-                chapterTitle: chapters[safe: currentChapterIndex]?.title ?? "",
-                chapterIndex: currentChapterIndex
+                chapterTitle: pageChapterTitle,
+                chapterIndex: pageChapterIndex
             ))
 
             currentOffset = visible.location + visible.length
         }
 
         if pages.isEmpty {
-            pages.append(PageData(pageIndex: 0, startCharOffset: 0, endCharOffset: 0, content: content, chapterTitle: "", chapterIndex: 0))
+            pages.append(PageData(pageIndex: 0, startCharOffset: 0, endCharOffset: 0, content: content, chapterTitle: pageChapterTitle, chapterIndex: pageChapterIndex))
         }
 
         return pages
@@ -707,21 +1166,25 @@ final class ReaderViewController: UIViewController {
     // MARK: Navigation
 
     private func goToNextPage() {
-        guard let pages = chapterPages.first, currentPageIndex < pages.count - 1 else {
+        guard let pages = currentPages(), currentPageIndex < pages.count - 1 else {
             goToNextChapter()
             return
         }
         currentPageIndex += 1
-        currentPageView.render(page: pages[currentPageIndex], with: settings)
+        syncCurrentPageCacheWindow(pages: pages)
+        guard let page = pageData(at: currentPageIndex) else { return }
+        currentPageView.render(page: page, with: settings)
         updateOverlayLabels()
         updateProgressDisplay()
     }
 
     private func goToPrevPage() {
-        guard let pages = chapterPages.first else { return }
+        guard let pages = currentPages() else { return }
         if currentPageIndex > 0 {
             currentPageIndex -= 1
-            currentPageView.render(page: pages[currentPageIndex], with: settings)
+            syncCurrentPageCacheWindow(pages: pages)
+            guard let page = pageData(at: currentPageIndex) else { return }
+            currentPageView.render(page: page, with: settings)
             updateOverlayLabels()
             updateProgressDisplay()
         } else {
@@ -736,7 +1199,7 @@ final class ReaderViewController: UIViewController {
         isPageFlipping = false
         currentChapterIndex += 1
         currentPageIndex = 0
-        loadChapter(currentChapterIndex)
+        loadChapter(currentChapterIndex, target: .first)
     }
 
     @objc private func goToPrevChapter() {
@@ -745,27 +1208,19 @@ final class ReaderViewController: UIViewController {
         resetFlipState()
         isPageFlipping = false
         currentChapterIndex -= 1
-        loadChapter(currentChapterIndex)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self, let pages = self.chapterPages.first else { return }
-            self.currentPageIndex = max(0, pages.count - 1)
-            if let page = pages[safe: self.currentPageIndex] {
-                self.currentPageView.render(page: page, with: self.settings)
-                self.updateOverlayLabels()
-                self.updateProgressDisplay()
-            }
-        }
+        loadChapter(currentChapterIndex, target: .last)
     }
 
     // MARK: Progress
 
     private func updateOverlayLabels() {
         topChapterLabel.text = chapters[safe: currentChapterIndex]?.title ?? ""
+        menuChapterLabel.text = chapters[safe: currentChapterIndex]?.title ?? ""
         let total: Int
         if settings.pageFlipMode == .scroll {
             total = smoothScrollHandler?.currentChapterPageCount() ?? 0
         } else {
-            total = chapterPages.first?.count ?? 0
+            total = currentPages()?.count ?? 0
         }
         bottomPageLabel.text = total > 0 ? "\(currentPageIndex + 1) / \(total)" : ""
         bottomTimeLabel.text = dateFormatter.string(from: Date())
@@ -777,27 +1232,11 @@ final class ReaderViewController: UIViewController {
     }
 
     private func updateProgressDisplay() {
-        // Calculate total pages across all chapters loaded so far
-        let totalChapterPages = chapterPages.reduce(0) { $0 + ($1.count) }
-        guard totalChapterPages > 0, !chapters.isEmpty else { return }
-        
-        // Calculate cumulative pages up to current chapter
-        var pagesBeforeCurrentChapter = 0
-        for i in 0..<currentChapterIndex {
-            if i < chapterPages.count {
-                pagesBeforeCurrentChapter += chapterPages[i].count
-            }
-        }
-        
-        // Global progress: (pages before current chapter + current page) / total pages
-        let currentGlobalPage = pagesBeforeCurrentChapter + currentPageIndex
-        let progressPercent = min(100.0, Double(currentGlobalPage + 1) / Double(totalChapterPages) * 100)
-        
         BookRepository.shared.updateProgress(bookId: book.id, progress: ReadingProgress(
             currentChapterIndex: currentChapterIndex,
             currentPageOffset: currentPageIndex,
-            totalPages: totalChapterPages,
-            progressPercent: progressPercent,
+            totalPages: currentPages()?.count ?? 0,
+            progressPercent: currentBookProgressPercent(),
             lastReadTimestamp: Date()
         ))
     }
@@ -806,30 +1245,51 @@ final class ReaderViewController: UIViewController {
         BookRepository.shared.updateProgress(bookId: book.id, progress: ReadingProgress(
             currentChapterIndex: currentChapterIndex,
             currentPageOffset: currentPageIndex,
-            totalPages: chapterPages.first?.count ?? 0,
-            progressPercent: Double(currentChapterIndex) / Double(max(chapters.count, 1)) * 100,
+            totalPages: currentPages()?.count ?? 0,
+            progressPercent: currentBookProgressPercent(),
             lastReadTimestamp: Date()
         ))
     }
 
-    // MARK: Cache
-
-    private func cachePages(_ pages: [PageData]) {
-        for p in pages { PageCacheManager.shared.cachePage(p, bookId: book.id, pageIndex: p.pageIndex) }
+    private func currentBookProgressPercent() -> Double {
+        guard !chapters.isEmpty else { return 0 }
+        let pageCount = currentPages()?.count ?? 0
+        let localProgress: Double
+        if pageCount > 0 {
+            localProgress = Double(currentPageIndex + 1) / Double(pageCount)
+        } else {
+            localProgress = 0
+        }
+        let raw = (Double(currentChapterIndex) + localProgress) / Double(chapters.count) * 100
+        return min(100, max(0, raw))
     }
 
-    private func prefetchNextChapter() {
-        let next = currentChapterIndex + 1
-        guard next < chapters.count else { return }
-        let sz = self.containerView.bounds.size
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self = self else { return }
-            let ch = self.chapters[next]
-            let p = BookImportManager.shared.parserFor(format: self.book.fileFormat)
-            if let c = try? p.parseChapterContent(filePath: self.book.resolvedFilePath(), chapter: ch, encoding: self.book.encoding ?? "UTF-8") {
-                let pages = self.paginateContent(c, fit: sz, settings: self.settings)
-                self.cachePages(pages)
+    // MARK: Cache
+
+    private func cachePages(_ pages: [PageData], centerPage: Int? = nil) {
+        guard !isClosing else { return }
+        let center = centerPage ?? currentPageIndex
+        guard let range = residentPageRange(pageCount: pages.count, center: center) else { return }
+        PageCacheManager.shared.setCurrentBook(book.id, pageIndex: center)
+        for p in pages where !p.content.isEmpty && range.contains(p.pageIndex) {
+            PageCacheManager.shared.cachePage(p, bookId: book.id, pageIndex: p.pageIndex)
+        }
+    }
+
+    private func syncCurrentPageCacheWindow(pages: [PageData]) {
+        PageCacheManager.shared.setCurrentBook(book.id, pageIndex: currentPageIndex)
+        guard let range = residentPageRange(pageCount: pages.count, center: currentPageIndex) else { return }
+        for page in pages where range.contains(page.pageIndex) {
+            let cached = page.content.isEmpty
+                ? PageCacheManager.shared.getPage(bookId: book.id, chapterIndex: currentChapterIndex, pageIndex: page.pageIndex)
+                : page
+            if let cached {
+                PageCacheManager.shared.cachePage(cached, bookId: book.id, pageIndex: cached.pageIndex)
             }
+        }
+        if settings.pageFlipMode != .scroll {
+            loadedChapterPages[currentChapterIndex] = pageWindow(from: pages, center: currentPageIndex)
+            chapterPages = [loadedChapterPages[currentChapterIndex] ?? pages]
         }
     }
 
@@ -837,7 +1297,10 @@ final class ReaderViewController: UIViewController {
 
     private func toggleToolBar() {
         let show = toolBar.alpha < 0.5
+        chromeVisible = show
+        setNeedsStatusBarAppearanceUpdate()
         UIView.animate(withDuration: 0.25) {
+            self.topMenuBar.alpha = show ? 1 : 0
             self.toolBar.alpha = show ? 1 : 0
         }
     }
@@ -852,7 +1315,7 @@ final class ReaderViewController: UIViewController {
         vc.onChapterSelected = { [weak self] index in
             self?.currentChapterIndex = index
             self?.currentPageIndex = 0
-            self?.loadChapter(index)
+            self?.loadChapter(index, target: .first)
         }
         present(vc, animated: true)
     }
@@ -873,7 +1336,7 @@ final class ReaderViewController: UIViewController {
             scrollView.alpha = 0
             currentPageView.isHidden = false
             nextPageView.isHidden = false
-            if let page = chapterPages.first?[safe: currentPageIndex] {
+            if let page = pageData(at: currentPageIndex) ?? currentPages()?[safe: currentPageIndex] {
                 currentPageView.render(page: page, with: settings)
             }
         }
@@ -883,10 +1346,12 @@ final class ReaderViewController: UIViewController {
     @objc private func showSettings() {
         let vc = ReaderSettingsViewController(settings: settings)
         vc.onSettingsChanged = { [weak self] updatedSettings in
-            self?.settings = updatedSettings
-            self?.applyThemeChange()
+            guard let self else { return }
+            self.settings = updatedSettings
+            PageCacheManager.shared.clearBookCache(self.book.id)
+            self.applyThemeChange()
             // Sync zodiac watermark to book cover
-            if let self = self, let zodiac = updatedSettings.zodiacWatermark {
+            if let zodiac = updatedSettings.zodiacWatermark {
                 ZodiacCoverOverlay.shared.regenerateCover(for: self.book, zodiac: zodiac)
                 NotificationCenter.default.post(name: NSNotification.Name("LVReadSettingsChanged"), object: nil)
             }
@@ -908,11 +1373,15 @@ final class ReaderViewController: UIViewController {
         bottomTimeLabel.textColor = tc.withAlphaComponent(0.4)
         batteryView.strokeColor = tc.withAlphaComponent(0.35)
         batteryView.fillColor = tc.withAlphaComponent(0.5)
-        toolBar.backgroundColor = UIColor(red: 0.96, green: 0.94, blue: 0.91, alpha: 0.95)
+        toolBar.backgroundColor = UIColor(hex: settings.readingTheme.panelColor).withAlphaComponent(0.96)
+        topMenuBar.backgroundColor = UIColor(hex: settings.readingTheme.panelColor).withAlphaComponent(0.96)
+        menuBackButton.tintColor = tc.withAlphaComponent(0.85)
+        bookTitleLabel.textColor = tc.withAlphaComponent(0.9)
+        menuChapterLabel.textColor = tc.withAlphaComponent(0.65)
         for sv in toolBtnStack.arrangedSubviews { if let b = sv as? UIButton { b.tintColor = tc.withAlphaComponent(0.7) } }
        updateEyeCareOverlay()
        // Redraw current page
-       if let page = chapterPages.first?[safe: currentPageIndex] {
+       if let page = pageData(at: currentPageIndex) ?? currentPages()?[safe: currentPageIndex] {
            currentPageView.render(page: page, with: settings)
        }
         if settings.pageFlipMode == .scroll {
@@ -995,3 +1464,12 @@ extension ReaderViewController: UIGestureRecognizerDelegate {
 }
 
 extension Collection { subscript(safe index: Index) -> Element? { indices.contains(index) ? self[index] : nil } }
+
+private extension ReaderViewController.PageTurnDirection {
+    var pageFlipDirection: PageFlipDirection {
+        switch self {
+        case .next: return .next
+        case .prev: return .prev
+        }
+    }
+}

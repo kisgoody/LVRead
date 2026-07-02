@@ -58,6 +58,12 @@ final class BookshelfViewController: UIViewController {
     )
     private let fabButton = UIButton(type: .system)
     private let sortButton = UIButton(type: .system)
+    private let toggleButton = UIButton(type: .system)
+    private lazy var editButton = UIBarButtonItem(title: "编辑", style: .plain, target: self, action: #selector(toggleEditMode))
+    private let headerView = UIView()
+    private let titleLabel = UILabel()
+    private let taglineLabel = UILabel()
+    private let summaryLabel = UILabel()
     private let filterScrollView = UIScrollView()
     private let filterStackView = UIStackView()
     private let skeletonContainer = UIView()
@@ -83,15 +89,31 @@ final class BookshelfViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        ImageCacheManager.shared.clearMemoryCache()
+        applyReadingThemeToHome()
         loadBooks()
     }
 
     // MARK: - Setup
 
     private func setupUI() {
-        title = "LV Read"
         view.backgroundColor = .lvBgDay
-        navigationItem.largeTitleDisplayMode = .always
+        navigationItem.largeTitleDisplayMode = .never
+        navigationController?.navigationBar.prefersLargeTitles = false
+
+        titleLabel.text = "LV Read"
+        titleLabel.font = .systemFont(ofSize: 22, weight: .bold)
+        titleLabel.textAlignment = .center
+
+        taglineLabel.text = "为文字而生，因阅读而狂热"
+        taglineLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        taglineLabel.textAlignment = .center
+
+        let titleStack = UIStackView(arrangedSubviews: [titleLabel, taglineLabel])
+        titleStack.axis = .vertical
+        titleStack.alignment = .center
+        titleStack.spacing = 0
+        navigationItem.titleView = titleStack
 
         // Search controller
         searchController.searchResultsUpdater = self
@@ -101,22 +123,30 @@ final class BookshelfViewController: UIViewController {
 
         // Sort button
         sortButton.setImage(UIImage(systemName: "arrow.up.arrow.down"), for: .normal)
+        sortButton.setPreferredSymbolConfiguration(.init(pointSize: 14, weight: .medium), forImageIn: .normal)
+        sortButton.frame = CGRect(x: 0, y: 0, width: 26, height: 32)
         sortButton.tintColor = .white
         sortButton.addTarget(self, action: #selector(sortTapped), for: .touchUpInside)
         let sortBarItem = UIBarButtonItem(customView: sortButton)
 
         // View toggle button
-        let toggleButton = UIButton(type: .system)
         toggleButton.setImage(UIImage(systemName: "list.bullet"), for: .normal)
         toggleButton.tintColor = .white
         toggleButton.addTarget(self, action: #selector(toggleViewMode), for: .touchUpInside)
         let toggleBarItem = UIBarButtonItem(customView: toggleButton)
 
         // Edit button
-        let editButton = UIBarButtonItem(title: "编辑", style: .plain, target: self, action: #selector(toggleEditMode))
+        editButton.setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 14, weight: .medium)], for: .normal)
+        editButton.setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 14, weight: .medium)], for: .highlighted)
         editButton.tintColor = .white
 
         navigationItem.rightBarButtonItems = [editButton, toggleBarItem, sortBarItem]
+
+        headerView.layer.cornerRadius = 0
+        summaryLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        summaryLabel.numberOfLines = 1
+        headerView.addSubview(summaryLabel)
+        view.addSubview(headerView)
 
         // Filter chips
         filterScrollView.showsHorizontalScrollIndicator = false
@@ -175,6 +205,8 @@ final class BookshelfViewController: UIViewController {
         view.addSubviews(collectionView, tableView, emptyStateView, fabButton, skeletonContainer)
 
         // Layout
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        summaryLabel.translatesAutoresizingMaskIntoConstraints = false
         filterScrollView.translatesAutoresizingMaskIntoConstraints = false
         filterStackView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -184,7 +216,16 @@ final class BookshelfViewController: UIViewController {
         skeletonContainer.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
-            filterScrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: 44),
+
+            summaryLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+            summaryLabel.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16),
+            summaryLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+
+            filterScrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             filterScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             filterScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             filterScrollView.heightAnchor.constraint(equalToConstant: 44),
@@ -219,6 +260,8 @@ final class BookshelfViewController: UIViewController {
             skeletonContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             skeletonContainer.heightAnchor.constraint(equalToConstant: 400)
         ])
+
+        applyReadingThemeToHome()
     }
 
     private func setupBindings() {
@@ -228,6 +271,70 @@ final class BookshelfViewController: UIViewController {
             name: .bookImported,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(readingSettingsChanged),
+            name: NSNotification.Name("LVReadSettingsChanged"),
+            object: nil
+        )
+    }
+
+    private func applyReadingThemeToHome() {
+        let theme = ReadingSettingsRepository.shared.load().readingTheme
+        let background = UIColor(hex: theme.backgroundColor)
+        let panel = UIColor(hex: theme.panelColor)
+        let text = UIColor(hex: theme.textColor)
+        let accent = UIColor(hex: theme.accentColor)
+
+        view.backgroundColor = background
+        headerView.backgroundColor = background
+        titleLabel.textColor = text
+        taglineLabel.textColor = text.withAlphaComponent(0.62)
+        summaryLabel.textColor = text.withAlphaComponent(0.72)
+        collectionView.backgroundColor = background
+        tableView.backgroundColor = background
+        filterScrollView.backgroundColor = background
+        skeletonContainer.backgroundColor = background
+
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = panel
+        appearance.titleTextAttributes = [.foregroundColor: text]
+        appearance.largeTitleTextAttributes = [.foregroundColor: text]
+        navigationController?.navigationBar.standardAppearance = appearance
+        navigationController?.navigationBar.scrollEdgeAppearance = appearance
+        navigationController?.navigationBar.compactAppearance = appearance
+        navigationController?.navigationBar.tintColor = accent
+
+        sortButton.tintColor = accent
+        toggleButton.tintColor = accent
+        editButton.tintColor = accent
+        fabButton.backgroundColor = accent
+        fabButton.layer.shadowColor = accent.cgColor
+
+        updateFilterChipColors()
+    }
+
+    private func updateFilterChipColors() {
+        let theme = ReadingSettingsRepository.shared.load().readingTheme
+        let panel = UIColor(hex: theme.panelColor)
+        let text = UIColor(hex: theme.textColor)
+        let accent = UIColor(hex: theme.accentColor)
+        for case let chip as UIButton in filterStackView.arrangedSubviews {
+            let selected = isChipSelected(chip)
+            chip.backgroundColor = selected ? accent : panel
+            chip.setTitleColor(selected ? UIColor.white : text.withAlphaComponent(0.75), for: .normal)
+        }
+    }
+
+    private func isChipSelected(_ chip: UIButton) -> Bool {
+        switch chip.tag {
+        case 0: return progressFilter == .all && sourceFilter == nil
+        case 1: return progressFilter == .unread
+        case 2: return progressFilter == .reading
+        case 3: return progressFilter == .finished
+        default: return false
+        }
     }
 
     // MARK: - Data
@@ -268,6 +375,9 @@ final class BookshelfViewController: UIViewController {
         }
 
         filteredBooks = result
+        let readingCount = books.filter { $0.readingProgress.progressPercent > 0 && $0.readingProgress.progressPercent < 100 }.count
+        let finishedCount = books.filter { $0.readingProgress.progressPercent >= 100 }.count
+        summaryLabel.text = "\(books.count) 本藏书 · \(readingCount) 本在读 · \(finishedCount) 本已读"
         emptyStateView.isHidden = !filteredBooks.isEmpty
         collectionView.reloadData()
         tableView.reloadData()
@@ -315,13 +425,10 @@ final class BookshelfViewController: UIViewController {
     }
 
     @objc private func toggleViewMode() {
-        isGridView.toggle()
-        collectionView.isHidden = !isGridView
-        tableView.isHidden = isGridView
-        if let btn = navigationItem.rightBarButtonItems?[1].customView as? UIButton {
-            let icon = isGridView ? "list.bullet" : "square.grid.2x2"
-            btn.setImage(UIImage(systemName: icon), for: .normal)
-        }
+        isGridView = true
+        collectionView.isHidden = false
+        tableView.isHidden = true
+        collectionView.reloadData()
     }
     
     @objc private func toggleEditMode() {
@@ -366,6 +473,12 @@ final class BookshelfViewController: UIViewController {
 
     @objc private func bookImported() {
         loadBooks()
+    }
+
+    @objc private func readingSettingsChanged() {
+        applyReadingThemeToHome()
+        collectionView.reloadData()
+        tableView.reloadData()
     }
 
     // MARK: - Book Actions
@@ -457,13 +570,6 @@ final class BookshelfViewController: UIViewController {
     }
 
     @objc private func filterChipTapped(_ sender: UIButton) {
-        for case let chip as UIButton in filterStackView.arrangedSubviews {
-            chip.backgroundColor = UIColor(white: 0.95, alpha: 1)
-            chip.setTitleColor(.lvTextSecondary, for: .normal)
-        }
-        sender.backgroundColor = .lvPrimary
-        sender.setTitleColor(.white, for: .normal)
-
         switch sender.tag {
         case 0: progressFilter = .all; sourceFilter = nil
         case 1: progressFilter = .unread
@@ -471,6 +577,7 @@ final class BookshelfViewController: UIViewController {
         case 3: progressFilter = .finished
         default: break
         }
+        updateFilterChipColors()
         applyFilters()
     }
 }
@@ -501,7 +608,7 @@ extension BookshelfViewController: UICollectionViewDataSource, UICollectionViewD
     ) -> CGSize {
         let padding: CGFloat = 16
         let spacing: CGFloat = 8
-        let availableWidth = view.bounds.width - (padding * 2) - spacing
+        let availableWidth = view.bounds.width - (padding * 2) - spacing * 2
         let width = availableWidth / 3
         return CGSize(width: width, height: width * 1.7)
     }

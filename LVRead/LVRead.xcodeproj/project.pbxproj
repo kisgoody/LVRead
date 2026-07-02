@@ -50,6 +50,8 @@
 		93015E2A885191945B0C05FE /* ReaderSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66437B801EE960844A577217 /* ReaderSettingsViewController.swift */; };
 		93C9DAC5173115F1829801AD /* BookCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 623CFC713F05E3DBFCEE86C2 /* BookCell.swift */; };
 		9565881A8C267D8AB45D2681 /* FileParserProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BCB7A186F145C5C0D6A2CC /* FileParserProtocol.swift */; };
+		9A8B7C6D5E4F321001234567 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB5B380F2FF3D6DA0046D3A1 /* Assets.xcassets */; };
+		9A8B7C6D5E4F321001234568 /* App Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB5B380F2FF3D6DA0046D3A2 /* App Assets.xcassets */; };
 		A2E6C4E6561385AB2F1D869B /* TCPTransferServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B95236BF3E76DDAA1AC7A99 /* TCPTransferServer.swift */; };
 		A32D4035223FC0B96BF348B1 /* ChapterListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8C786238FAC900A51BF47F /* ChapterListViewController.swift */; };
 		A7E771BA06E4DA6DF74B12EF /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54154FD888C1A9548FDAA18 /* ThemeManager.swift */; };
@@ -148,6 +150,7 @@
 		B935AF770B7768234916C1B2 /* EncodingDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingDetector.swift; sourceTree = "<group>"; };
 		B947FDB6981DFE211CACE7F2 /* Highlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Highlight.swift; sourceTree = "<group>"; };
 		BB5B380F2FF3D6DA0046D3A1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BB5B380F2FF3D6DA0046D3A2 /* App Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = LVRead/Resources/Assets.xcassets; sourceTree = "<group>"; };
 		BC35912FAC1597CCFEB72E82 /* LVLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVLogger.swift; sourceTree = "<group>"; };
 		BD85564CA1F348A2544E85D4 /* TransferTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferTask.swift; sourceTree = "<group>"; };
 		C3C9127C839C8EB3501E844E /* TransferSelectBooksViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferSelectBooksViewController.swift; sourceTree = "<group>"; };
@@ -488,6 +491,7 @@ A4FDBBE986D40785B3907B8C /* Network */,
 			buildConfigurationList = DB327722A3B34EE6065A801B /* Build configuration list for PBXNativeTarget "LVRead" */;
 			buildPhases = (
 				BE5EC29A5C4444D7B581A1F0 /* Sources */,
+				A1B2C3D4E5F60718293A4B5C /* Resources */,
 			);
 			buildRules = (
 			);
@@ -548,6 +552,15 @@ A4FDBBE986D40785B3907B8C /* Network */,
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+			A1B2C3D4E5F60718293A4B5C /* Resources */ = {
+				isa = PBXResourcesBuildPhase;
+				buildActionMask = 2147483647;
+				files = (
+					9A8B7C6D5E4F321001234567 /* Assets.xcassets in Resources */,
+					9A8B7C6D5E4F321001234568 /* App Assets.xcassets in Resources */,
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */

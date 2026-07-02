@@ -52,10 +52,12 @@ final class BookRepository {
         if let coverPath = book.resolvedCoverPath(),
            FileManager.default.fileExists(atPath: coverPath) {
             try? FileManager.default.removeItem(atPath: coverPath)
+            ImageCacheManager.shared.removeImage(forKey: coverPath)
         }
         
-        // Clear page cache for this book
+        // Clear derived cache for this book
         PageCacheManager.shared.clearBookCache(bookId)
+        ImageCacheManager.shared.clearBookCache(bookId)
         
         // Delete DB record (cascades to chapters, bookmarks, highlights)
         let dbSuccess = db.execute("DELETE FROM books WHERE id = ?;", params: [bookId])

@@ -99,25 +99,23 @@ final class ReaderViewModel: ObservableObject {
     func goToNextPage() {
         guard let pages = chapterPages.first else { return }
         
-        if currentPageIndex < pages.count - 1 {
-            currentPageIndex += 1
+       if currentPageIndex < pages.count - 1 {
+           currentPageIndex += 1
+            PageCacheManager.shared.setCurrentBook(book.id, pageIndex: currentPageIndex)
             currentPage = pages[currentPageIndex]
             updateProgress()
             prefetchNextChapter()
-        } else if currentChapterIndex < chapters.count - 1 {
-            goToNextChapter()
         }
     }
 
     func goToPrevPage() {
         if currentPageIndex > 0 {
             currentPageIndex -= 1
+            PageCacheManager.shared.setCurrentBook(book.id, pageIndex: currentPageIndex)
             if let pages = chapterPages.first {
                 currentPage = pages[currentPageIndex]
             }
             updateProgress()
-        } else if currentChapterIndex > 0 {
-            goToPrevChapter()
         }
     }
 
@@ -246,6 +244,7 @@ final class ReaderViewModel: ObservableObject {
     }
 
     private func cachePages(_ pages: [PageData]) {
+        PageCacheManager.shared.setCurrentBook(book.id, pageIndex: currentPageIndex)
         for page in pages {
             PageCacheManager.shared.cachePage(page, bookId: book.id, pageIndex: page.pageIndex)
         }
