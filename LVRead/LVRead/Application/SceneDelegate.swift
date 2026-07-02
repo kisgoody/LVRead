@@ -1,5 +1,21 @@
 import UIKit
 
+final class BookshelfNavigationBar: UINavigationBar {
+    private let bookshelfHeight: CGFloat = 66
+
+    override var intrinsicContentSize: CGSize {
+        var size = super.intrinsicContentSize
+        size.height = bookshelfHeight
+        return size
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        var fittingSize = super.sizeThatFits(size)
+        fittingSize.height = bookshelfHeight
+        return fittingSize
+    }
+}
+
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
@@ -12,8 +28,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             guard let self = self else { return }
             
             let bookshelfVC = BookshelfViewController()
-            let navigationController = UINavigationController(rootViewController: bookshelfVC)
-            navigationController.navigationBar.prefersLargeTitles = true
+            let navigationController = UINavigationController(navigationBarClass: BookshelfNavigationBar.self, toolbarClass: nil)
+            navigationController.viewControllers = [bookshelfVC]
+            navigationController.navigationBar.prefersLargeTitles = false
             AppearanceManager.shared.configure(navigationController)
 
             UIView.transition(with: self.window!, duration: 0.4, options: .transitionCrossDissolve) {

@@ -21,6 +21,7 @@ final class SplashViewController: UIViewController {
     // MARK: - Layers
     private let mountainFarLayer = CAShapeLayer()
     private let mountainNearLayer = CAShapeLayer()
+    private var didScheduleCompletion = false
     
     // MARK: - Lifecycle
     
@@ -40,6 +41,8 @@ final class SplashViewController: UIViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        guard !didScheduleCompletion else { return }
+        didScheduleCompletion = true
         startAnimations()
         scheduleDismiss()
     }

@@ -102,18 +102,19 @@ final class BookshelfViewController: UIViewController {
         navigationController?.navigationBar.prefersLargeTitles = false
 
         titleLabel.text = "LV Read"
-        titleLabel.font = .systemFont(ofSize: 22, weight: .bold)
-        titleLabel.textAlignment = .center
+        titleLabel.font = .systemFont(ofSize: 45, weight: .bold)
+        titleLabel.textAlignment = .left
 
         taglineLabel.text = "为文字而生，因阅读而狂热"
         taglineLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        taglineLabel.textAlignment = .center
+        taglineLabel.textAlignment = .left
 
         let titleStack = UIStackView(arrangedSubviews: [titleLabel, taglineLabel])
         titleStack.axis = .vertical
-        titleStack.alignment = .center
+        titleStack.alignment = .leading
         titleStack.spacing = 0
-        navigationItem.titleView = titleStack
+        titleStack.frame = CGRect(x: 0, y: 0, width: 180, height: 58)
+        navigationItem.leftBarButtonItem = UIBarButtonItem(customView: titleStack)
 
         // Search controller
         searchController.searchResultsUpdater = self
