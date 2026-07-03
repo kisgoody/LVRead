@@ -35,7 +35,6 @@ final class BookshelfViewController: UIViewController {
     private var favoriteOnly = false
     private var isInitialLoad = true
     private var pendingCoverBook: Book?
-    private var bookOpenTransition: BookOpenTransitionAnimator?
 
     // MARK: - UI Components
 
@@ -118,6 +117,9 @@ final class BookshelfViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        if transitionCoordinator?.viewController(forKey: .to) is ContinuousReaderViewController {
+            return
+        }
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
@@ -718,7 +720,7 @@ final class BookshelfViewController: UIViewController {
         guard let book = books.first(where: {
             $0.readingProgress.progressPercent > 0 && $0.readingProgress.progressPercent < 100
         }) ?? books.first else { return }
-        openReader(for: book, sourceView: continueView)
+        openReader(for: book)
     }
 
     private func presentFilePicker() {
@@ -873,17 +875,9 @@ final class BookshelfViewController: UIViewController {
         present(alert, animated: true)
     }
 
-    private func openReader(for book: Book, sourceView: UIView? = nil) {
+    private func openReader(for book: Book) {
         let readerVC = ContinuousReaderViewController(book: book)
-        readerVC.modalPresentationStyle = .fullScreen
-        if let sourceView,
-           let window = view.window {
-            let frame = sourceView.convert(sourceView.bounds, to: window)
-            let transition = BookOpenTransitionAnimator(sourceFrame: frame)
-            bookOpenTransition = transition
-            readerVC.transitioningDelegate = transition
-        }
-        present(readerVC, animated: true)
+        navigationController?.pushViewController(readerVC, animated: true)
     }
 
     // MARK: - Filter Chips
@@ -962,8 +956,7 @@ extension BookshelfViewController: UICollectionViewDataSource, UICollectionViewD
             }
             collectionView.reloadItems(at: [indexPath])
         } else {
-            let cell = collectionView.cellForItem(at: indexPath)
-            openReader(for: book, sourceView: cell)
+            openReader(for: book)
         }
     }
 
@@ -1007,8 +1000,7 @@ extension BookshelfViewController: UITableViewDataSource, UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let cell = tableView.cellForRow(at: indexPath)
-        openReader(for: filteredBooks[indexPath.row], sourceView: cell)
+        openReader(for: filteredBooks[indexPath.row])
     }
 
     func tableView(

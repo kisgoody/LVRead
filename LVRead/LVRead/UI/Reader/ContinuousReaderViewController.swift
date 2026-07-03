@@ -243,7 +243,7 @@ final class ContinuousReaderViewController: UIViewController {
         }
     }
 
-    private func loadWindow(chapterIndex: Int, pageIndex: Int, showLoading: Bool) {
+    private func loadWindow(chapterIndex: Int, pageIndex: Int, showLoading: Bool, anchorCharOffset: Int? = nil) {
         guard !isClosing else { return }
         let requestedCenter = PageKey(chapterIndex: chapterIndex, pageIndex: pageIndex)
         if pendingLoadCenter == requestedCenter { return }
@@ -257,9 +257,16 @@ final class ContinuousReaderViewController: UIViewController {
         loaderQueue.async { [weak self] in
             guard let self else { return }
             var cache = knownPages
+            var targetPageIndex = pageIndex
+            if let anchorCharOffset,
+               self.ensureChapter(chapterIndex, pageSize: targetSize, cache: &cache),
+               let pages = cache[chapterIndex],
+               !pages.isEmpty {
+                targetPageIndex = self.pageIndex(containing: anchorCharOffset, in: pages)
+            }
             guard let window = self.makeWindow(
                 centerChapter: chapterIndex,
-                centerPage: pageIndex,
+                centerPage: targetPageIndex,
                 pageSize: targetSize,
                 cache: &cache
             ) else {
@@ -284,6 +291,18 @@ final class ContinuousReaderViewController: UIViewController {
                 self.saveProgress()
             }
         }
+    }
+
+    private func pageIndex(containing charOffset: Int, in pages: [PageData]) -> Int {
+        if let index = pages.firstIndex(where: { page in
+            charOffset >= page.startCharOffset && charOffset < max(page.endCharOffset, page.startCharOffset + 1)
+        }) {
+            return index
+        }
+        if let index = pages.lastIndex(where: { $0.startCharOffset <= charOffset }) {
+            return index
+        }
+        return 0
     }
 
     private func makeWindow(
@@ -440,21 +459,7 @@ final class ContinuousReaderViewController: UIViewController {
             }
         }
 
-        let visiblePages = pages.filter { page in
-            let body = page.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return !body.isEmpty && body != chapter.title
-        }.enumerated().map { index, page in
-            PageData(
-                pageIndex: index,
-                startCharOffset: page.startCharOffset,
-                endCharOffset: page.endCharOffset,
-                content: page.content,
-                chapterTitle: page.chapterTitle,
-                chapterIndex: page.chapterIndex
-            )
-        }
-
-        return visiblePages
+        return pages
     }
 
     private func previousKey(before key: PageKey, pageSize: CGSize, cache: inout [Int: [PageData]]) -> PageKey? {
@@ -753,7 +758,11 @@ final class ContinuousReaderViewController: UIViewController {
     @objc private func backTapped() {
         saveProgress()
         releaseReaderMemory()
-        dismiss(animated: true)
+        if let navigationController, navigationController.viewControllers.contains(self) {
+            navigationController.popViewController(animated: true)
+        } else {
+            dismiss(animated: true)
+        }
     }
 
     @objc private func catalogTapped() {
@@ -776,10 +785,16 @@ final class ContinuousReaderViewController: UIViewController {
         let vc = ReaderSettingsViewController(settings: settings)
         vc.onSettingsChanged = { [weak self] newSettings in
             guard let self else { return }
+            let anchorOffset = self.page(for: self.currentKey)?.startCharOffset
             self.settings = newSettings
             self.chapterPages.removeAll()
             self.setupGestures()
-            self.loadWindow(chapterIndex: self.currentKey.chapterIndex, pageIndex: self.currentKey.pageIndex, showLoading: true)
+            self.loadWindow(
+                chapterIndex: self.currentKey.chapterIndex,
+                pageIndex: self.currentKey.pageIndex,
+                showLoading: true,
+                anchorCharOffset: anchorOffset
+            )
         }
         vc.modalPresentationStyle = .overCurrentContext
         present(vc, animated: false)
