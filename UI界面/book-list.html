@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>书籍列表</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f4ef;
+      --panel: #fffdf8;
+      --text: #27231f;
+      --muted: #6f675e;
+      --line: #ddd5ca;
+      --accent: #287c76;
+      --accent-dark: #1f625e;
+      --red: #b45443;
+      --gold: #c49a42;
+      --ink: #33425b;
+      --shadow: 0 16px 35px rgba(51, 42, 31, .09);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, .56) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(255, 255, 255, .5) 1px, transparent 1px),
+        var(--bg);
+      background-size: 32px 32px;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .app {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 40px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+
+    .brand {
+      min-width: 190px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .brand p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .icon-button,
+    .primary-button {
+      height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+
+    .icon-button {
+      width: 42px;
+      display: grid;
+      place-items: center;
+    }
+
+    .primary-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 15px;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+      font-weight: 650;
+    }
+
+    .icon-button:hover,
+    .primary-button:hover {
+      transform: translateY(-1px);
+      border-color: var(--accent);
+    }
+
+    .primary-button:hover {
+      background: var(--accent-dark);
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto auto;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .search {
+      position: relative;
+    }
+
+    .search svg {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+    }
+
+    .search input {
+      width: 100%;
+      height: 46px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .92);
+      color: var(--text);
+      outline: none;
+      padding: 0 16px 0 42px;
+      box-shadow: 0 8px 20px rgba(51, 42, 31, .05);
+    }
+
+    .search input:focus,
+    .select:focus {
+      border-color: var(--accent);
+    }
+
+    .select {
+      height: 46px;
+      min-width: 140px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+      outline: none;
+      padding: 0 12px;
+      cursor: pointer;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .72);
+      overflow-x: auto;
+      margin-bottom: 22px;
+    }
+
+    .tab {
+      height: 36px;
+      white-space: nowrap;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      padding: 0 14px;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: var(--text);
+      color: white;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .78);
+      padding: 15px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .books {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .book {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 16px;
+      min-height: 176px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 14px;
+    }
+
+    .cover {
+      position: relative;
+      overflow: hidden;
+      width: 112px;
+      height: 148px;
+      border-radius: 6px;
+      background: var(--cover);
+      box-shadow: 0 12px 24px rgba(40, 34, 28, .18);
+      color: white;
+    }
+
+    .cover::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 12px;
+      background: rgba(0, 0, 0, .2);
+    }
+
+    .cover::after {
+      content: "";
+      position: absolute;
+      right: -22px;
+      bottom: -34px;
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      border: 16px solid rgba(255, 255, 255, .2);
+    }
+
+    .cover-title {
+      position: absolute;
+      left: 22px;
+      right: 16px;
+      top: 20px;
+      font-size: 17px;
+      line-height: 1.25;
+      font-weight: 800;
+    }
+
+    .cover-mark {
+      position: absolute;
+      left: 22px;
+      bottom: 18px;
+      width: 32px;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .72);
+    }
+
+    .book-info {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .book-title {
+      margin: 1px 0 6px;
+      font-size: 17px;
+      line-height: 1.3;
+    }
+
+    .author {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-bottom: 12px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      border-radius: 999px;
+      background: #eee7dc;
+      color: #564d43;
+      padding: 0 9px;
+      font-size: 12px;
+    }
+
+    .progress {
+      margin-top: auto;
+    }
+
+    .progress-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 7px;
+    }
+
+    .bar {
+      height: 7px;
+      border-radius: 999px;
+      background: #e7ded1;
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      width: var(--progress);
+      background: var(--accent);
+      border-radius: inherit;
+    }
+
+    .book-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 13px;
+    }
+
+    .rating {
+      color: var(--gold);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .read-button {
+      height: 32px;
+      border: 1px solid var(--text);
+      border-radius: 6px;
+      background: var(--text);
+      color: white;
+      padding: 0 11px;
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    .empty {
+      display: none;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .78);
+      padding: 42px 20px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .empty strong {
+      display: block;
+      color: var(--text);
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 960px) {
+      .summary {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .books {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .app {
+        width: min(100% - 24px, 560px);
+        padding-top: 20px;
+      }
+
+      .topbar,
+      .toolbar {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+      }
+
+      .topbar {
+        display: grid;
+      }
+
+      .actions {
+        justify-content: space-between;
+      }
+
+      .primary-button {
+        flex: 1;
+        justify-content: center;
+      }
+
+      .summary,
+      .books {
+        grid-template-columns: 1fr;
+      }
+
+      .book {
+        grid-template-columns: 96px minmax(0, 1fr);
+        min-height: 158px;
+        padding: 12px;
+      }
+
+      .cover {
+        width: 96px;
+        height: 132px;
+      }
+
+      .cover-title {
+        left: 20px;
+        top: 18px;
+        font-size: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <h1>我的书架</h1>
+        <p>管理正在阅读、已收藏和待读的书籍</p>
+      </div>
+      <div class="actions">
+        <button class="icon-button" type="button" aria-label="切换布局" title="切换布局">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 5h6v6H4V5Zm10 0h6v6h-6V5ZM4 13h6v6H4v-6Zm10 0h6v6h-6v-6Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="primary-button" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          添加书籍
+        </button>
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="书籍筛选">
+      <label class="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <input id="searchInput" type="search" placeholder="搜索书名或作者">
+      </label>
+      <select id="statusSelect" class="select" aria-label="阅读状态">
+        <option value="all">全部状态</option>
+        <option value="reading">阅读中</option>
+        <option value="queued">待读</option>
+        <option value="finished">已读完</option>
+      </select>
+      <select id="sortSelect" class="select" aria-label="排序方式">
+        <option value="recent">最近更新</option>
+        <option value="progress">阅读进度</option>
+        <option value="rating">评分最高</option>
+      </select>
+    </section>
+
+    <nav class="tabs" aria-label="书籍分类">
+      <button class="tab active" type="button" data-category="all">全部</button>
+      <button class="tab" type="button" data-category="fiction">小说</button>
+      <button class="tab" type="button" data-category="business">商业</button>
+      <button class="tab" type="button" data-category="history">历史</button>
+      <button class="tab" type="button" data-category="tech">科技</button>
+      <button class="tab" type="button" data-category="design">设计</button>
+    </nav>
+
+    <section class="summary" aria-label="阅读统计">
+      <div class="metric"><span>总藏书</span><strong id="totalCount">0</strong></div>
+      <div class="metric"><span>阅读中</span><strong id="readingCount">0</strong></div>
+      <div class="metric"><span>平均进度</span><strong id="avgProgress">0%</strong></div>
+      <div class="metric"><span>本月新增</span><strong>8</strong></div>
+    </section>
+
+    <section id="bookList" class="books" aria-label="书籍列表"></section>
+    <section id="emptyState" class="empty" aria-live="polite">
+      <strong>没有找到匹配的书籍</strong>
+      调整关键词、分类或阅读状态后再试一次。
+    </section>
+  </main>
+
+  <script>
+    const books = [
+      { title: "长夜灯塔", author: "林序", category: "fiction", status: "reading", progress: 68, rating: 4.8, recent: 9, color: "linear-gradient(135deg, #1f625e, #33425b)" },
+      { title: "产品决策手册", author: "周明远", category: "business", status: "queued", progress: 0, rating: 4.4, recent: 3, color: "linear-gradient(135deg, #b45443, #c49a42)" },
+      { title: "时间的侧影", author: "顾南", category: "history", status: "finished", progress: 100, rating: 4.9, recent: 8, color: "linear-gradient(135deg, #5b3f73, #287c76)" },
+      { title: "系统设计笔记", author: "陈嘉树", category: "tech", status: "reading", progress: 42, rating: 4.7, recent: 10, color: "linear-gradient(135deg, #33425b, #6b7b46)" },
+      { title: "看见界面", author: "沈知意", category: "design", status: "reading", progress: 76, rating: 4.6, recent: 6, color: "linear-gradient(135deg, #7a5142, #287c76)" },
+      { title: "复利人生", author: "陆启", category: "business", status: "finished", progress: 100, rating: 4.5, recent: 5, color: "linear-gradient(135deg, #c49a42, #33425b)" },
+      { title: "算法与日常", author: "韩越", category: "tech", status: "queued", progress: 0, rating: 4.3, recent: 2, color: "linear-gradient(135deg, #245c7a, #9b5f4d)" },
+      { title: "海边旧书店", author: "苏禾", category: "fiction", status: "reading", progress: 24, rating: 4.2, recent: 7, color: "linear-gradient(135deg, #287c76, #b45443)" },
+      { title: "文明的折页", author: "梁青", category: "history", status: "queued", progress: 0, rating: 4.1, recent: 1, color: "linear-gradient(135deg, #33425b, #c49a42)" }
+    ];
+
+    const statusText = {
+      reading: "阅读中",
+      queued: "待读",
+      finished: "已读完"
+    };
+
+    const categoryText = {
+      fiction: "小说",
+      business: "商业",
+      history: "历史",
+      tech: "科技",
+      design: "设计"
+    };
+
+    const bookList = document.querySelector("#bookList");
+    const emptyState = document.querySelector("#emptyState");
+    const searchInput = document.querySelector("#searchInput");
+    const statusSelect = document.querySelector("#statusSelect");
+    const sortSelect = document.querySelector("#sortSelect");
+    const tabs = [...document.querySelectorAll(".tab")];
+    let activeCategory = "all";
+
+    function filteredBooks() {
+      const keyword = searchInput.value.trim().toLowerCase();
+      const status = statusSelect.value;
+
+      return books
+        .filter(book => activeCategory === "all" || book.category === activeCategory)
+        .filter(book => status === "all" || book.status === status)
+        .filter(book => {
+          const haystack = `${book.title} ${book.author}`.toLowerCase();
+          return !keyword || haystack.includes(keyword);
+        })
+        .sort((a, b) => {
+          if (sortSelect.value === "progress") return b.progress - a.progress;
+          if (sortSelect.value === "rating") return b.rating - a.rating;
+          return b.recent - a.recent;
+        });
+    }
+
+    function renderStats(list) {
+      const reading = books.filter(book => book.status === "reading").length;
+      const average = Math.round(books.reduce((sum, book) => sum + book.progress, 0) / books.length);
+
+      document.querySelector("#totalCount").textContent = books.length;
+      document.querySelector("#readingCount").textContent = reading;
+      document.querySelector("#avgProgress").textContent = `${average}%`;
+      emptyState.style.display = list.length ? "none" : "block";
+    }
+
+    function renderBooks() {
+      const list = filteredBooks();
+      bookList.innerHTML = list.map(book => `
+        <article class="book">
+          <div class="cover" style="--cover: ${book.color}">
+            <div class="cover-title">${book.title}</div>
+            <div class="cover-mark"></div>
+          </div>
+          <div class="book-info">
+            <h2 class="book-title">${book.title}</h2>
+            <p class="author">${book.author}</p>
+            <div class="meta">
+              <span class="pill">${categoryText[book.category]}</span>
+              <span class="pill">${statusText[book.status]}</span>
+            </div>
+            <div class="progress">
+              <div class="progress-row">
+                <span>阅读进度</span>
+                <strong>${book.progress}%</strong>
+              </div>
+              <div class="bar" style="--progress: ${book.progress}%"><span></span></div>
+            </div>
+            <div class="book-footer">
+              <span class="rating">${book.rating.toFixed(1)} / 5.0</span>
+              <button class="read-button" type="button">阅读</button>
+            </div>
+          </div>
+        </article>
+      `).join("");
+
+      renderStats(list);
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener("click", () => {
+        tabs.forEach(item => item.classList.remove("active"));
+        tab.classList.add("active");
+        activeCategory = tab.dataset.category;
+        renderBooks();
+      });
+    });
+
+    searchInput.addEventListener("input", renderBooks);
+    statusSelect.addEventListener("change", renderBooks);
+    sortSelect.addEventListener("change", renderBooks);
+
+    renderBooks();
+  </script>
+</body>
+</html>

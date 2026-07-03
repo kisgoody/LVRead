@@ -1,7 +1,7 @@
 import UIKit
 
 final class BookshelfNavigationBar: UINavigationBar {
-    private let bookshelfHeight: CGFloat = 66
+    private let bookshelfHeight: CGFloat = 78
 
     override var intrinsicContentSize: CGSize {
         var size = super.intrinsicContentSize

@@ -1,0 +1,946 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>APP书籍列表</title>
+  <style>
+    :root {
+      --page: #f5f2ec;
+      --surface: #fffdf8;
+      --text: #24211d;
+      --muted: #7c746b;
+      --line: #e3dbcf;
+      --accent: #236d67;
+      --accent-soft: #dcefeb;
+      --gold: #c2933d;
+      --red: #b65a49;
+      --shadow: 0 18px 42px rgba(42, 34, 26, .12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #d7d0c5;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: grid;
+      place-items: center;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .phone {
+      width: min(430px, 100vw);
+      min-height: min(932px, 100vh);
+      background: var(--page);
+      overflow: hidden;
+      position: relative;
+      box-shadow: 0 24px 80px rgba(36, 33, 29, .24);
+    }
+
+    .app {
+      height: 100vh;
+      max-height: 932px;
+      overflow: auto;
+      padding: 18px 18px 92px;
+      scrollbar-width: none;
+    }
+
+    .app::-webkit-scrollbar {
+      display: none;
+    }
+
+    .status {
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      padding: 0 4px;
+      margin-bottom: 10px;
+    }
+
+    .status-icons {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .signal,
+    .battery {
+      display: inline-block;
+      border: 1.7px solid currentColor;
+    }
+
+    .signal {
+      width: 16px;
+      height: 10px;
+      border-radius: 2px 2px 1px 1px;
+      border-top: 0;
+    }
+
+    .battery {
+      width: 22px;
+      height: 11px;
+      border-radius: 3px;
+      position: relative;
+    }
+
+    .battery::before {
+      content: "";
+      position: absolute;
+      right: 2px;
+      top: 2px;
+      bottom: 2px;
+      width: 12px;
+      border-radius: 1px;
+      background: currentColor;
+    }
+
+    .battery::after {
+      content: "";
+      position: absolute;
+      right: -4px;
+      top: 3px;
+      width: 2px;
+      height: 5px;
+      border-radius: 0 2px 2px 0;
+      background: currentColor;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .search-button {
+      width: 46px;
+      height: 46px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: var(--surface);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: 0 10px 22px rgba(42, 34, 26, .08);
+    }
+
+    .filters {
+      display: flex;
+      gap: 9px;
+      overflow-x: auto;
+      padding: 2px 0 18px;
+      scrollbar-width: none;
+    }
+
+    .filters::-webkit-scrollbar {
+      display: none;
+    }
+
+    .chip {
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      white-space: nowrap;
+      padding: 0 15px;
+      cursor: pointer;
+    }
+
+    .chip.active {
+      background: var(--text);
+      border-color: var(--text);
+      color: white;
+      font-weight: 700;
+    }
+
+    .continue {
+      margin-bottom: 20px;
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 88% 12%, rgba(255, 255, 255, .18) 0 22%, transparent 23%),
+        linear-gradient(135deg, #236d67, #2d425d);
+      color: white;
+      padding: 16px;
+      min-height: 132px;
+      box-shadow: var(--shadow);
+    }
+
+    .continue-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .continue-head span {
+      color: rgba(255, 255, 255, .74);
+      font-size: 13px;
+    }
+
+    .continue-head button {
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(255, 255, 255, .28);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, .14);
+      color: white;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+
+    .continue h2 {
+      margin: 0 0 8px;
+      font-size: 21px;
+      line-height: 1.25;
+    }
+
+    .continue p {
+      margin: 0 0 16px;
+      color: rgba(255, 255, 255, .72);
+      font-size: 13px;
+    }
+
+    .progress {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .track {
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .22);
+      overflow: hidden;
+    }
+
+    .track span {
+      display: block;
+      width: 68%;
+      height: 100%;
+      border-radius: inherit;
+      background: white;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 2px 0 12px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .section-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tool-button {
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: var(--surface);
+      color: var(--accent);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(42, 34, 26, .06);
+    }
+
+    .books {
+      display: grid;
+      gap: 12px;
+    }
+
+    .book {
+      display: grid;
+      grid-template-columns: 74px minmax(0, 1fr) auto;
+      gap: 13px;
+      align-items: center;
+      min-height: 104px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .92);
+      padding: 11px;
+      box-shadow: 0 10px 24px rgba(42, 34, 26, .06);
+    }
+
+    .cover {
+      position: relative;
+      width: 74px;
+      height: 96px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--cover);
+      color: white;
+      box-shadow: 0 10px 20px rgba(36, 33, 29, .18);
+    }
+
+    .cover::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 9px;
+      background: rgba(0, 0, 0, .2);
+    }
+
+    .cover strong {
+      position: absolute;
+      left: 16px;
+      right: 10px;
+      top: 13px;
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .cover i {
+      position: absolute;
+      left: 16px;
+      bottom: 14px;
+      width: 24px;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .72);
+    }
+
+    .book h3 {
+      margin: 0 0 5px;
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .book p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tag {
+      height: 23px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      padding: 0 8px;
+      font-weight: 700;
+    }
+
+    .book-action {
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: var(--surface);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+
+    .bottom-nav {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      height: 76px;
+      padding: 9px 18px 13px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 253, 248, .94);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav-item {
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      gap: 3px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .nav-item svg {
+      width: 21px;
+      height: 21px;
+    }
+
+    .nav-item.active {
+      color: var(--accent);
+      background: var(--accent-soft);
+      font-weight: 800;
+    }
+
+    .import-popover {
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      z-index: 10;
+      display: none;
+      width: 190px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 18px 42px rgba(36, 33, 29, .18);
+      padding: 12px;
+    }
+
+    .import-popover.open {
+      display: block;
+    }
+
+    .import-popover h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      line-height: 1.2;
+      text-align: center;
+    }
+
+    .import-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .import-option {
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbf8f1;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 14px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .import-option svg {
+      color: var(--accent);
+      flex: 0 0 auto;
+    }
+
+    .page {
+      display: none;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    .notes-toolbar {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      margin: 4px 0 16px;
+      scrollbar-width: none;
+    }
+
+    .notes-toolbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .note-list,
+    .settings-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .note-card,
+    .profile-card,
+    .setting-row {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .92);
+      box-shadow: 0 10px 24px rgba(42, 34, 26, .06);
+    }
+
+    .note-card {
+      padding: 14px;
+    }
+
+    .note-card h3,
+    .profile-card h2 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      line-height: 1.25;
+    }
+
+    .note-card p,
+    .profile-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .note-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 13px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .profile-card {
+      display: grid;
+      grid-template-columns: 58px minmax(0, 1fr);
+      gap: 13px;
+      align-items: center;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .profile-avatar {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #236d67, #b65a49);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .stat-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 12px 10px;
+      text-align: center;
+    }
+
+    .stat-card strong {
+      display: block;
+      font-size: 20px;
+      line-height: 1;
+      margin-bottom: 7px;
+    }
+
+    .stat-card span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .setting-row {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 14px;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .setting-row svg {
+      color: var(--accent);
+      flex: 0 0 auto;
+    }
+
+    @media (max-width: 430px) {
+      body {
+        display: block;
+        background: var(--page);
+      }
+
+      .phone {
+        width: 100vw;
+        min-height: 100vh;
+        box-shadow: none;
+      }
+
+      .app {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="phone">
+    <main class="app">
+      <div class="status" aria-hidden="true">
+        <span>09:41</span>
+        <div class="status-icons">
+          <span class="signal"></span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <path d="M5 9.5a10 10 0 0 1 14 0M8.5 13a5 5 0 0 1 7 0M12 17h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span class="battery"></span>
+        </div>
+      </div>
+
+      <section class="page active" data-page="shelf">
+        <header class="topbar">
+          <div class="title">
+            <h1>LV Read</h1>
+            <p>为文字而生，因阅读而狂</p>
+          </div>
+          <div class="top-actions">
+            <button class="search-button" type="button" aria-label="搜索">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button id="openImport" class="search-button" type="button" aria-label="添加书籍">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <div id="importPopover" class="import-popover" aria-hidden="true">
+              <h2>导入书籍</h2>
+              <div class="import-list">
+                <button class="import-option" type="button">
+                  <span>本地导入</span>
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+                <button class="import-option" type="button">
+                  <span>同网传输</span>
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M5 12a7 7 0 0 1 14 0M8.5 15.5a3.5 3.5 0 0 1 7 0M12 20h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <nav class="filters" aria-label="分类筛选">
+          <button class="chip active" type="button" data-filter="all">全部</button>
+          <button class="chip" type="button" data-filter="reading">阅读中</button>
+          <button class="chip" type="button" data-filter="queued">待读</button>
+          <button class="chip" type="button" data-filter="finished">已读完</button>
+          <button class="chip" type="button" data-filter="favorite">收藏</button>
+        </nav>
+
+        <section class="continue" aria-label="继续阅读">
+          <div class="continue-head">
+            <span>继续阅读</span>
+            <button type="button" aria-label="开始阅读">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <h2>长夜灯塔</h2>
+          <p>第 12 章 · 还剩 18 分钟</p>
+          <div class="progress">
+            <div class="track"><span></span></div>
+            <strong>68%</strong>
+          </div>
+        </section>
+
+        <section class="section-head">
+          <div class="section-title">
+            <h2>我的书籍</h2>
+          </div>
+          <div class="section-actions">
+            <button class="tool-button" type="button" aria-label="编辑书籍">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <button class="tool-button" type="button" aria-label="排序">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 7h10M4 12h16M4 17h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+        </section>
+
+        <section id="bookList" class="books" aria-label="书籍列表"></section>
+      </section>
+
+      <section class="page" data-page="notes">
+        <header class="topbar">
+          <div class="title">
+            <h1>笔记</h1>
+            <p>收藏灵光，回到文字现场</p>
+          </div>
+          <button class="search-button" type="button" aria-label="新建笔记">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </header>
+        <nav class="notes-toolbar" aria-label="笔记筛选">
+          <button class="chip active" type="button">全部</button>
+          <button class="chip" type="button">摘录</button>
+          <button class="chip" type="button">想法</button>
+          <button class="chip" type="button">书签</button>
+        </nav>
+        <section class="note-list" aria-label="笔记列表">
+          <article class="note-card">
+            <h3>长夜灯塔</h3>
+            <p>真正让人停下来的不是黑暗，而是远处仍然亮着的一束光。</p>
+            <div class="note-meta"><span>第 12 章</span><span>今天 09:18</span></div>
+          </article>
+          <article class="note-card">
+            <h3>系统设计笔记</h3>
+            <p>复杂系统的边界要先被看见，接口才有机会保持清醒。</p>
+            <div class="note-meta"><span>架构摘录</span><span>昨天 21:06</span></div>
+          </article>
+          <article class="note-card">
+            <h3>看见界面</h3>
+            <p>好界面不抢镜，它让用户自然知道下一步能做什么。</p>
+            <div class="note-meta"><span>设计想法</span><span>周二 16:42</span></div>
+          </article>
+        </section>
+      </section>
+
+      <section class="page" data-page="profile">
+        <header class="topbar">
+          <div class="title">
+            <h1>我的</h1>
+            <p>阅读账户与偏好</p>
+          </div>
+          <button class="search-button" type="button" aria-label="设置">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.04.04a2 2 0 0 1-2.82 2.82l-.04-.04A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1 1.6V21a2 2 0 0 1-4 0v-.06a1.8 1.8 0 0 0-1-1.6 1.8 1.8 0 0 0-1.98.36l-.04.04a2 2 0 1 1-2.82-2.82l.04-.04A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.6-1H3a2 2 0 0 1 0-4h.06a1.8 1.8 0 0 0 1.6-1 1.8 1.8 0 0 0-.36-1.98l-.04-.04a2 2 0 1 1 2.82-2.82l.04.04A1.8 1.8 0 0 0 9 4.6a1.8 1.8 0 0 0 1-1.6V3a2 2 0 0 1 4 0v.06a1.8 1.8 0 0 0 1 1.6 1.8 1.8 0 0 0 1.98-.36l.04-.04a2 2 0 1 1 2.82 2.82l-.04.04A1.8 1.8 0 0 0 19.4 9c.24.63.86 1 1.6 1H21a2 2 0 0 1 0 4h-.06a1.8 1.8 0 0 0-1.54 1Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </header>
+        <section class="profile-card">
+          <div class="profile-avatar">LV</div>
+          <div>
+            <h2>LV Reader</h2>
+            <p>连续阅读 12 天，偏爱 TXT 与 EPUB。</p>
+          </div>
+        </section>
+        <section class="stats-grid" aria-label="阅读统计">
+          <div class="stat-card"><strong>18</strong><span>藏书</span></div>
+          <div class="stat-card"><strong>42</strong><span>笔记</span></div>
+          <div class="stat-card"><strong>27h</strong><span>本月</span></div>
+        </section>
+        <section class="settings-list" aria-label="个人设置">
+          <button class="setting-row" type="button">
+            <span>阅读偏好</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button class="setting-row" type="button">
+            <span>数据同步</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button class="setting-row" type="button">
+            <span>导入记录</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </section>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="底部导航">
+      <button class="nav-item active" type="button" data-page="shelf">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M8 17h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        LVRead
+      </button>
+      <button class="nav-item" type="button" data-page="notes">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 4h12v16l-6-3-6 3V4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+        笔记
+      </button>
+      <button class="nav-item" type="button" data-page="profile">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 8a7 7 0 0 0-14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        我的
+      </button>
+    </nav>
+
+  </div>
+
+  <script>
+    const books = [
+      { title: "长夜灯塔", author: "林序", status: "reading", progress: 68, tag: "TXT", favorite: true, color: "linear-gradient(135deg, #236d67, #2d425d)" },
+      { title: "系统设计笔记", author: "陈嘉树", status: "reading", progress: 42, tag: "EPUB", favorite: false, color: "linear-gradient(135deg, #2d425d, #8b6c3a)" },
+      { title: "看见界面", author: "沈知意", status: "reading", progress: 76, tag: "PDF", favorite: true, color: "linear-gradient(135deg, #7b5141, #236d67)" },
+      { title: "文明的折页", author: "梁青", status: "queued", progress: 0, tag: "TXT", favorite: false, color: "linear-gradient(135deg, #33425b, #c2933d)" },
+      { title: "产品决策手册", author: "周明远", status: "queued", progress: 0, tag: "PDF", favorite: true, color: "linear-gradient(135deg, #b65a49, #c2933d)" },
+      { title: "时间的侧影", author: "顾南", status: "finished", progress: 100, tag: "TXT", favorite: false, color: "linear-gradient(135deg, #5a4170, #236d67)" }
+    ];
+
+    const statusText = {
+      reading: "阅读中",
+      queued: "待读",
+      finished: "已读完"
+    };
+
+    const list = document.querySelector("#bookList");
+    const input = document.querySelector("#searchInput");
+    const chips = [...document.querySelectorAll(".filters .chip")];
+    const openImport = document.querySelector("#openImport");
+    const importPopover = document.querySelector("#importPopover");
+    const navItems = [...document.querySelectorAll(".nav-item")];
+    const pages = [...document.querySelectorAll(".page")];
+    let activeFilter = "all";
+
+    function setImportOpen(isOpen) {
+      importPopover.classList.toggle("open", isOpen);
+      importPopover.setAttribute("aria-hidden", String(!isOpen));
+    }
+
+    function getVisibleBooks() {
+      const keyword = input ? input.value.trim().toLowerCase() : "";
+      return books.filter(book => {
+        const matchedFilter = activeFilter === "all"
+          || book.status === activeFilter
+          || (activeFilter === "favorite" && book.favorite);
+        const matchedKeyword = !keyword
+          || `${book.title} ${book.author}`.toLowerCase().includes(keyword);
+        return matchedFilter && matchedKeyword;
+      });
+    }
+
+    function render() {
+      list.innerHTML = getVisibleBooks().map(book => `
+        <article class="book">
+          <div class="cover" style="--cover: ${book.color}">
+            <strong>${book.title}</strong>
+            <i></i>
+          </div>
+          <div>
+            <h3>${book.title}</h3>
+            <p>${book.author} · ${book.progress ? `已读 ${book.progress}%` : "尚未开始"}</p>
+            <div class="meta">
+              <span class="tag">${book.tag}</span>
+              <span>${statusText[book.status]}</span>
+            </div>
+          </div>
+          <button class="book-action" type="button" aria-label="阅读 ${book.title}">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </article>
+      `).join("");
+    }
+
+    chips.forEach(chip => {
+      chip.addEventListener("click", () => {
+        chips.forEach(item => item.classList.remove("active"));
+        chip.classList.add("active");
+        activeFilter = chip.dataset.filter;
+        render();
+      });
+    });
+
+    navItems.forEach(item => {
+      item.addEventListener("click", () => {
+        const page = item.dataset.page;
+        navItems.forEach(nav => nav.classList.toggle("active", nav === item));
+        pages.forEach(panel => panel.classList.toggle("active", panel.dataset.page === page));
+        setImportOpen(false);
+      });
+    });
+
+    openImport.addEventListener("click", event => {
+      event.stopPropagation();
+      setImportOpen(!importPopover.classList.contains("open"));
+    });
+    importPopover.addEventListener("click", event => {
+      event.stopPropagation();
+    });
+    document.addEventListener("click", () => {
+      setImportOpen(false);
+    });
+
+    if (input) input.addEventListener("input", render);
+    render();
+  </script>
+</body>
+</html>

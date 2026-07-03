@@ -259,9 +259,12 @@ final class BookImportManager {
         } else {
             relativeCoverPath = nil
         }
+        let sourceFileTitle = (url.lastPathComponent as NSString).deletingPathExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let bookTitle = sourceFileTitle.isEmpty ? metadata.title : sourceFileTitle
         let book = Book(
             id: bookId,
-            title: metadata.title,
+            title: bookTitle,
             author: metadata.author,
             coverImagePath: relativeCoverPath,
             filePath: relativeBookPath,
