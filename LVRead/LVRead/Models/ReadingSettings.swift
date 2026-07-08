@@ -20,6 +20,16 @@ struct ReadingSettings: Codable, Equatable, Hashable {
     var autoReadSpeed: Int
     var readingTheme: ReadingTheme
 
+    // MARK: - 仿真翻页可配置参数
+    /// 弯曲幅度 (0.1 ~ 1.0)
+    var simulationCurlIntensity: Double
+    /// 阴影透明度 (0.0 ~ 1.0)
+    var simulationShadowOpacity: Double
+    /// 翻页动画时长（秒）
+    var simulationDuration: Double
+    /// 回弹阻尼
+    var simulationSpringDamping: Double
+
     static let `default` = ReadingSettings(
         fontFamily: "系统默认",
         fontSize: 18,
@@ -38,7 +48,11 @@ struct ReadingSettings: Codable, Equatable, Hashable {
         pageFlipMode: PageFlipMode.cover,
         autoReadEnabled: false,
         autoReadSpeed: 5,
-        readingTheme: ReadingTheme.white
+        readingTheme: ReadingTheme.white,
+        simulationCurlIntensity: 0.5,
+        simulationShadowOpacity: 0.6,
+        simulationDuration: 0.38,
+        simulationSpringDamping: 0.55
     )
 }
 

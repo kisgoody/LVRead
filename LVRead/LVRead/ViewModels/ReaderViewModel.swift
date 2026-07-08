@@ -4,6 +4,16 @@ import Foundation
 import Combine
 
 // MARK: - Reader ViewModel
+//
+// ⚠️ 遗留代码 (Legacy) — 已被 ContinuousReaderViewController 替代
+//     ContinuousReaderViewController 使用 PageKey 模型正确实现了：
+//     - 跨章节连续加载（makeWindow ±5 页窗口）
+//     - previousKey/nextKey 跨章节翻页
+//     - 翻页方向感知的缓存调度
+//     本文件保留以维持编译，不再主动使用。
+//     当前存在的问题：
+//     - chapterPages 始终只操作 .first，不支持跨章节拼接
+//     - 单章节页数不足时不会加载相邻章节
 
 final class ReaderViewModel: ObservableObject {
 

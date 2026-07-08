@@ -133,6 +133,12 @@ private extension UIImage {
 }
 
 // MARK: - Main Reader
+//
+// ⚠️ 遗留代码 (Legacy) — 已被 ContinuousReaderViewController 替代
+//     ContinuousReaderViewController 使用 PageKey 模型正确实现了：
+//     - 以当前阅读位置为中心的 ±5 页跨章节窗口
+//     - 翻页方向感知的缓存调度
+//     本文件保留以维持编译，不再主动使用。
 
 final class ReaderViewController: UIViewController {
 

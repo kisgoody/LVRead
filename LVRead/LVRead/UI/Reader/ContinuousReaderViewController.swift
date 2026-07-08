@@ -445,12 +445,12 @@ final class ContinuousReaderViewController: UIViewController {
         let marginH = CGFloat(settings.pageMarginHorizontal) * pageSize.width / 100
         let marginV = CGFloat(settings.pageMarginVertical) * pageSize.height / 100
         let font = FontManager.shared.font(named: settings.fontFamily, size: CGFloat(settings.fontSize))
-        let safetyInset = max(font.lineHeight * 0.85, 10)
+        // 计算高度时不要额外扣减 safetyInset，与 PageContainerView.draw() 保持一致
         let rect = CGRect(
             x: 0,
             y: 0,
             width: max(pageSize.width - marginH * 2, 80),
-            height: max(pageSize.height - marginV * 2 - safetyInset, 80)
+            height: max(pageSize.height - marginV * 2, 80)
         )
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = font.lineHeight * CGFloat(settings.lineSpacing - 1)
@@ -586,7 +586,21 @@ final class ContinuousReaderViewController: UIViewController {
             mode: settings.pageFlipMode,
             backgroundColor: UIColor(hex: settings.backgroundColor),
             container: containerView,
-            completion: finish
+            completion: {
+                self.applySimulationConfig()
+                finish()
+            }
+        )
+    }
+
+    private func applySimulationConfig() {
+        guard settings.pageFlipMode == .simulation else { return }
+        SimulationAnimator.config = SimulationConfig(
+            curlIntensity: CGFloat(settings.simulationCurlIntensity),
+            shadowOpacity: CGFloat(settings.simulationShadowOpacity),
+            animationDuration: settings.simulationDuration,
+            springDamping: CGFloat(settings.simulationSpringDamping),
+            initialVelocity: 0.5
         )
     }
 
@@ -797,6 +811,7 @@ final class ContinuousReaderViewController: UIViewController {
 
         switch gesture.state {
         case .began:
+            applySimulationConfig()
             let direction: PageFlipDirection = velocity.x < 0 ? .next : .prev
             let targetIndex = direction == .next
                 ? (windowKeys.firstIndex(of: currentKey) ?? 0) + 1

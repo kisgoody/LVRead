@@ -14,8 +14,14 @@ final class PageFlipState {
     weak var currentPageView: UIView?
     weak var nextPageView: UIView?
 
+    // Simulation (strip-based curl)
     var curlSnapshot: UIView?
+    var curlStrips: [UIView]?
+    var curlBackSnapshots: [UIView]?
     var curlShadow: CAGradientLayer?
+    var curlPeekLayer: UIView?
+
+    // Legacy (reserved for backward compatibility)
     var curlBackSnapshot: UIView?
 
     var direction: PageFlipDirection = .next
@@ -23,11 +29,17 @@ final class PageFlipState {
     var isActive = false
 
     func cleanup() {
+        curlStrips?.forEach { $0.removeFromSuperview() }
+        curlBackSnapshots?.forEach { $0.removeFromSuperview() }
         curlSnapshot?.removeFromSuperview()
         curlShadow?.removeFromSuperlayer()
+        curlPeekLayer?.removeFromSuperview()
         curlBackSnapshot?.removeFromSuperview()
+        curlStrips = nil
+        curlBackSnapshots = nil
         curlSnapshot = nil
         curlShadow = nil
+        curlPeekLayer = nil
         curlBackSnapshot = nil
         isActive = false
     }
