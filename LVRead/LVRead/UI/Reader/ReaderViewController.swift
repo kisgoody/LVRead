@@ -32,6 +32,7 @@ final class PageContainerView: UIView {
         }
 
         // Flip coordinate system for CoreText
+        ctx.saveGState()
         ctx.textMatrix = .identity
         ctx.translateBy(x: 0, y: bounds.height)
         ctx.scaleBy(x: 1, y: -1)
@@ -52,11 +53,13 @@ final class PageContainerView: UIView {
         )
 
         let marginH = CGFloat(settings.pageMarginHorizontal) * bounds.width / 100
-        let textRect = bounds.insetBy(dx: marginH, dy: 8)
+        let marginV = CGFloat(settings.pageMarginVertical) * bounds.height / 100
+        let textRect = bounds.insetBy(dx: marginH, dy: marginV)
         let framesetter = CTFramesetterCreateWithAttributedString(attr)
         let path = CGPath(rect: textRect, transform: nil)
         let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, nil)
         CTFrameDraw(frame, ctx)
+        ctx.restoreGState()
     }
 
     var settings: ReadingSettings = .default

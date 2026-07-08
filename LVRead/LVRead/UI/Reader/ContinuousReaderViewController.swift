@@ -21,6 +21,7 @@ final class ContinuousReaderViewController: UIViewController {
     private var isPageFlipping = false
     private var isClosing = false
     private var clockTimer: Timer?
+    private var settingsReloadWorkItem: DispatchWorkItem?
 
     private let pageRadius = 5
     private let loaderQueue = DispatchQueue(label: "com.lvread.continuous-reader.loader", qos: .userInitiated)
@@ -36,6 +37,8 @@ final class ContinuousReaderViewController: UIViewController {
     private let bottomLabel = UILabel()
     private let timeLabel = UILabel()
     private let batteryView = LVBatteryView()
+    private let eyeCareOverlayView = UIView()
+    private let brightnessOverlayView = UIView()
     private let flipState = PageFlipState()
 
     init(book: Book) {
@@ -93,8 +96,12 @@ final class ContinuousReaderViewController: UIViewController {
         bottomLabel.translatesAutoresizingMaskIntoConstraints = false
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         batteryView.translatesAutoresizingMaskIntoConstraints = false
+        eyeCareOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        brightnessOverlayView.translatesAutoresizingMaskIntoConstraints = false
 
         containerView.clipsToBounds = true
+        eyeCareOverlayView.isUserInteractionEnabled = false
+        brightnessOverlayView.isUserInteractionEnabled = false
         view.addSubview(containerView)
         containerView.addSubview(currentPageView)
         containerView.addSubview(nextPageView)
@@ -121,6 +128,8 @@ final class ContinuousReaderViewController: UIViewController {
         view.addSubview(bottomLabel)
         view.addSubview(timeLabel)
         view.addSubview(batteryView)
+        view.addSubview(eyeCareOverlayView)
+        view.addSubview(brightnessOverlayView)
 
         NSLayoutConstraint.activate([
             containerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
@@ -170,7 +179,16 @@ final class ContinuousReaderViewController: UIViewController {
             batteryView.centerYAnchor.constraint(equalTo: bottomLabel.centerYAnchor),
             batteryView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -18),
             batteryView.widthAnchor.constraint(equalToConstant: 26),
-            batteryView.heightAnchor.constraint(equalToConstant: 13)
+            batteryView.heightAnchor.constraint(equalToConstant: 13),
+
+            eyeCareOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
+            eyeCareOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            eyeCareOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            eyeCareOverlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            brightnessOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
+            brightnessOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            brightnessOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            brightnessOverlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
         applyTheme()
@@ -195,7 +213,8 @@ final class ContinuousReaderViewController: UIViewController {
             ("chevron.left", #selector(backTapped)),
             ("list.bullet", #selector(catalogTapped)),
             ("moon", #selector(nightTapped)),
-            ("gearshape", #selector(settingsTapped))
+            ("paintpalette", #selector(themeSettingsTapped)),
+            ("textformat.size", #selector(layoutSettingsTapped))
         ]
 
         for item in items {
@@ -208,7 +227,7 @@ final class ContinuousReaderViewController: UIViewController {
             if item.0 == "chevron.left" {
                 button.widthAnchor.constraint(equalToConstant: 64).isActive = true
             } else {
-                button.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 1 / 3, constant: -64 / 3).isActive = true
+                button.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 1 / 4, constant: -16).isActive = true
             }
         }
 
@@ -252,6 +271,7 @@ final class ContinuousReaderViewController: UIViewController {
         let generation = loadGeneration
         let knownPages = chapterPages
         let targetSize = pageSize()
+        let layoutSettings = settings
         if showLoading { loadingLabel.isHidden = false }
 
         loaderQueue.async { [weak self] in
@@ -259,7 +279,7 @@ final class ContinuousReaderViewController: UIViewController {
             var cache = knownPages
             var targetPageIndex = pageIndex
             if let anchorCharOffset,
-               self.ensureChapter(chapterIndex, pageSize: targetSize, cache: &cache),
+               self.ensureChapter(chapterIndex, pageSize: targetSize, settings: layoutSettings, cache: &cache),
                let pages = cache[chapterIndex],
                !pages.isEmpty {
                 targetPageIndex = self.pageIndex(containing: anchorCharOffset, in: pages)
@@ -268,6 +288,7 @@ final class ContinuousReaderViewController: UIViewController {
                 centerChapter: chapterIndex,
                 centerPage: targetPageIndex,
                 pageSize: targetSize,
+                settings: layoutSettings,
                 cache: &cache
             ) else {
                 DispatchQueue.main.async {
@@ -309,12 +330,14 @@ final class ContinuousReaderViewController: UIViewController {
         centerChapter: Int,
         centerPage: Int,
         pageSize: CGSize,
+        settings: ReadingSettings,
         cache: inout [Int: [PageData]]
     ) -> (keys: [PageKey], center: PageKey)? {
         guard let readableCenter = readableCenter(
             nearChapter: centerChapter,
             pageIndex: centerPage,
             pageSize: pageSize,
+            settings: settings,
             cache: &cache
         ),
               let centerPages = cache[readableCenter.chapterIndex],
@@ -327,25 +350,25 @@ final class ContinuousReaderViewController: UIViewController {
         var cursor = center
 
         for _ in 0..<pageRadius {
-            guard let previous = previousKey(before: cursor, pageSize: pageSize, cache: &cache) else { break }
+            guard let previous = previousKey(before: cursor, pageSize: pageSize, settings: settings, cache: &cache) else { break }
             left.insert(previous, at: 0)
             cursor = previous
         }
 
         cursor = center
         for _ in 0..<pageRadius {
-            guard let next = nextKey(after: cursor, pageSize: pageSize, cache: &cache) else { break }
+            guard let next = nextKey(after: cursor, pageSize: pageSize, settings: settings, cache: &cache) else { break }
             right.append(next)
             cursor = next
         }
 
         while left.count + 1 + right.count < pageRadius * 2 + 1,
-              let next = nextKey(after: right.last ?? center, pageSize: pageSize, cache: &cache) {
+              let next = nextKey(after: right.last ?? center, pageSize: pageSize, settings: settings, cache: &cache) {
             right.append(next)
         }
 
         while left.count + 1 + right.count < pageRadius * 2 + 1,
-              let previous = previousKey(before: left.first ?? center, pageSize: pageSize, cache: &cache) {
+              let previous = previousKey(before: left.first ?? center, pageSize: pageSize, settings: settings, cache: &cache) {
             left.insert(previous, at: 0)
         }
 
@@ -356,9 +379,10 @@ final class ContinuousReaderViewController: UIViewController {
         nearChapter chapterIndex: Int,
         pageIndex: Int,
         pageSize: CGSize,
+        settings: ReadingSettings,
         cache: inout [Int: [PageData]]
     ) -> PageKey? {
-        if ensureChapter(chapterIndex, pageSize: pageSize, cache: &cache),
+        if ensureChapter(chapterIndex, pageSize: pageSize, settings: settings, cache: &cache),
            let pages = cache[chapterIndex],
            !pages.isEmpty {
             return PageKey(chapterIndex: chapterIndex, pageIndex: min(max(pageIndex, 0), pages.count - 1))
@@ -366,14 +390,14 @@ final class ContinuousReaderViewController: UIViewController {
 
         for distance in 1...max(chapters.count, 1) {
             let next = chapterIndex + distance
-            if ensureChapter(next, pageSize: pageSize, cache: &cache),
+            if ensureChapter(next, pageSize: pageSize, settings: settings, cache: &cache),
                let pages = cache[next],
                !pages.isEmpty {
                 return PageKey(chapterIndex: next, pageIndex: 0)
             }
 
             let previous = chapterIndex - distance
-            if ensureChapter(previous, pageSize: pageSize, cache: &cache),
+            if ensureChapter(previous, pageSize: pageSize, settings: settings, cache: &cache),
                let pages = cache[previous],
                !pages.isEmpty {
                 return PageKey(chapterIndex: previous, pageIndex: max(pages.count - 1, 0))
@@ -383,7 +407,7 @@ final class ContinuousReaderViewController: UIViewController {
         return nil
     }
 
-    private func ensureChapter(_ index: Int, pageSize: CGSize, cache: inout [Int: [PageData]]) -> Bool {
+    private func ensureChapter(_ index: Int, pageSize: CGSize, settings: ReadingSettings, cache: inout [Int: [PageData]]) -> Bool {
         guard chapters.indices.contains(index) else { return false }
         if let pages = cache[index], !pages.isEmpty { return true }
 
@@ -395,8 +419,12 @@ final class ContinuousReaderViewController: UIViewController {
                 chapter: chapter,
                 encoding: book.encoding ?? "UTF-8"
             )
-            cache[index] = paginate(content: content, chapter: chapter, chapterIndex: index, pageSize: pageSize)
-            return true
+            let pages = readablePages(
+                from: paginate(content: content, chapter: chapter, chapterIndex: index, pageSize: pageSize, settings: settings),
+                chapter: chapter
+            )
+            cache[index] = pages
+            return !pages.isEmpty
         } catch {
             cache[index] = [
                 PageData(
@@ -412,16 +440,17 @@ final class ContinuousReaderViewController: UIViewController {
         }
     }
 
-    private func paginate(content: String, chapter: Chapter, chapterIndex: Int, pageSize: CGSize) -> [PageData] {
+    private func paginate(content: String, chapter: Chapter, chapterIndex: Int, pageSize: CGSize, settings: ReadingSettings) -> [PageData] {
         let text = content.isEmpty ? " " : content
         let marginH = CGFloat(settings.pageMarginHorizontal) * pageSize.width / 100
+        let marginV = CGFloat(settings.pageMarginVertical) * pageSize.height / 100
         let font = FontManager.shared.font(named: settings.fontFamily, size: CGFloat(settings.fontSize))
         let safetyInset = max(font.lineHeight * 0.85, 10)
         let rect = CGRect(
             x: 0,
             y: 0,
             width: max(pageSize.width - marginH * 2, 80),
-            height: max(pageSize.height - 16 - safetyInset, 80)
+            height: max(pageSize.height - marginV * 2 - safetyInset, 80)
         )
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = font.lineHeight * CGFloat(settings.lineSpacing - 1)
@@ -445,30 +474,54 @@ final class ContinuousReaderViewController: UIViewController {
                     offset = attributed.length
                     return
                 }
-                let start = String.Index(utf16Offset: visible.location, in: text)
-                let end = String.Index(utf16Offset: visible.location + visible.length, in: text)
+                let endOffset = min(visible.location + visible.length, attributed.length)
+                guard endOffset > offset else {
+                    offset = attributed.length
+                    return
+                }
+                let start = String.Index(utf16Offset: offset, in: text)
+                let end = String.Index(utf16Offset: endOffset, in: text)
                 pages.append(PageData(
                     pageIndex: pages.count,
-                    startCharOffset: visible.location,
-                    endCharOffset: visible.location + visible.length,
+                    startCharOffset: offset,
+                    endCharOffset: endOffset,
                     content: String(text[start..<end]),
                     chapterTitle: chapter.title,
                     chapterIndex: chapterIndex
                 ))
-                offset = visible.location + visible.length
+                offset = endOffset
             }
         }
 
         return pages
     }
 
-    private func previousKey(before key: PageKey, pageSize: CGSize, cache: inout [Int: [PageData]]) -> PageKey? {
+    private func readablePages(from pages: [PageData], chapter: Chapter) -> [PageData] {
+        let chapterTitle = chapter.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered = pages.filter { page in
+            let content = page.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if content.isEmpty { return false }
+            return chapterTitle.isEmpty || content != chapterTitle
+        }
+        return filtered.enumerated().map { index, page in
+            PageData(
+                pageIndex: index,
+                startCharOffset: page.startCharOffset,
+                endCharOffset: page.endCharOffset,
+                content: page.content,
+                chapterTitle: page.chapterTitle,
+                chapterIndex: page.chapterIndex
+            )
+        }
+    }
+
+    private func previousKey(before key: PageKey, pageSize: CGSize, settings: ReadingSettings, cache: inout [Int: [PageData]]) -> PageKey? {
         if key.pageIndex > 0 {
             return PageKey(chapterIndex: key.chapterIndex, pageIndex: key.pageIndex - 1)
         }
         var chapter = key.chapterIndex - 1
         while chapter >= 0 {
-            if ensureChapter(chapter, pageSize: pageSize, cache: &cache),
+            if ensureChapter(chapter, pageSize: pageSize, settings: settings, cache: &cache),
                let pages = cache[chapter],
                !pages.isEmpty {
                 return PageKey(chapterIndex: chapter, pageIndex: pages.count - 1)
@@ -478,13 +531,13 @@ final class ContinuousReaderViewController: UIViewController {
         return nil
     }
 
-    private func nextKey(after key: PageKey, pageSize: CGSize, cache: inout [Int: [PageData]]) -> PageKey? {
+    private func nextKey(after key: PageKey, pageSize: CGSize, settings: ReadingSettings, cache: inout [Int: [PageData]]) -> PageKey? {
         if let pages = cache[key.chapterIndex], key.pageIndex < pages.count - 1 {
             return PageKey(chapterIndex: key.chapterIndex, pageIndex: key.pageIndex + 1)
         }
         var chapter = key.chapterIndex + 1
         while chapter < chapters.count {
-            if ensureChapter(chapter, pageSize: pageSize, cache: &cache),
+            if ensureChapter(chapter, pageSize: pageSize, settings: settings, cache: &cache),
                let pages = cache[chapter],
                !pages.isEmpty {
                 return PageKey(chapterIndex: chapter, pageIndex: 0)
@@ -637,11 +690,28 @@ final class ContinuousReaderViewController: UIViewController {
         scrollView.backgroundColor = background
         chromeView.backgroundColor = UIColor(hex: settings.readingTheme.panelColor)
         topBackButton.tintColor = textColor.withAlphaComponent(0.65)
+        applyTint(textColor.withAlphaComponent(0.78), in: chromeView)
         topLabel.textColor = textColor.withAlphaComponent(0.42)
         bottomLabel.textColor = textColor.withAlphaComponent(0.42)
         timeLabel.textColor = textColor.withAlphaComponent(0.42)
         batteryView.strokeColor = textColor.withAlphaComponent(0.36)
         batteryView.fillColor = textColor.withAlphaComponent(0.52)
+        if settings.eyeCareFilter == .none {
+            eyeCareOverlayView.backgroundColor = .clear
+        } else {
+            eyeCareOverlayView.backgroundColor = UIColor(hex: settings.eyeCareFilter.filterColor)
+                .withAlphaComponent(CGFloat(settings.eyeCareFilter.overlayAlpha))
+        }
+        brightnessOverlayView.backgroundColor = UIColor.black.withAlphaComponent(CGFloat(max(0, min(1, 1 - settings.brightness))))
+        view.bringSubviewToFront(eyeCareOverlayView)
+        view.bringSubviewToFront(brightnessOverlayView)
+    }
+
+    private func applyTint(_ color: UIColor, in view: UIView) {
+        if let button = view as? UIButton {
+            button.tintColor = color
+        }
+        view.subviews.forEach { applyTint(color, in: $0) }
     }
 
     private func currentTimeText() -> String {
@@ -660,11 +730,21 @@ final class ContinuousReaderViewController: UIViewController {
     private func toggleChrome() {
         let show = chromeView.alpha < 0.5
         scrollView.isScrollEnabled = !show
+        let hiddenTransform = CGAffineTransform(translationX: 0, y: max(chromeView.bounds.height, 1))
         if show {
             view.bringSubviewToFront(chromeView)
+            view.bringSubviewToFront(eyeCareOverlayView)
+            view.bringSubviewToFront(brightnessOverlayView)
+            chromeView.transform = hiddenTransform
+            chromeView.alpha = 0
         }
-        UIView.animate(withDuration: 0.2) {
+        UIView.animate(withDuration: 0.24, delay: 0, options: [show ? .curveEaseOut : .curveEaseIn, .beginFromCurrentState]) {
             self.chromeView.alpha = show ? 1 : 0
+            self.chromeView.transform = show ? .identity : hiddenTransform
+        } completion: { _ in
+            if show {
+                self.chromeView.transform = .identity
+            }
         }
         setNeedsStatusBarAppearanceUpdate()
     }
@@ -674,6 +754,8 @@ final class ContinuousReaderViewController: UIViewController {
         loadGeneration += 1
         clockTimer?.invalidate()
         clockTimer = nil
+        settingsReloadWorkItem?.cancel()
+        settingsReloadWorkItem = nil
         chapterPages.removeAll()
         windowKeys.removeAll()
         currentPageView.clear()
@@ -781,23 +863,47 @@ final class ContinuousReaderViewController: UIViewController {
         rebuildScrollPages(keepOffset: true)
     }
 
-    @objc private func settingsTapped() {
-        let vc = ReaderSettingsViewController(settings: settings)
+    @objc private func themeSettingsTapped() {
+        presentSettings(mode: .theme)
+    }
+
+    @objc private func layoutSettingsTapped() {
+        presentSettings(mode: .layout)
+    }
+
+    private func presentSettings(mode: ReaderSettingsViewController.PanelMode) {
+        let vc = ReaderSettingsViewController(settings: settings, mode: mode)
         vc.onSettingsChanged = { [weak self] newSettings in
-            guard let self else { return }
-            let anchorOffset = self.page(for: self.currentKey)?.startCharOffset
-            self.settings = newSettings
-            self.chapterPages.removeAll()
-            self.setupGestures()
-            self.loadWindow(
-                chapterIndex: self.currentKey.chapterIndex,
-                pageIndex: self.currentKey.pageIndex,
-                showLoading: true,
-                anchorCharOffset: anchorOffset
-            )
+            self?.applySettings(newSettings)
         }
         vc.modalPresentationStyle = .overCurrentContext
         present(vc, animated: false)
+    }
+
+    private func applySettings(_ newSettings: ReadingSettings) {
+        let anchorOffset = page(for: currentKey)?.startCharOffset
+        settings = newSettings
+        pendingLoadCenter = nil
+        loadGeneration += 1
+        setupGestures()
+        applyTheme()
+        renderCurrentPage()
+        rebuildScrollPages(keepOffset: true)
+
+        settingsReloadWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, !self.isClosing else { return }
+            self.chapterPages.removeAll()
+            self.pendingLoadCenter = nil
+            self.loadWindow(
+                chapterIndex: self.currentKey.chapterIndex,
+                pageIndex: self.currentKey.pageIndex,
+                showLoading: false,
+                anchorCharOffset: anchorOffset
+            )
+        }
+        settingsReloadWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
     }
 }
 
