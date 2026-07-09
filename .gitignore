@@ -48,3 +48,4 @@ fastlane/test_output
 
 # Superpowers plugin
 .superpowers/
+.worktrees/
