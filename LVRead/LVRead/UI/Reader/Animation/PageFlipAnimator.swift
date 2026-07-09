@@ -18,7 +18,7 @@ enum PageFlipAnimator {
     ) {
         switch mode {
         case .simulation:
-            SimulationAnimator.animate(
+            PaperCurlAnimator.animate(
                 from: current, to: next,
                 direction: direction, container: container,
                 backgroundColor: backgroundColor,
@@ -63,8 +63,8 @@ enum PageFlipAnimator {
        next.alpha = 1
         switch mode {
         case .simulation:
-            SimulationAnimator.beginInteractive(
-                from: current, direction: direction,
+            PaperCurlAnimator.beginInteractive(
+                from: current, to: next, direction: direction,
                 container: container, state: state
             )
         case .cover:
@@ -87,13 +87,17 @@ enum PageFlipAnimator {
         }
     }
 
-    static func updateInteractive(progress: CGFloat, mode: PageFlipMode, state: PageFlipState) {
+    static func updateInteractive(
+        sample: PaperCurlSample,
+        mode: PageFlipMode,
+        state: PageFlipState
+    ) {
         guard state.isActive else { return }
-        let p = min(1, max(0, progress))
+        let p = min(1, max(0, sample.progress))
         state.progress = p
         switch mode {
         case .simulation:
-            SimulationAnimator.updateInteractive(progress: p, state: state)
+            PaperCurlAnimator.updateInteractive(sample: sample, state: state)
         case .cover:
             CoverAnimator.updateInteractive(progress: p, state: state)
         case .slide:
@@ -104,6 +108,7 @@ enum PageFlipAnimator {
 
     static func finishInteractive(
         commit: Bool,
+        velocityX: CGFloat,
         mode: PageFlipMode,
         state: PageFlipState,
         completion: @escaping (Bool) -> Void
@@ -111,7 +116,12 @@ enum PageFlipAnimator {
         guard state.isActive else { completion(false); return }
         switch mode {
         case .simulation:
-            SimulationAnimator.finishInteractive(commit: commit, state: state, completion: completion)
+            PaperCurlAnimator.finishInteractive(
+                commit: commit,
+                velocityX: velocityX,
+                state: state,
+                completion: completion
+            )
         case .cover:
             CoverAnimator.finishInteractive(commit: commit, state: state, completion: completion)
         case .slide:

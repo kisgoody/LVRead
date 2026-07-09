@@ -70,4 +70,37 @@ final class PaperCurlPhysicsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(duration, 0.18)
         XCTAssertLessThanOrEqual(duration, 0.48)
     }
+
+    func testPageFlipStateCleanupIsIdempotentAndRestoresPages() {
+        let current = UIView()
+        let next = UIView()
+        let front = UIView()
+        let back = UIView()
+        let shadow = CAGradientLayer()
+        current.alpha = 0
+        next.alpha = 1
+        current.transform = CGAffineTransform(translationX: 20, y: 0)
+
+        let state = PageFlipState()
+        state.currentPageView = current
+        state.nextPageView = next
+        state.paperFrontSlices = [front]
+        state.paperBackSlices = [back]
+        state.paperShadowLayers = [shadow]
+        state.isActive = true
+
+        state.cleanup()
+        state.cleanup()
+
+        XCTAssertNil(front.superview)
+        XCTAssertNil(back.superview)
+        XCTAssertNil(shadow.superlayer)
+        XCTAssertNil(state.paperFrontSlices)
+        XCTAssertNil(state.paperBackSlices)
+        XCTAssertNil(state.paperShadowLayers)
+        XCTAssertEqual(current.alpha, 1)
+        XCTAssertEqual(next.alpha, 0)
+        XCTAssertEqual(current.transform, .identity)
+        XCTAssertFalse(state.isActive)
+    }
 }

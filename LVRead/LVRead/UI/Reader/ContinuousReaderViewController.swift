@@ -548,6 +548,7 @@ final class ContinuousReaderViewController: UIViewController {
             return
         }
 
+        applySimulationConfig()
         PageFlipAnimator.animateTap(
             from: currentPageView,
             to: nextPageView,
@@ -556,7 +557,6 @@ final class ContinuousReaderViewController: UIViewController {
             backgroundColor: UIColor(hex: settings.backgroundColor),
             container: containerView,
             completion: {
-                self.applySimulationConfig()
                 finish()
             }
         )
@@ -564,13 +564,15 @@ final class ContinuousReaderViewController: UIViewController {
 
     private func applySimulationConfig() {
         guard settings.pageFlipMode == .simulation else { return }
-        SimulationAnimator.config = SimulationConfig(
+        let config = SimulationConfig(
             curlIntensity: CGFloat(settings.simulationCurlIntensity),
             shadowOpacity: CGFloat(settings.simulationShadowOpacity),
             animationDuration: settings.simulationDuration,
             springDamping: CGFloat(settings.simulationSpringDamping),
             initialVelocity: 0.5
         )
+        SimulationAnimator.config = config
+        PaperCurlAnimator.config = config
     }
 
     private func renderCurrentPage() {
@@ -775,37 +777,70 @@ final class ContinuousReaderViewController: UIViewController {
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         guard chromeView.alpha < 0.5, settings.pageFlipMode != .scroll, settings.pageFlipMode != .none else { return }
-        let translation = gesture.translation(in: view)
-        let velocity = gesture.velocity(in: view)
+        let translation = gesture.translation(in: containerView)
+        let velocity = gesture.velocity(in: containerView)
+        let sample = PaperCurlSample(
+            location: gesture.location(in: containerView),
+            translation: translation,
+            velocity: velocity,
+            containerSize: containerView.bounds.size
+        )
 
         switch gesture.state {
         case .began:
+            guard !isPageFlipping else { return }
             applySimulationConfig()
-            let direction: PageFlipDirection = velocity.x < 0 ? .next : .prev
-            let targetIndex = direction == .next
-                ? (windowKeys.firstIndex(of: currentKey) ?? 0) + 1
-                : (windowKeys.firstIndex(of: currentKey) ?? 0) - 1
-            guard windowKeys.indices.contains(targetIndex),
-                  let page = page(for: windowKeys[targetIndex]) else { return }
-            nextPageView.render(page: page, with: settings)
-            nextPageView.layer.displayIfNeeded()
-            PageFlipAnimator.beginInteractive(
-                from: currentPageView,
-                to: nextPageView,
-                direction: direction,
+            flipState.cleanup()
+        case .changed:
+            if !flipState.isActive {
+                guard abs(translation.x) > 8 else { return }
+                let direction: PageFlipDirection = translation.x < 0 ? .next : .prev
+                let targetIndex = direction == .next
+                    ? (windowKeys.firstIndex(of: currentKey) ?? 0) + 1
+                    : (windowKeys.firstIndex(of: currentKey) ?? 0) - 1
+                guard windowKeys.indices.contains(targetIndex),
+                      let page = page(for: windowKeys[targetIndex]) else { return }
+                nextPageView.render(page: page, with: settings)
+                nextPageView.setNeedsDisplay()
+                nextPageView.layer.displayIfNeeded()
+                PageFlipAnimator.beginInteractive(
+                    from: currentPageView,
+                    to: nextPageView,
+                    direction: direction,
+                    mode: settings.pageFlipMode,
+                    container: containerView,
+                    state: flipState
+                )
+                isPageFlipping = flipState.isActive
+            }
+            PageFlipAnimator.updateInteractive(
+                sample: sample,
                 mode: settings.pageFlipMode,
-                container: containerView,
                 state: flipState
             )
-        case .changed:
-            let progress = min(1, abs(translation.x) / max(view.bounds.width, 1))
-            PageFlipAnimator.updateInteractive(progress: progress, mode: settings.pageFlipMode, state: flipState)
         case .ended, .cancelled:
-            let shouldCommit = abs(translation.x) > view.bounds.width * 0.24 || abs(velocity.x) > 650
+            guard flipState.isActive else {
+                isPageFlipping = false
+                return
+            }
+            let shouldCommit = gesture.state != .cancelled
+                && (settings.pageFlipMode == .simulation
+                    ? PaperCurlPhysics.shouldCommit(
+                        progress: flipState.progress,
+                        velocityX: velocity.x,
+                        direction: flipState.direction
+                    )
+                    : abs(translation.x) > view.bounds.width * 0.24
+                        || abs(velocity.x) > 650)
             let targetIndex = flipState.direction == .next
                 ? (windowKeys.firstIndex(of: currentKey) ?? 0) + 1
                 : (windowKeys.firstIndex(of: currentKey) ?? 0) - 1
-            PageFlipAnimator.finishInteractive(commit: shouldCommit, mode: settings.pageFlipMode, state: flipState) { [weak self] committed in
+            PageFlipAnimator.finishInteractive(
+                commit: shouldCommit,
+                velocityX: velocity.x,
+                mode: settings.pageFlipMode,
+                state: flipState
+            ) { [weak self] committed in
                 guard let self else { return }
                 if committed, self.windowKeys.indices.contains(targetIndex) {
                     let target = self.windowKeys[targetIndex]
@@ -815,6 +850,7 @@ final class ContinuousReaderViewController: UIViewController {
                 } else {
                     self.renderCurrentPage()
                 }
+                self.isPageFlipping = false
             }
         default:
             break

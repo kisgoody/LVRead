@@ -596,8 +596,15 @@ final class ReaderViewController: UIViewController {
         guard fmode == .simulation || fmode == .cover || fmode == .slide else { return }
 
         let mode = fmode
-        let translation = pan.translation(in: view)
+        let translation = pan.translation(in: containerView)
+        let velocity = pan.velocity(in: containerView)
         let progress = min(1.0, max(0, abs(translation.x) / max(view.bounds.width, 1) * 1.15))
+        let sample = PaperCurlSample(
+            location: pan.location(in: containerView),
+            translation: translation,
+            velocity: velocity,
+            containerSize: containerView.bounds.size
+        )
 
         switch pan.state {
         case .began:
@@ -631,18 +638,34 @@ final class ReaderViewController: UIViewController {
                     state: interactiveState
                 )
             }
-            PageFlipAnimator.updateInteractive(progress: progress, mode: mode, state: interactiveState)
+            PageFlipAnimator.updateInteractive(
+                sample: sample,
+                mode: mode,
+                state: interactiveState
+            )
 
         case .ended, .cancelled:
-            guard let direction = activePanDirection, interactiveState.isActive else {
+            guard activePanDirection != nil, interactiveState.isActive else {
                 activePanDirection = nil
                 isPageFlipping = false
                 return
             }
-            let vx = pan.velocity(in: view).x
-            let shouldCommit = progress > 0.28 || abs(vx) > 450
+            let vx = velocity.x
+            let shouldCommit = pan.state != .cancelled
+                && (mode == .simulation
+                    ? PaperCurlPhysics.shouldCommit(
+                        progress: interactiveState.progress,
+                        velocityX: vx,
+                        direction: interactiveState.direction
+                    )
+                    : progress > 0.28 || abs(vx) > 450)
 
-            PageFlipAnimator.finishInteractive(commit: shouldCommit, mode: mode, state: interactiveState) { [weak self] committed in
+            PageFlipAnimator.finishInteractive(
+                commit: shouldCommit,
+                velocityX: vx,
+                mode: mode,
+                state: interactiveState
+            ) { [weak self] committed in
                 guard let self = self else { return }
                 let prepared = self.activePanPreparedTurn
                 if committed {
