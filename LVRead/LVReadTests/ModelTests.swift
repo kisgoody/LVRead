@@ -1,4 +1,5 @@
 import XCTest
+import os.log
 @testable import LVRead
 
 // MARK: - ReadingStats Model Tests
@@ -97,19 +98,19 @@ final class ReadingStatsRepositoryTests: XCTestCase {
     
     func testCurrentStreak() throws {
         let repo = ReadingStatsRepository.shared
-        let streak = repo.currentStreak
+        let streak = ReadingAnalytics(stats: repo.getStats()).currentStreak
         XCTAssertGreaterThanOrEqual(streak, 0)
     }
     
     func testLongestStreak() throws {
         let repo = ReadingStatsRepository.shared
-        let longest = repo.longestStreak
+        let longest = ReadingAnalytics(stats: repo.getStats()).longestStreak
         XCTAssertGreaterThanOrEqual(longest, 0)
     }
     
     func testWeeklyChartData() throws {
         let repo = ReadingStatsRepository.shared
-        let chartData = repo.weeklyChartData
+        let chartData = ReadingAnalytics(stats: repo.getStats()).weeklyChartData
         XCTAssertEqual(chartData.count, 7)
     }
 }
@@ -170,8 +171,21 @@ final class BookmarkModelTests: XCTestCase {
     
     func testBookmarkEquality() throws {
         let id = UUID().uuidString
-        let bm1 = Bookmark(id: id, bookId: "b1", chapterIndex: 0, pageOffset: 5)
-        let bm2 = Bookmark(id: id, bookId: "b1", chapterIndex: 0, pageOffset: 5)
+        let createdAt = Date()
+        let bm1 = Bookmark(
+            id: id,
+            bookId: "b1",
+            chapterIndex: 0,
+            pageOffset: 5,
+            createdAt: createdAt
+        )
+        let bm2 = Bookmark(
+            id: id,
+            bookId: "b1",
+            chapterIndex: 0,
+            pageOffset: 5,
+            createdAt: createdAt
+        )
         XCTAssertEqual(bm1, bm2)
     }
 }
@@ -230,8 +244,13 @@ final class ChapterModelTests: XCTestCase {
 final class LanDeviceModelTests: XCTestCase {
     
     func testLanDeviceInit() throws {
-        let device = LanDevice(id: "device-1", name: "iPhone", ipAddress: "192.168.1.100", port: 8080)
-        XCTAssertEqual(device.name, "iPhone")
+        let device = LanDevice(
+            id: "device-1",
+            deviceName: "iPhone",
+            ipAddress: "192.168.1.100",
+            port: 8080
+        )
+        XCTAssertEqual(device.deviceName, "iPhone")
         XCTAssertEqual(device.ipAddress, "192.168.1.100")
         XCTAssertEqual(device.port, 8080)
     }
@@ -242,9 +261,16 @@ final class LanDeviceModelTests: XCTestCase {
 final class TransferTaskModelTests: XCTestCase {
     
     func testTransferTaskInit() throws {
-        let task = TransferTask(fileName: "test.epub", fileSize: 1024000)
-        XCTAssertEqual(task.fileName, "test.epub")
-        XCTAssertEqual(task.fileSize, 1024000)
+        let task = TransferTask(
+            targetDeviceId: "device-1",
+            direction: .send,
+            bookIds: ["book-1"],
+            totalBytes: 1_024_000
+        )
+        XCTAssertEqual(task.targetDeviceId, "device-1")
+        XCTAssertEqual(task.direction, .send)
+        XCTAssertEqual(task.bookIds, ["book-1"])
+        XCTAssertEqual(task.totalBytes, 1_024_000)
         XCTAssertEqual(task.progress, 0.0)
         XCTAssertEqual(task.status, .pending)
     }

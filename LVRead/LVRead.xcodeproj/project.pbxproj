@@ -109,7 +109,7 @@
 		192E950E1BB945CE46273643 /* LVFilterChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVFilterChip.swift; sourceTree = "<group>"; };
 		1B4E6B0A6607AF1AD1AFACE5 /* Bookmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bookmark.swift; sourceTree = "<group>"; };
 		1C66CBAA376279FE317EFE0A /* SmoothScrollHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmoothScrollHandler.swift; sourceTree = "<group>"; };
-		21CBFA85769F4BD1BC5A17CF /* UIView+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "UIView+Extensions.swift"; path = "Extensions/UIView+Extensions.swift"; sourceTree = "<group>"; };
+		21CBFA85769F4BD1BC5A17CF /* UIView+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIView+Extensions.swift"; sourceTree = "<group>"; };
 		2208E6B1C8C157FB3E3D447B /* AppearanceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceManager.swift; sourceTree = "<group>"; };
 		2C317AE63D6F40FE7C6599C3 /* Chapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chapter.swift; sourceTree = "<group>"; };
 		308997F51817F6004BFAD110 /* BookshelfViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfViewController.swift; sourceTree = "<group>"; };
@@ -130,7 +130,7 @@
 		63EBAD65EC543257D3ACEB31 /* BookRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRepository.swift; sourceTree = "<group>"; };
 		65B5388887BBBD731D96E9E4 /* DarkModeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DarkModeManager.swift; sourceTree = "<group>"; };
 		66437B801EE960844A577217 /* ReaderSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsViewController.swift; sourceTree = "<group>"; };
-		67DD0C4699E249F5A9850903 /* FileManager+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "FileManager+Extensions.swift"; path = "Extensions/FileManager+Extensions.swift"; sourceTree = "<group>"; };
+		67DD0C4699E249F5A9850903 /* FileManager+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileManager+Extensions.swift"; sourceTree = "<group>"; };
 		7208E0E32F5754E0D1A6667B /* Book.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book.swift; sourceTree = "<group>"; };
 		82018A28F3557489496CDF27 /* ParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParserTests.swift; sourceTree = "<group>"; };
 		833E5554757DC4CC21AD2588 /* SimulationAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulationAnimator.swift; sourceTree = "<group>"; };
@@ -163,7 +163,7 @@
 		D1866764DE2A663D3E0FA92A /* PageFlipTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageFlipTypes.swift; sourceTree = "<group>"; };
 		D1D1E66DD3225BF74B35DF0A /* ReadingSettingsRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingSettingsRepository.swift; sourceTree = "<group>"; };
 		D62591E2ACE4B486D4C86400 /* LVBatteryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVBatteryView.swift; sourceTree = "<group>"; };
-		D8ABD9F07E344D4CAE20D84A /* String+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "String+Extensions.swift"; path = "Extensions/String+Extensions.swift"; sourceTree = "<group>"; };
+		D8ABD9F07E344D4CAE20D84A /* String+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+Extensions.swift"; sourceTree = "<group>"; };
 		DA027B9000BDA2B23BEA2FA9 /* PageCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageCacheManager.swift; sourceTree = "<group>"; };
 		DB9D4D5B4140986B2A1118CA /* LanDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanDevice.swift; sourceTree = "<group>"; };
 		DE58B094F2117889990D6188 /* WebSyncServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSyncServer.swift; sourceTree = "<group>"; };
@@ -271,9 +271,6 @@ A4FDBBE986D40785B3907B8C /* Network */,
 				5ED8FBD27D41A9967837126E /* LVSkeletonView.swift */,
 				0C4910391A78AFCE00D69A47 /* LVSlider.swift */,
 				A775C381ED8137C4D741BF6D /* LVToast.swift */,
-				D8ABD9F07E344D4CAE20D84A /* String+Extensions.swift */,
-				67DD0C4699E249F5A9850903 /* FileManager+Extensions.swift */,
-				21CBFA85769F4BD1BC5A17CF /* UIView+Extensions.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -407,6 +404,9 @@ A4FDBBE986D40785B3907B8C /* Network */,
 		ED9F346C6CEB2B28EFC370AB /* Extensions */ = {
 			isa = PBXGroup;
 			children = (
+				D8ABD9F07E344D4CAE20D84A /* String+Extensions.swift */,
+				67DD0C4699E249F5A9850903 /* FileManager+Extensions.swift */,
+				21CBFA85769F4BD1BC5A17CF /* UIView+Extensions.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
