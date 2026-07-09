@@ -1,10 +1,35 @@
 import UIKit
+import CoreText
 
 /// Shared CoreText input used by pagination and page rendering.
 struct ReaderTextLayout {
     let font: UIFont
     let paragraphStyle: NSParagraphStyle
     let textRect: CGRect
+}
+
+struct ReaderPageRange: Equatable {
+    let location: Int
+    let length: Int
+
+    var endOffset: Int { location + length }
+}
+
+enum ReaderTextLayoutError: LocalizedError, Equatable {
+    case invalidPageSize(CGSize)
+    case noVisibleText(offset: Int)
+    case discontinuousRanges
+
+    var errorDescription: String? {
+        switch self {
+        case let .invalidPageSize(size):
+            return "Invalid reader page size: \(size)"
+        case let .noVisibleText(offset):
+            return "CoreText could not fit text at UTF-16 offset \(offset)"
+        case .discontinuousRanges:
+            return "CoreText returned discontinuous page ranges"
+        }
+    }
 }
 
 /// Produces deterministic reader typography and geometry.
@@ -53,7 +78,113 @@ enum ReaderTextLayoutEngine {
         return NSAttributedString(string: content, attributes: attributes)
     }
 
+    static func pageRanges(
+        content: String,
+        pageSize: CGSize,
+        settings: ReadingSettings
+    ) throws -> [ReaderPageRange] {
+        guard pageSize.width > 0, pageSize.height > 0 else {
+            throw ReaderTextLayoutError.invalidPageSize(pageSize)
+        }
+        guard !content.isEmpty else { return [] }
+
+        let attributed = attributedString(content: content, settings: settings)
+        let textLength = attributed.length
+        let metrics = layout(pageSize: pageSize, settings: settings)
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed)
+        let framePath = CGPath(
+            rect: CGRect(origin: .zero, size: metrics.textRect.size),
+            transform: nil
+        )
+        var result: [ReaderPageRange] = []
+        var offset = 0
+
+        while offset < textLength {
+            let frame = CTFramesetterCreateFrame(
+                framesetter,
+                CFRange(location: offset, length: 0),
+                framePath,
+                nil
+            )
+            let visible = CTFrameGetVisibleStringRange(frame)
+            let proposedEnd = min(visible.location + visible.length, textLength)
+            guard visible.location == offset, proposedEnd > offset else {
+                throw ReaderTextLayoutError.noVisibleText(offset: offset)
+            }
+
+            let endOffset = safeComposedSequenceEnd(
+                proposedEnd: proposedEnd,
+                startOffset: offset,
+                text: content
+            )
+            guard endOffset > offset else {
+                throw ReaderTextLayoutError.noVisibleText(offset: offset)
+            }
+
+            result.append(
+                ReaderPageRange(location: offset, length: endOffset - offset)
+            )
+            offset = endOffset
+        }
+
+        let rangesAreContinuous = result.count == 1
+            || zip(result, result.dropFirst()).allSatisfy { pair in
+                pair.0.endOffset == pair.1.location
+                    && pair.0.length > 0
+                    && pair.1.length > 0
+            }
+        guard result.first?.location == 0,
+              result.last?.endOffset == textLength,
+              rangesAreContinuous else {
+            throw ReaderTextLayoutError.discontinuousRanges
+        }
+        return result
+    }
+
+    static func pages(
+        content: String,
+        chapter: Chapter,
+        chapterIndex: Int,
+        pageSize: CGSize,
+        settings: ReadingSettings
+    ) throws -> [PageData] {
+        let source = content as NSString
+        return try pageRanges(
+            content: content,
+            pageSize: pageSize,
+            settings: settings
+        ).enumerated().map { index, range in
+            PageData(
+                pageIndex: index,
+                startCharOffset: range.location,
+                endCharOffset: range.endOffset,
+                content: source.substring(
+                    with: NSRange(location: range.location, length: range.length)
+                ),
+                chapterTitle: chapter.title,
+                chapterIndex: chapterIndex
+            )
+        }
+    }
+
     private static func clampedPercentage(_ value: Double) -> CGFloat {
         CGFloat(min(max(value, 0), 49))
+    }
+
+    private static func safeComposedSequenceEnd(
+        proposedEnd: Int,
+        startOffset: Int,
+        text: String
+    ) -> Int {
+        guard proposedEnd > startOffset else { return startOffset }
+        let source = text as NSString
+        let lastSequence = source.rangeOfComposedCharacterSequence(at: proposedEnd - 1)
+        if NSMaxRange(lastSequence) <= proposedEnd {
+            return proposedEnd
+        }
+        if lastSequence.location > startOffset {
+            return lastSequence.location
+        }
+        return min(NSMaxRange(lastSequence), source.length)
     }
 }

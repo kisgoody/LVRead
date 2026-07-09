@@ -29,4 +29,52 @@ final class ReaderTextLayoutEngineTests: XCTestCase {
 
         XCTAssertEqual(paragraph?.alignment, .justified)
     }
+
+    func testPaginationPreservesEveryUTF16CodeUnit() throws {
+        let content = String(repeating: "中文🙂e\u{301}，分页不可缺字。\n", count: 80)
+        let chapter = Chapter(
+            bookId: "book-1",
+            title: "测试章节",
+            orderIndex: 0
+        )
+
+        let pages = try ReaderTextLayoutEngine.pages(
+            content: content,
+            chapter: chapter,
+            chapterIndex: 0,
+            pageSize: CGSize(width: 320, height: 480),
+            settings: .default
+        )
+
+        XCTAssertEqual(pages.map(\.content).joined(), content)
+        for pair in zip(pages, pages.dropFirst()) {
+            XCTAssertEqual(pair.0.endCharOffset, pair.1.startCharOffset)
+        }
+        XCTAssertEqual(pages.first?.startCharOffset, 0)
+        XCTAssertEqual(pages.last?.endCharOffset, content.utf16.count)
+    }
+
+    func testSmallPageNeverProducesZeroLengthRange() throws {
+        var settings = ReadingSettings.default
+        settings.fontSize = 32
+
+        let ranges = try ReaderTextLayoutEngine.pageRanges(
+            content: "一二三四五六七八九十",
+            pageSize: CGSize(width: 80, height: 80),
+            settings: settings
+        )
+
+        XCTAssertFalse(ranges.isEmpty)
+        XCTAssertTrue(ranges.allSatisfy { $0.length > 0 })
+    }
+
+    func testEmptyContentReturnsNoPages() throws {
+        let ranges = try ReaderTextLayoutEngine.pageRanges(
+            content: "",
+            pageSize: CGSize(width: 320, height: 480),
+            settings: .default
+        )
+
+        XCTAssertTrue(ranges.isEmpty)
+    }
 }

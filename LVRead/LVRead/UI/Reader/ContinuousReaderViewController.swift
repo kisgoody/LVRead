@@ -442,58 +442,27 @@ final class ContinuousReaderViewController: UIViewController {
 
     private func paginate(content: String, chapter: Chapter, chapterIndex: Int, pageSize: CGSize, settings: ReadingSettings) -> [PageData] {
         let text = content.isEmpty ? " " : content
-        let marginH = CGFloat(settings.pageMarginHorizontal) * pageSize.width / 100
-        let marginV = CGFloat(settings.pageMarginVertical) * pageSize.height / 100
-        let font = FontManager.shared.font(named: settings.fontFamily, size: CGFloat(settings.fontSize))
-        // 计算高度时不要额外扣减 safetyInset，与 PageContainerView.draw() 保持一致
-        let rect = CGRect(
-            x: 0,
-            y: 0,
-            width: max(pageSize.width - marginH * 2, 80),
-            height: max(pageSize.height - marginV * 2, 80)
-        )
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = font.lineHeight * CGFloat(settings.lineSpacing - 1)
-        paragraph.paragraphSpacing = font.lineHeight * CGFloat(settings.paragraphSpacing)
-        paragraph.alignment = .natural
-
-        let attributed = NSAttributedString(string: text, attributes: [
-            .font: font,
-            .paragraphStyle: paragraph
-        ])
-        let framesetter = CTFramesetterCreateWithAttributedString(attributed)
-        let path = CGPath(rect: rect, transform: nil)
-        var pages: [PageData] = []
-        var offset = 0
-
-        while offset < attributed.length {
-            autoreleasepool {
-                let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(offset, 0), path, nil)
-                let visible = CTFrameGetVisibleStringRange(frame)
-                guard visible.length > 0 else {
-                    offset = attributed.length
-                    return
-                }
-                let endOffset = min(visible.location + visible.length, attributed.length)
-                guard endOffset > offset else {
-                    offset = attributed.length
-                    return
-                }
-                let start = String.Index(utf16Offset: offset, in: text)
-                let end = String.Index(utf16Offset: endOffset, in: text)
-                pages.append(PageData(
-                    pageIndex: pages.count,
-                    startCharOffset: offset,
-                    endCharOffset: endOffset,
-                    content: String(text[start..<end]),
+        do {
+            return try ReaderTextLayoutEngine.pages(
+                content: text,
+                chapter: chapter,
+                chapterIndex: chapterIndex,
+                pageSize: pageSize,
+                settings: settings
+            )
+        } catch {
+            LVLogger.error("Continuous reader pagination failed: \(error.localizedDescription)", category: .ui)
+            return [
+                PageData(
+                    pageIndex: 0,
+                    startCharOffset: 0,
+                    endCharOffset: text.utf16.count,
+                    content: text,
                     chapterTitle: chapter.title,
                     chapterIndex: chapterIndex
-                ))
-                offset = endOffset
-            }
+                )
+            ]
         }
-
-        return pages
     }
 
     private func readablePages(from pages: [PageData], chapter: Chapter) -> [PageData] {

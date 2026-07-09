@@ -37,26 +37,18 @@ final class PageContainerView: UIView {
         ctx.translateBy(x: 0, y: bounds.height)
         ctx.scaleBy(x: 1, y: -1)
 
-        let font = FontManager.shared.font(named: settings.fontFamily, size: CGFloat(settings.fontSize))
-        let para = NSMutableParagraphStyle()
-        para.lineSpacing = font.lineHeight * CGFloat(settings.lineSpacing - 1.0)
-        para.paragraphSpacing = font.lineHeight * CGFloat(settings.paragraphSpacing)
-        para.alignment = .natural
-
-        let attr = NSAttributedString(
-            string: page.content,
-            attributes: [
-                .font: font,
-                .foregroundColor: UIColor(hex: settings.readingTheme.textColor),
-                .paragraphStyle: para
-            ]
+        let layout = ReaderTextLayoutEngine.layout(
+            pageSize: bounds.size,
+            settings: settings
+        )
+        let attr = ReaderTextLayoutEngine.attributedString(
+            content: page.content,
+            settings: settings,
+            foregroundColor: UIColor(hex: settings.readingTheme.textColor)
         )
 
-        let marginH = CGFloat(settings.pageMarginHorizontal) * bounds.width / 100
-        let marginV = CGFloat(settings.pageMarginVertical) * bounds.height / 100
-        let textRect = bounds.insetBy(dx: marginH, dy: marginV)
         let framesetter = CTFramesetterCreateWithAttributedString(attr)
-        let path = CGPath(rect: textRect, transform: nil)
+        let path = CGPath(rect: layout.textRect, transform: nil)
         let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, nil)
         CTFrameDraw(frame, ctx)
         ctx.restoreGState()
@@ -1154,55 +1146,34 @@ final class ReaderViewController: UIViewController {
     // MARK: Pagination
 
     private func paginateContent(_ content: String, fit size: CGSize, settings: ReadingSettings, chapterIndex: Int? = nil) -> [PageData] {
-        let marginH = CGFloat(settings.pageMarginHorizontal) * size.width / 100
-        let textWidth = size.width - marginH * 2
-        let textHeight = size.height - 16  // top/bottom inset
-
-        let font = FontManager.shared.font(named: settings.fontFamily, size: CGFloat(settings.fontSize))
-        let para = NSMutableParagraphStyle()
-        para.lineSpacing = font.lineHeight * CGFloat(settings.lineSpacing - 1.0)
-        para.paragraphSpacing = font.lineHeight * CGFloat(settings.paragraphSpacing)
-        para.alignment = .natural
-
-        let attr = NSAttributedString(string: content, attributes: [.font: font, .paragraphStyle: para])
-        let framesetter = CTFramesetterCreateWithAttributedString(attr)
-
-        var pages: [PageData] = []
-        var currentOffset = 0
-        let totalLen = attr.length
-
         let pageChapterIndex = chapterIndex ?? currentChapterIndex
-        let pageChapterTitle = chapters[safe: pageChapterIndex]?.title ?? ""
-
-        while currentOffset < totalLen {
-            let textRect = CGRect(x: 0, y: 0, width: textWidth, height: textHeight)
-            let path = CGPath(rect: textRect, transform: nil)
-            let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(currentOffset, 0), path, nil)
-            let visible = CTFrameGetVisibleStringRange(frame)
-
-            guard visible.length > 0 else { break }
-
-            let lo = String.Index(utf16Offset: visible.location, in: content)
-            let hi = String.Index(utf16Offset: visible.location + visible.length, in: content)
-
-            let pageContent = String(content[lo..<hi])
-            pages.append(PageData(
-                pageIndex: pages.count,
-                startCharOffset: visible.location,
-                endCharOffset: visible.location + visible.length,
-                content: pageContent,
-                chapterTitle: pageChapterTitle,
+        let chapter = chapters[safe: pageChapterIndex] ?? Chapter(
+            bookId: book.id,
+            title: "",
+            orderIndex: pageChapterIndex
+        )
+        do {
+            let pages = try ReaderTextLayoutEngine.pages(
+                content: content,
+                chapter: chapter,
+                chapterIndex: pageChapterIndex,
+                pageSize: size,
+                settings: settings
+            )
+            if !pages.isEmpty { return pages }
+        } catch {
+            LVLogger.error("Reader pagination failed: \(error.localizedDescription)", category: .ui)
+        }
+        return [
+            PageData(
+                pageIndex: 0,
+                startCharOffset: 0,
+                endCharOffset: content.utf16.count,
+                content: content,
+                chapterTitle: chapter.title,
                 chapterIndex: pageChapterIndex
-            ))
-
-            currentOffset = visible.location + visible.length
-        }
-
-        if pages.isEmpty {
-            pages.append(PageData(pageIndex: 0, startCharOffset: 0, endCharOffset: 0, content: content, chapterTitle: pageChapterTitle, chapterIndex: pageChapterIndex))
-        }
-
-        return pages
+            )
+        ]
     }
 
     // MARK: Navigation
