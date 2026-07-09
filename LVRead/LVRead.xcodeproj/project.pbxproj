@@ -85,6 +85,8 @@
 		FB98C4EF37F84DA4B90AC0F6 /* String+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8ABD9F07E344D4CAE20D84A /* String+Extensions.swift */; };
 		A1B2C3D4E5F60718293A4B5D /* ReaderTextLayoutEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5E /* ReaderTextLayoutEngineTests.swift */; };
 		A1B2C3D4E5F60718293A4B5F /* ReaderTextLayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B60 /* ReaderTextLayoutEngine.swift */; };
+		A1B2C3D4E5F60718293A4B62 /* PaperCurlPhysicsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B63 /* PaperCurlPhysicsTests.swift */; };
+		A1B2C3D4E5F60718293A4B64 /* PaperCurlAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B65 /* PaperCurlAnimator.swift */; };
 		FD8DC448A0D7450A767AE1DB /* BookImportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C36BA74025395615084343 /* BookImportManager.swift */; };
 /* End PBXBuildFile section */		819B1997701345FCA3D70EB4 /* ZodiacWatermark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39E83D68ADBA4F369CBD28AE /* ZodiacWatermark.swift */; };
 		E5F30A9296304B78B1DA1216 /* ZodiacCoverOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B93D60F92B42E4B6A9306F /* ZodiacCoverOverlay.swift */; };
@@ -168,6 +170,8 @@
 		D8ABD9F07E344D4CAE20D84A /* String+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+Extensions.swift"; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5E /* ReaderTextLayoutEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTextLayoutEngineTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B60 /* ReaderTextLayoutEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTextLayoutEngine.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B63 /* PaperCurlPhysicsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperCurlPhysicsTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B65 /* PaperCurlAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperCurlAnimator.swift; sourceTree = "<group>"; };
 		DA027B9000BDA2B23BEA2FA9 /* PageCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageCacheManager.swift; sourceTree = "<group>"; };
 		DB9D4D5B4140986B2A1118CA /* LanDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanDevice.swift; sourceTree = "<group>"; };
 		DE58B094F2117889990D6188 /* WebSyncServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSyncServer.swift; sourceTree = "<group>"; };
@@ -432,6 +436,7 @@ A4FDBBE986D40785B3907B8C /* Network */,
 				B6BB2DF13AD508329BAB82AD /* ModelTests.swift */,
 				82018A28F3557489496CDF27 /* ParserTests.swift */,
 				A1B2C3D4E5F60718293A4B5E /* ReaderTextLayoutEngineTests.swift */,
+				A1B2C3D4E5F60718293A4B63 /* PaperCurlPhysicsTests.swift */,
 			);
 			path = LVReadTests;
 			sourceTree = "<group>";
@@ -499,6 +504,7 @@ A4FDBBE986D40785B3907B8C /* Network */,
 				837F7CDB4AB9EF23CD3D6302 /* CoverAnimator.swift */,
 				FB3641E23CFD5F44700943B7 /* SlideAnimator.swift */,
 				1C66CBAA376279FE317EFE0A /* SmoothScrollHandler.swift */,
+				A1B2C3D4E5F60718293A4B65 /* PaperCurlAnimator.swift */,
 			);
 			path = Animation;
 			sourceTree = "<group>";
@@ -595,6 +601,7 @@ A4FDBBE986D40785B3907B8C /* Network */,
 				06915DF08E21B0B978066BAC /* ModelTests.swift in Sources */,
 				D633E547ACCCA60A8404A4E2 /* ParserTests.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5D /* ReaderTextLayoutEngineTests.swift in Sources */,
+				A1B2C3D4E5F60718293A4B62 /* PaperCurlPhysicsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -641,6 +648,7 @@ A4FDBBE986D40785B3907B8C /* Network */,
 				0A16ECC4D05C4C2DB39615A9 /* PDFParser.swift in Sources */,
 				5CEB7CA77545F6E45172B77A /* PageCacheManager.swift in Sources */,
 				0E208B45B2B817DFAF55E69F /* PageFlipAnimator.swift in Sources */,
+				A1B2C3D4E5F60718293A4B64 /* PaperCurlAnimator.swift in Sources */,
 				6DEBDBD6FE815CF2D96F5DB0 /* PageFlipTypes.swift in Sources */,
 				E385AF50BB2359BCCA1991DC /* SimulationAnimator.swift in Sources */,
 				27F13B9C6EC1F19FBA798E08 /* CoverAnimator.swift in Sources */,
