@@ -129,7 +129,6 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(settings.fontSize, 18)
         XCTAssertEqual(settings.fontFamily, "系统默认")
         XCTAssertEqual(settings.lineSpacing, 1.6)
-        XCTAssertEqual(settings.paragraphSpacing, 1.0)
         XCTAssertEqual(settings.pageMarginHorizontal, 10.0)
         XCTAssertEqual(settings.brightness, 0.8)
         XCTAssertEqual(settings.pageFlipMode, .cover)

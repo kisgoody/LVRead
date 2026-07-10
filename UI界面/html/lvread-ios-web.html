@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LV Read Web Reference</title>
+  <style>
+    :root {
+      --bg: #f7f4ef;
+      --panel: #fffdf8;
+      --text: #27231f;
+      --muted: #6f675e;
+      --line: #ddd5ca;
+      --primary: #287c76;
+      --primary-soft: #dcefeb;
+      --warning: #c49a42;
+      --danger: #b45443;
+      --ink: #33425b;
+      --shadow: 0 16px 35px rgba(51, 42, 31, .09);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, .56) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(255, 255, 255, .5) 1px, transparent 1px),
+        var(--bg);
+      background-size: 32px 32px;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, input, select { font: inherit; }
+
+    .app {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 40px;
+    }
+
+    .topbar,
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .72);
+    }
+
+    .tab,
+    .button {
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 0 14px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .tab {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .tab.active {
+      background: var(--text);
+      color: white;
+    }
+
+    .button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+
+    .search {
+      flex: 1;
+      min-width: 240px;
+      height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 0 14px;
+      outline: none;
+    }
+
+    .dashboard {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel,
+    .book,
+    .note,
+    .metric,
+    .empty {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .9);
+      box-shadow: var(--shadow);
+    }
+
+    .panel { padding: 16px; }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .metric {
+      padding: 15px;
+      min-height: 88px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .books,
+    .notes {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .book {
+      display: grid;
+      grid-template-columns: 104px minmax(0, 1fr);
+      gap: 16px;
+      min-height: 168px;
+      padding: 14px;
+    }
+
+    .cover {
+      width: 104px;
+      height: 140px;
+      border-radius: 6px;
+      background: var(--cover);
+      color: white;
+      padding: 20px 14px 0 22px;
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1.35;
+      box-shadow: 0 12px 24px rgba(40, 34, 28, .18);
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .chip {
+      min-height: 28px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .note {
+      padding: 16px;
+      min-height: 132px;
+    }
+
+    .side-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .empty {
+      display: none;
+      min-height: 360px;
+      padding: 72px 24px;
+      text-align: center;
+      border-style: dashed;
+      box-shadow: none;
+    }
+
+    .is-empty .content-state { display: none; }
+    .is-empty .empty { display: block; }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    .reader-reference {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .reader-page-card {
+      position: relative;
+      min-height: 620px;
+      overflow: hidden;
+      border: 1px solid #ded1be;
+      border-radius: 8px;
+      background: #fbf0d9;
+      color: #3d3226;
+      box-shadow: var(--shadow);
+      padding: 88px 72px 96px;
+    }
+
+    .reader-page-card p {
+      margin: 0 0 20px;
+      color: #3d3226;
+      font-size: 18px;
+      line-height: 1.75;
+    }
+
+    .reader-page-card .commented {
+      position: relative;
+      padding: 8px 28px 8px 10px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, rgba(40, 124, 118, .12), transparent 72%);
+    }
+
+    .reader-page-card .commented::after {
+      content: "评论";
+      position: absolute;
+      right: 0;
+      top: 10px;
+      min-width: 40px;
+      min-height: 24px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--primary);
+      color: white;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .reader-page-header,
+    .reader-page-footer {
+      position: absolute;
+      left: 32px;
+      right: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #7a6a56;
+      font-size: 12px;
+    }
+
+    .reader-page-header { top: 28px; }
+    .reader-page-footer { bottom: 28px; }
+
+    .reader-ribbon {
+      position: absolute;
+      top: 0;
+      right: 48px;
+      width: 34px;
+      height: 56px;
+      display: grid;
+      place-items: center;
+      border-radius: 0 0 8px 8px;
+      background: var(--danger);
+      color: white;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .reader-side {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .reader-tool-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .reader-state-row {
+      display: grid;
+      gap: 8px;
+    }
+
+    .reader-state-row .panel {
+      box-shadow: none;
+    }
+
+    @media (max-width: 920px) {
+      .topbar,
+      .toolbar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .tabs {
+        overflow-x: auto;
+      }
+
+      .dashboard,
+      .reader-reference,
+      .summary,
+      .books,
+      .notes {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main id="app" class="app">
+    <header class="topbar">
+      <div>
+        <h1>LV Read Web 参考界面</h1>
+        <p>与 iOS 书架、笔记、我的保持一致的信息架构</p>
+      </div>
+      <nav class="tabs" aria-label="模块导航">
+        <button class="tab active" type="button" data-page="shelf">书架</button>
+        <button class="tab" type="button" data-page="reader">阅读预览</button>
+        <button class="tab" type="button" data-page="notes">笔记</button>
+        <button class="tab" type="button" data-page="profile">我的</button>
+      </nav>
+    </header>
+
+    <section class="toolbar">
+      <input class="search" type="search" aria-label="搜索书名、作者、评论或书签" title="搜索书名、作者、评论或书签">
+      <button id="toggleEmpty" class="button" type="button">切换空状态</button>
+      <button class="button primary" type="button">添加书籍</button>
+    </section>
+
+    <section class="page active" data-page="shelf">
+      <div class="content-state">
+        <div class="summary">
+          <div class="metric"><strong>18</strong><p>总藏书</p></div>
+          <div class="metric"><strong>6</strong><p>阅读中</p></div>
+          <div class="metric"><strong>4</strong><p>已读完</p></div>
+          <div class="metric"><strong>68%</strong><p>最近进度</p></div>
+        </div>
+        <div class="dashboard">
+          <section class="books">
+            <article class="book"><div class="cover" style="--cover: linear-gradient(135deg,#287c76,#33425b)">长夜灯塔</div><div><h2>长夜灯塔</h2><p>林序 · 第 12 章 · 继续阅读</p><div class="chips"><span class="chip">TXT</span><span class="chip">阅读中</span><button class="button open-reader" type="button">打开阅读</button></div></div></article>
+            <article class="book"><div class="cover" style="--cover: linear-gradient(135deg,#b45443,#c49a42)">产品决策手册</div><div><h2>产品决策手册</h2><p>周明远 · 待读</p><div class="chips"><span class="chip">EPUB</span><span class="chip">待读</span></div></div></article>
+          </section>
+          <aside class="panel"><h2>继续阅读</h2><p>Web 端用于同网阅读或管理参考时，右侧保留阅读上下文、导入入口和最近统计。</p></aside>
+        </div>
+      </div>
+      <section class="empty"><h2>没有书籍</h2><p>导入本地文件后，书架会展示书名、作者、格式、进度和来源。</p><button class="button primary" type="button">导入本地文件</button></section>
+    </section>
+
+    <section class="page" data-page="reader">
+      <div class="reader-reference">
+        <article class="reader-page-card" aria-label="阅读页面">
+          <div class="reader-page-header"><span>长夜灯塔</span><span>第 12 章 · 68%</span></div>
+          <div class="reader-ribbon" aria-label="当前页已添加书签">书签</div>
+          <p>海面在夜色里缓慢起伏，灯塔的光像一条安静的线，从窗边扫过，又落回远处的雾里。</p>
+          <p class="commented">真正让人停下来的不是黑暗，而是远处仍然亮着的一束光。她把这句话按在纸页边缘，像给自己留下一个可以回来的路标。</p>
+          <p>风声越过礁石，旧钟在楼下响了三下。她知道下一页会进入新的章节，但这一页必须先被完整读完。</p>
+          <div class="reader-page-footer"><span>连续页流缓存：当前页 ±5 页</span><strong>37 / 112</strong></div>
+        </article>
+        <aside class="reader-side">
+          <section class="panel"><h2>阅读工具</h2><div class="reader-tool-grid"><button class="button" type="button">目录</button><button class="button" type="button">主题</button><button class="button" type="button">排版</button><button class="button" type="button">自动阅读</button></div></section>
+          <section class="panel"><h2>评论 Sheet</h2><p>长按段落后显示选中文本和输入框，保存后笔记模块同步更新。</p><div class="chips"><span class="chip">选中文本 ≤ 500 字</span><span class="chip">评论 ≤ 1000 字</span></div></section>
+          <section class="panel"><h2>书签交互</h2><p>下拉当前页面设置书签，再次下拉取消；标识必须可被读屏读出。</p></section>
+          <div class="reader-state-row">
+            <section class="panel"><h2>加载状态</h2><p>首次加载显示正文骨架屏，禁止翻页手势。</p></section>
+            <section class="panel"><h2>空内容状态</h2><p>章节无正文时提示返回目录或回到书架检查文件。</p></section>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="page" data-page="notes">
+      <div class="content-state dashboard">
+        <section class="notes">
+          <article class="note"><h2>评论 · 长夜灯塔</h2><p>真正让人停下来的不是黑暗，而是远处仍然亮着的一束光。</p><div class="chips"><span class="chip">第 12 章</span><span class="chip">回到原文</span></div></article>
+          <article class="note"><h2>书签 · 系统设计笔记</h2><p>当前页已添加书签，再次下拉可取消。</p><div class="chips"><span class="chip">42%</span><span class="chip">昨天 21:06</span></div></article>
+        </section>
+        <aside class="side-list">
+          <div class="metric"><strong>32</strong><p>评论</p></div>
+          <div class="metric"><strong>18</strong><p>书签</p></div>
+          <div class="panel"><h2>阅读页标记</h2><p>评论标记与书签标识必须可被 VoiceOver 读出，且不改变正文排版。</p></div>
+        </aside>
+      </div>
+      <section class="empty"><h2>没有笔记</h2><p>在阅读页长按段落添加评论，或下拉页面设置书签。</p></section>
+    </section>
+
+    <section class="page" data-page="profile">
+      <div class="content-state">
+        <div class="summary">
+          <div class="metric"><strong>42m</strong><p>今日阅读</p></div>
+          <div class="metric"><strong>18万</strong><p>本月字数</p></div>
+          <div class="metric"><strong>12天</strong><p>连续阅读</p></div>
+          <div class="metric"><strong>23:00</strong><p>夜读提醒</p></div>
+        </div>
+        <div class="dashboard">
+          <section class="panel"><h2>阅读总结</h2><p>本月已阅读 18 天，平均每次阅读 21 分钟。最近阅读集中在 23:00 后，建议提前 30 分钟结束阅读。</p></section>
+          <aside class="side-list">
+            <div class="panel"><h2>藏书统计</h2><p>总藏书 18 本，阅读中 6 本，已读完 4 本。</p></div>
+            <div class="panel"><h2>笔记统计</h2><p>评论 32 条，书签 18 个，最近活跃书籍为《长夜灯塔》。</p></div>
+          </aside>
+        </div>
+      </div>
+      <section class="empty"><h2>暂无统计</h2><p>开始阅读后，将按日、月、年生成阅读时间、字数和建议。</p></section>
+    </section>
+  </main>
+
+  <script>
+    const app = document.querySelector("#app");
+    const tabs = [...document.querySelectorAll(".tab")];
+    const pages = [...document.querySelectorAll(".page")];
+
+    tabs.forEach(tab => {
+      tab.addEventListener("click", () => {
+        tabs.forEach(item => item.classList.remove("active"));
+        tab.classList.add("active");
+        pages.forEach(page => page.classList.toggle("active", page.dataset.page === tab.dataset.page));
+      });
+    });
+
+    document.querySelectorAll(".open-reader").forEach(button => {
+      button.addEventListener("click", () => {
+        tabs.forEach(item => item.classList.toggle("active", item.dataset.page === "reader"));
+        pages.forEach(page => page.classList.toggle("active", page.dataset.page === "reader"));
+      });
+    });
+
+    document.querySelector("#toggleEmpty").addEventListener("click", () => {
+      app.classList.toggle("is-empty");
+    });
+  </script>
+</body>
+</html>

@@ -4,8 +4,8 @@ final class ChapterListViewController: UIViewController {
 
     // MARK: - Properties
 
-    private let chapters: [Chapter]
-    private let currentIndex: Int
+    private let entries: [ReaderChapterContentPolicy.DirectoryEntry]
+    private let currentEntryIndex: Int?
     private let tableView = UITableView(frame: .zero, style: .plain)
 
     var onChapterSelected: ((Int) -> Void)?
@@ -13,10 +13,13 @@ final class ChapterListViewController: UIViewController {
     // MARK: - Init
 
     init(book: Book, chapters: [Chapter], currentIndex: Int) {
-        self.chapters = chapters
-        self.currentIndex = currentIndex
+        let entries = ReaderChapterContentPolicy.directoryEntries(from: chapters)
+        self.entries = entries
+        self.currentEntryIndex = entries.firstIndex {
+            $0.sourceIndices.contains(currentIndex)
+        }
         super.init(nibName: nil, bundle: nil)
-        title = "\u{76EE}\u{5F55} (\(chapters.count)\u{7AE0})"
+        title = "\u{76EE}\u{5F55} (\(entries.count)\u{7AE0})"
     }
 
     @available(*, unavailable)
@@ -52,9 +55,9 @@ final class ChapterListViewController: UIViewController {
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
-        if currentIndex < chapters.count {
+        if let currentEntryIndex {
             tableView.scrollToRow(
-                at: IndexPath(row: currentIndex, section: 0),
+                at: IndexPath(row: currentEntryIndex, section: 0),
                 at: .middle,
                 animated: false
             )
@@ -73,20 +76,20 @@ final class ChapterListViewController: UIViewController {
 extension ChapterListViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return chapters.count
+        entries.count
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-        let chapter = chapters[indexPath.row]
+        let chapter = entries[indexPath.row].chapter
 
         cell.textLabel?.text = chapter.title
         cell.textLabel?.font = (chapter.level == 1)
             ? .systemFont(ofSize: 15, weight: .medium)
             : .systemFont(ofSize: 14, weight: .regular)
-        cell.textLabel?.textColor = (indexPath.row == currentIndex) ? .lvPrimary : .lvTextPrimary
+        cell.textLabel?.textColor = (indexPath.row == currentEntryIndex) ? .lvPrimary : .lvTextPrimary
         cell.indentationLevel = (chapter.level - 1) * 2
-        cell.accessoryType = (indexPath.row == currentIndex) ? .checkmark : .none
+        cell.accessoryType = (indexPath.row == currentEntryIndex) ? .checkmark : .none
         cell.tintColor = .lvPrimary
 
         return cell
@@ -99,7 +102,7 @@ extension ChapterListViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        onChapterSelected?(indexPath.row)
+        onChapterSelected?(entries[indexPath.row].sourceIndex)
         dismiss(animated: true)
     }
 

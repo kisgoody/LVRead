@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LV Read iPhone</title>
+  <style>
+    :root {
+      --page: #f5f2ec;
+      --surface: #fffdf8;
+      --text: #24211d;
+      --muted: #746c63;
+      --line: #e3dbcf;
+      --primary: #236d67;
+      --primary-soft: #dcefeb;
+      --success: #2e7d5b;
+      --warning: #c2933d;
+      --danger: #b65a49;
+      --shadow: 0 14px 34px rgba(42, 34, 26, .1);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #d7d0c5;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button { font: inherit; }
+
+    .phone {
+      width: min(390px, 100vw);
+      min-height: min(844px, 100vh);
+      position: relative;
+      overflow: hidden;
+      background: var(--page);
+      box-shadow: 0 24px 80px rgba(36, 33, 29, .24);
+    }
+
+    .app {
+      height: 100vh;
+      max-height: 844px;
+      overflow: auto;
+      padding: 16px 16px 92px;
+      scrollbar-width: none;
+    }
+
+    .app::-webkit-scrollbar { display: none; }
+
+    .status {
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .icon-button {
+      width: 44px;
+      height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--primary);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: 0 8px 20px rgba(42, 34, 26, .06);
+    }
+
+    .segmented,
+    .filters {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 0 0 16px;
+      scrollbar-width: none;
+    }
+
+    .chip {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      white-space: nowrap;
+      padding: 0 14px;
+      cursor: pointer;
+    }
+
+    .chip.active {
+      background: var(--text);
+      border-color: var(--text);
+      color: white;
+      font-weight: 800;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .94);
+      box-shadow: var(--shadow);
+    }
+
+    .continue {
+      min-height: 128px;
+      padding: 16px;
+      color: white;
+      background: linear-gradient(135deg, #236d67, #2d425d);
+      margin-bottom: 24px;
+    }
+
+    .continue p { color: rgba(255, 255, 255, .76); }
+
+    .progress {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      margin-top: 16px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .track {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .24);
+    }
+
+    .track span {
+      display: block;
+      width: 68%;
+      height: 100%;
+      border-radius: inherit;
+      background: white;
+    }
+
+    .book-list,
+    .note-list,
+    .stats-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .book {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) 44px;
+      gap: 12px;
+      align-items: center;
+      min-height: 104px;
+      padding: 12px;
+    }
+
+    .cover {
+      width: 72px;
+      height: 96px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 6px;
+      background: var(--cover);
+      color: white;
+      box-shadow: 0 10px 20px rgba(36, 33, 29, .18);
+    }
+
+    .cover::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 8px;
+      background: rgba(0, 0, 0, .2);
+    }
+
+    .cover strong {
+      position: absolute;
+      left: 16px;
+      right: 10px;
+      top: 14px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .book h3,
+    .note h3 {
+      margin: 0 0 4px;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .book p,
+    .note p {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      padding: 0 8px;
+      font-weight: 800;
+    }
+
+    .note,
+    .stat-panel {
+      padding: 16px;
+    }
+
+    .note-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .stat {
+      min-height: 72px;
+      padding: 12px 8px;
+      text-align: center;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 20px;
+      line-height: 1.1;
+      margin-bottom: 6px;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .advice {
+      border-left: 4px solid var(--warning);
+      padding: 12px;
+      background: #fff7e8;
+      margin-bottom: 12px;
+    }
+
+    .empty {
+      display: none;
+      padding: 32px 20px;
+      text-align: center;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .78);
+    }
+
+    .empty h2 { margin-bottom: 8px; }
+
+    .primary {
+      min-height: 44px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--primary);
+      color: white;
+      padding: 0 16px;
+      font-weight: 800;
+      cursor: pointer;
+      margin-top: 16px;
+    }
+
+    .page { display: none; }
+    .page.active { display: block; }
+    .is-empty .content-state { display: none; }
+    .is-empty .empty { display: block; }
+
+    .bottom-nav {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      height: 76px;
+      padding: 8px 16px 12px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 253, 248, .95);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav-item {
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      gap: 2px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .nav-item.active {
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-weight: 800;
+    }
+
+    .phone.reader-open .bottom-nav {
+      display: none;
+    }
+
+    .reader-screen {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      background: #fbf0d9;
+      color: #3d3226;
+    }
+
+    .phone.reader-open .reader-screen {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .reader-top,
+    .reader-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 14px 16px;
+      background: rgba(255, 253, 248, .78);
+      backdrop-filter: blur(16px);
+    }
+
+    .reader-top {
+      border-bottom: 1px solid rgba(61, 50, 38, .14);
+    }
+
+    .reader-toolbar {
+      border-top: 1px solid rgba(61, 50, 38, .14);
+      padding-bottom: 18px;
+    }
+
+    .reader-title {
+      min-width: 0;
+      text-align: center;
+    }
+
+    .reader-title strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .reader-title span,
+    .reader-progress {
+      color: #7a6a56;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .reader-action,
+    .reader-tool {
+      min-width: 44px;
+      height: 44px;
+      border: 1px solid rgba(61, 50, 38, .16);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .72);
+      color: #236d67;
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .reader-content {
+      position: relative;
+      overflow: hidden;
+      padding: 28px 28px 24px;
+    }
+
+    .reader-page {
+      height: 100%;
+      overflow: auto;
+      scrollbar-width: none;
+      font-size: 18px;
+      line-height: 1.7;
+    }
+
+    .reader-page::-webkit-scrollbar {
+      display: none;
+    }
+
+    .reader-page p {
+      color: #3d3226;
+      font-size: 18px;
+      line-height: 1.7;
+      margin: 0 0 18px;
+    }
+
+    .paragraph-mark {
+      position: relative;
+      padding-right: 18px;
+      background: linear-gradient(90deg, rgba(35, 109, 103, .1), transparent 62%);
+      border-radius: 6px;
+    }
+
+    .paragraph-mark::after {
+      content: "评";
+      position: absolute;
+      right: 0;
+      top: 4px;
+      width: 16px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #236d67;
+      color: white;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .bookmark-ribbon {
+      position: absolute;
+      right: 28px;
+      top: 0;
+      width: 28px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 0 0 8px 8px;
+      background: #b65a49;
+      color: white;
+      font-size: 12px;
+      font-weight: 800;
+      box-shadow: 0 8px 20px rgba(61, 50, 38, .18);
+    }
+
+    .reader-hint {
+      position: absolute;
+      left: 28px;
+      right: 28px;
+      bottom: 18px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid rgba(35, 109, 103, .18);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .88);
+      color: #7a6a56;
+      font-size: 12px;
+    }
+
+    .reader-panel {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 84px;
+      padding: 14px;
+      border: 1px solid rgba(61, 50, 38, .16);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .96);
+      box-shadow: 0 14px 34px rgba(61, 50, 38, .14);
+    }
+
+    .reader-panel h2 {
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .reader-panel textarea {
+      width: 100%;
+      min-height: 72px;
+      border: 1px solid rgba(61, 50, 38, .16);
+      border-radius: 8px;
+      resize: vertical;
+      padding: 10px;
+      background: #fffdf8;
+      color: #3d3226;
+      font: inherit;
+    }
+
+    .reader-panel-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .reader-skeleton,
+    .reader-empty {
+      display: none;
+      height: 100%;
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .62);
+      padding: 24px;
+    }
+
+    .reader-skeleton span {
+      display: block;
+      height: 14px;
+      margin-bottom: 16px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #eadfcf, #fff7e8, #eadfcf);
+    }
+
+    .reader-screen.loading .reader-page,
+    .reader-screen.empty .reader-page,
+    .reader-screen.loading .bookmark-ribbon,
+    .reader-screen.empty .bookmark-ribbon,
+    .reader-screen.loading .reader-hint,
+    .reader-screen.empty .reader-hint,
+    .reader-screen.loading .reader-panel,
+    .reader-screen.empty .reader-panel {
+      display: none;
+    }
+
+    .reader-screen.loading .reader-skeleton,
+    .reader-screen.empty .reader-empty {
+      display: block;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #171713;
+        --surface: #23221d;
+        --text: #f2eadc;
+        --muted: #b8ad9e;
+        --line: #3a352e;
+        --primary-soft: #163c38;
+        --shadow: none;
+      }
+
+      body { background: #111; }
+      .advice { background: #2b2418; }
+    }
+  </style>
+</head>
+<body>
+  <div class="phone">
+    <main id="app" class="app">
+      <div class="status" aria-hidden="true"><span>09:41</span><span>5G  82%</span></div>
+
+      <section class="page active" data-page="shelf">
+        <header class="topbar">
+          <div>
+            <h1>书架</h1>
+            <p>继续阅读与管理本地藏书</p>
+          </div>
+          <button id="toggleState" class="icon-button" type="button" aria-label="切换有内容和无内容状态">切换</button>
+        </header>
+        <div class="content-state">
+          <nav class="filters" aria-label="书架筛选">
+            <button class="chip active" type="button">全部</button>
+            <button class="chip" type="button">阅读中</button>
+            <button class="chip" type="button">待读</button>
+            <button class="chip" type="button">收藏</button>
+          </nav>
+          <section class="card continue open-reader" aria-label="继续阅读">
+            <p>继续阅读</p>
+            <h2>长夜灯塔</h2>
+            <p>第 12 章 · 还剩 18 分钟</p>
+            <div class="progress"><div class="track"><span></span></div><strong>68%</strong></div>
+          </section>
+          <section class="book-list" aria-label="书籍列表">
+            <article class="card book">
+              <div class="cover" style="--cover: linear-gradient(135deg, #236d67, #2d425d)"><strong>长夜灯塔</strong></div>
+              <div><h3>长夜灯塔</h3><p>林序 · 已读 68%</p><div class="meta"><span class="tag">TXT</span><span>阅读中</span></div></div>
+              <button class="icon-button open-reader" type="button" aria-label="继续阅读">读</button>
+            </article>
+            <article class="card book">
+              <div class="cover" style="--cover: linear-gradient(135deg, #b65a49, #c2933d)"><strong>产品决策手册</strong></div>
+              <div><h3>产品决策手册</h3><p>周明远 · 尚未开始</p><div class="meta"><span class="tag">EPUB</span><span>待读</span></div></div>
+              <button class="icon-button open-reader" type="button" aria-label="开始阅读">读</button>
+            </article>
+          </section>
+        </div>
+        <section class="empty" aria-live="polite">
+          <h2>书架还是空的</h2>
+          <p>导入本地文件后，可以在这里继续阅读、筛选和管理藏书。</p>
+          <button class="primary" type="button">导入本地文件</button>
+        </section>
+      </section>
+
+      <section class="page" data-page="notes">
+        <header class="topbar">
+          <div>
+            <h1>笔记</h1>
+            <p>评论、书签与回到原文</p>
+          </div>
+          <button class="icon-button" type="button" aria-label="搜索笔记">搜</button>
+        </header>
+        <div class="content-state">
+          <div class="stats-grid" aria-label="笔记统计">
+            <div class="card stat"><strong>32</strong><span>评论</span></div>
+            <div class="card stat"><strong>18</strong><span>书签</span></div>
+            <div class="card stat"><strong>今日</strong><span>最近</span></div>
+          </div>
+          <nav class="segmented" aria-label="笔记类型">
+            <button class="chip active" type="button">全部</button>
+            <button class="chip" type="button">评论</button>
+            <button class="chip" type="button">书签</button>
+          </nav>
+          <section class="note-list">
+            <article class="card note"><span class="note-mark">评论标记</span><h3>长夜灯塔 · 第 12 章</h3><p>真正让人停下来的不是黑暗，而是远处仍然亮着的一束光。</p><div class="meta"><span>今天 09:18</span><span>回到原文</span></div></article>
+            <article class="card note"><span class="note-mark">书签标识</span><h3>系统设计笔记 · 42%</h3><p>复杂系统的边界要先被看见，接口才有机会保持清醒。</p><div class="meta"><span>昨天 21:06</span><span>回到原文</span></div></article>
+          </section>
+        </div>
+        <section class="empty" aria-live="polite">
+          <h2>还没有笔记</h2>
+          <p>阅读时长按段落可添加评论，下拉页面可设置书签。</p>
+          <button class="primary" type="button">去书架阅读</button>
+        </section>
+      </section>
+
+      <section class="page" data-page="profile">
+        <header class="topbar">
+          <div>
+            <h1>我的</h1>
+            <p>阅读统计、藏书统计、笔记统计</p>
+          </div>
+          <button class="icon-button" type="button" aria-label="设置">设</button>
+        </header>
+        <div class="content-state">
+          <div class="stats-grid">
+            <div class="card stat"><strong>42m</strong><span>今日</span></div>
+            <div class="card stat"><strong>18万</strong><span>本月字数</span></div>
+            <div class="card stat"><strong>12天</strong><span>连续</span></div>
+          </div>
+          <section class="advice"><strong>夜读提醒</strong><p>最近阅读集中在 23:00 后，建议提前 30 分钟结束阅读。</p></section>
+          <section class="stats-list">
+            <article class="card stat-panel"><h2>藏书统计</h2><p>总藏书 18 本，阅读中 6 本，已读完 4 本。TXT 与 EPUB 占比最高。</p></article>
+            <article class="card stat-panel"><h2>笔记统计</h2><p>评论 32 条，书签 18 个，最近活跃书籍为《长夜灯塔》。</p></article>
+          </section>
+        </div>
+        <section class="empty" aria-live="polite">
+          <h2>暂无阅读统计</h2>
+          <p>开始阅读后，这里会按日、月、年汇总阅读时间、字数和建议。</p>
+          <button class="primary" type="button">去书架阅读</button>
+        </section>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="底部导航">
+      <button class="nav-item active" type="button" data-page="shelf">书架</button>
+      <button class="nav-item" type="button" data-page="notes">笔记</button>
+      <button class="nav-item" type="button" data-page="profile">我的</button>
+    </nav>
+
+    <section id="readerScreen" class="reader-screen" aria-label="阅读页面">
+      <header class="reader-top">
+        <button id="closeReader" class="reader-action" type="button" aria-label="返回书架">返</button>
+        <div class="reader-title">
+          <strong>长夜灯塔</strong>
+          <span>第 12 章 · 连续页流 68%</span>
+        </div>
+        <button id="readerState" class="reader-action" type="button" aria-label="切换阅读页状态">态</button>
+      </header>
+      <div class="reader-content">
+        <div class="bookmark-ribbon" aria-label="当前页已添加书签">签</div>
+        <article class="reader-page" aria-label="正文">
+          <p>海面在夜色里缓慢起伏，灯塔的光像一条安静的线，从窗边扫过，又落回远处的雾里。</p>
+          <p class="paragraph-mark">真正让人停下来的不是黑暗，而是远处仍然亮着的一束光。她把这句话按在纸页边缘，像给自己留下一个可以回来的路标。</p>
+          <p>风声越过礁石，旧钟在楼下响了三下。她知道下一页会进入新的章节，但这一页必须先被完整读完。</p>
+        </article>
+        <div class="reader-skeleton" aria-label="页面加载中">
+          <span style="width: 92%"></span><span style="width: 84%"></span><span style="width: 96%"></span><span style="width: 76%"></span><span style="width: 88%"></span>
+        </div>
+        <div class="reader-empty" aria-live="polite">
+          <h2>该章节暂无可阅读内容</h2>
+          <p>可以返回目录，或回到书架检查文件状态。</p>
+          <button class="primary" type="button">返回目录</button>
+        </div>
+        <div class="reader-hint">
+          <span>长按段落添加评论；下拉当前页设置或取消书签。</span>
+          <strong>37 / 112</strong>
+        </div>
+        <form class="reader-panel" aria-label="评论输入">
+          <h2>段落评论</h2>
+          <textarea aria-label="评论内容">这句适合作为本章的情绪锚点。</textarea>
+          <div class="reader-panel-actions">
+            <button class="icon-button" type="button">取消</button>
+            <button class="primary" type="button">保存评论</button>
+          </div>
+        </form>
+      </div>
+      <footer class="reader-toolbar">
+        <button class="reader-tool" type="button">目录</button>
+        <button class="reader-tool" type="button">主题</button>
+        <button class="reader-tool" type="button">排版</button>
+        <button class="reader-tool" type="button">自动</button>
+        <span class="reader-progress">缓存 ±5 页</span>
+      </footer>
+    </section>
+  </div>
+
+  <script>
+    const app = document.querySelector("#app");
+    const pages = [...document.querySelectorAll(".page")];
+    const navItems = [...document.querySelectorAll(".nav-item")];
+    const toggleState = document.querySelector("#toggleState");
+    const phone = document.querySelector(".phone");
+    const readerScreen = document.querySelector("#readerScreen");
+    const readerState = document.querySelector("#readerState");
+    const readerModes = ["normal", "loading", "empty"];
+    let readerModeIndex = 0;
+
+    navItems.forEach(item => {
+      item.addEventListener("click", () => {
+        navItems.forEach(nav => nav.classList.remove("active"));
+        item.classList.add("active");
+        pages.forEach(page => page.classList.toggle("active", page.dataset.page === item.dataset.page));
+      });
+    });
+
+    toggleState.addEventListener("click", () => {
+      app.classList.toggle("is-empty");
+    });
+
+    document.querySelectorAll(".open-reader").forEach(item => {
+      item.addEventListener("click", () => {
+        phone.classList.add("reader-open");
+        readerScreen.classList.remove("loading", "empty");
+        readerModeIndex = 0;
+      });
+    });
+
+    document.querySelector("#closeReader").addEventListener("click", () => {
+      phone.classList.remove("reader-open");
+    });
+
+    readerState.addEventListener("click", () => {
+      readerModeIndex = (readerModeIndex + 1) % readerModes.length;
+      readerScreen.classList.remove("loading", "empty");
+      if (readerModes[readerModeIndex] !== "normal") {
+        readerScreen.classList.add(readerModes[readerModeIndex]);
+      }
+    });
+  </script>
+</body>
+</html>

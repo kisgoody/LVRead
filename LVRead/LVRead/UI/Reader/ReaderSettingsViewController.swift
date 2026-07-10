@@ -697,7 +697,7 @@ final class ReaderSettingsViewController: UIViewController {
     }
 
     @objc private func lineSpacingChanged(_ slider: UISlider) {
-        settings.lineSpacing = Double(round(slider.value * 10) / 10)
+        settings.lineSpacing = min(max(Double(round(slider.value * 10) / 10), 1), 3)
         slider.value = Float(settings.lineSpacing)
         if let label = objc_getAssociatedObject(slider, &readerSettingsSliderValueLabelKey) as? UILabel {
             label.text = String(format: "%.1f", settings.lineSpacing)
@@ -708,23 +708,25 @@ final class ReaderSettingsViewController: UIViewController {
     // MARK: - Paragraph Spacing
 
     private func makeParagraphSpacingRow() -> UIView {
-        makeSliderRow(
+        let value = settings.paragraphSpacing ?? settings.lineSpacing
+        return makeSliderRow(
             title: "段间距",
-            valueText: String(format: "%.1f", settings.paragraphSpacing),
-            minText: "0.5",
+            valueText: String(format: "%.1f", value),
+            minText: "1.0",
             maxText: "3.0",
-            range: 0.5...3.0,
-            value: Float(settings.paragraphSpacing),
+            range: 1.0...3.0,
+            value: Float(value),
             valueWidth: 36,
             action: #selector(paragraphSpacingChanged(_:))
         )
     }
 
     @objc private func paragraphSpacingChanged(_ slider: UISlider) {
-        settings.paragraphSpacing = Double(round(slider.value * 10) / 10)
-        slider.value = Float(settings.paragraphSpacing)
+        let value = min(max(Double(round(slider.value * 10) / 10), 1), 3)
+        settings.paragraphSpacing = value
+        slider.value = Float(value)
         if let label = objc_getAssociatedObject(slider, &readerSettingsSliderValueLabelKey) as? UILabel {
-            label.text = String(format: "%.1f", settings.paragraphSpacing)
+            label.text = String(format: "%.1f", value)
         }
         notifyChange()
     }

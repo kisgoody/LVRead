@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0DEC0410000000000000001 /* NativeReaderDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0400000000000000001 /* NativeReaderDocument.swift */; };
+		C0DEC0410000000000000002 /* NativeDocumentPageViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0400000000000000002 /* NativeDocumentPageViewController.swift */; };
+		C0DEC0410000000000000003 /* NativeDocumentReaderViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0400000000000000003 /* NativeDocumentReaderViewController.swift */; };
+		C0DEC0410000000000000004 /* NativeReaderSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0400000000000000004 /* NativeReaderSheets.swift */; };
 		06915DF08E21B0B978066BAC /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BB2DF13AD508329BAB82AD /* ModelTests.swift */; };
 		09F3D7B6C2E6FD6579C20D73 /* ReadingSettingsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D1E66DD3225BF74B35DF0A /* ReadingSettingsRepository.swift */; };
 		0A16ECC4D05C4C2DB39615A9 /* PDFParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2F223D32225C49E94F6087 /* PDFParser.swift */; };
@@ -103,6 +107,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C0DEC0400000000000000001 /* NativeReaderDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeReaderDocument.swift; sourceTree = "<group>"; };
+		C0DEC0400000000000000002 /* NativeDocumentPageViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDocumentPageViewController.swift; sourceTree = "<group>"; };
+		C0DEC0400000000000000003 /* NativeDocumentReaderViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDocumentReaderViewController.swift; sourceTree = "<group>"; };
+		C0DEC0400000000000000004 /* NativeReaderSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeReaderSheets.swift; sourceTree = "<group>"; };
 		03E4F2989B9A9A49B71969D4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0967476EA7EE8004B503E1DF /* FontManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontManager.swift; sourceTree = "<group>"; };
 		09A725C1BF61EC34402B094D /* ImageCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCacheManager.swift; sourceTree = "<group>"; };
@@ -236,6 +244,10 @@
 			children = (
 				3E8C786238FAC900A51BF47F /* ChapterListViewController.swift */,
 				0E7C51C1D9314A5A8B2F0C44 /* ContinuousReaderViewController.swift */,
+				C0DEC0400000000000000001 /* NativeReaderDocument.swift */,
+				C0DEC0400000000000000002 /* NativeDocumentPageViewController.swift */,
+				C0DEC0400000000000000003 /* NativeDocumentReaderViewController.swift */,
+				C0DEC0400000000000000004 /* NativeReaderSheets.swift */,
 				66437B801EE960844A577217 /* ReaderSettingsViewController.swift */,
 				44BB68492E415F80A27B24F0 /* ReaderViewController.swift */,
 				FE11B3B2751857DB57BE5951 /* Animation */,
@@ -609,6 +621,10 @@ A4FDBBE986D40785B3907B8C /* Network */,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DEC0410000000000000001 /* NativeReaderDocument.swift in Sources */,
+				C0DEC0410000000000000002 /* NativeDocumentPageViewController.swift in Sources */,
+				C0DEC0410000000000000003 /* NativeDocumentReaderViewController.swift in Sources */,
+				C0DEC0410000000000000004 /* NativeReaderSheets.swift in Sources */,
 				EF8B04376068F7DC88CAD754 /* AppConfiguration.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5F /* ReaderTextLayoutEngine.swift in Sources */,
 				4257E1BBB5B3CABEACE18D08 /* AppDelegate.swift in Sources */,

@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LV Read iPad</title>
+  <style>
+    :root {
+      --page: #f5f2ec;
+      --surface: #fffdf8;
+      --text: #24211d;
+      --muted: #746c63;
+      --line: #e3dbcf;
+      --primary: #236d67;
+      --primary-soft: #dcefeb;
+      --warning: #c2933d;
+      --danger: #b65a49;
+      --shadow: 0 14px 34px rgba(42, 34, 26, .09);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #d7d0c5;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: grid;
+      place-items: center;
+    }
+
+    button, input { font: inherit; }
+
+    .ipad {
+      width: min(1120px, calc(100vw - 48px));
+      min-height: min(760px, calc(100vh - 48px));
+      display: grid;
+      grid-template-columns: 232px minmax(0, 1fr);
+      overflow: hidden;
+      border-radius: 18px;
+      background: var(--page);
+      box-shadow: 0 24px 80px rgba(36, 33, 29, .24);
+    }
+
+    .sidebar {
+      padding: 24px;
+      border-right: 1px solid var(--line);
+      background: rgba(255, 253, 248, .72);
+    }
+
+    .brand h1,
+    .content h1,
+    .panel h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+      margin-top: 32px;
+    }
+
+    .nav button {
+      min-height: 44px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+      padding: 0 12px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .nav button.active {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .content {
+      padding: 24px;
+      overflow: auto;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .button {
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text);
+      padding: 0 14px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel,
+    .book,
+    .note,
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .94);
+      box-shadow: var(--shadow);
+    }
+
+    .panel { padding: 16px; }
+
+    .book-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .book {
+      min-height: 152px;
+      display: grid;
+      grid-template-columns: 88px minmax(0, 1fr);
+      gap: 16px;
+      padding: 14px;
+    }
+
+    .cover {
+      width: 88px;
+      height: 124px;
+      border-radius: 6px;
+      background: var(--cover);
+      color: white;
+      padding: 18px 12px 0 18px;
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.35;
+      box-shadow: 0 10px 20px rgba(36, 33, 29, .18);
+    }
+
+    .book h3,
+    .note h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .chip {
+      min-height: 28px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .note-list,
+    .metric-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .note { padding: 14px; }
+
+    .metric-list {
+      grid-template-columns: repeat(3, 1fr);
+      margin-bottom: 16px;
+    }
+
+    .metric {
+      min-height: 88px;
+      padding: 14px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .empty {
+      display: none;
+      min-height: 360px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .78);
+      text-align: center;
+      padding: 80px 32px;
+    }
+
+    .is-empty .content-state { display: none; }
+    .is-empty .empty { display: block; }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    .reader-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 288px;
+      gap: 16px;
+      align-items: stretch;
+      min-height: 560px;
+    }
+
+    .reader-canvas {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid #ded1be;
+      border-radius: 8px;
+      background: #fbf0d9;
+      box-shadow: var(--shadow);
+      padding: 72px 56px 88px;
+      color: #3d3226;
+    }
+
+    .reader-canvas p {
+      color: #3d3226;
+      font-size: 18px;
+      line-height: 1.75;
+      margin: 0 0 18px;
+    }
+
+    .reader-canvas .marked {
+      position: relative;
+      padding-right: 24px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, rgba(35, 109, 103, .1), transparent 70%);
+    }
+
+    .reader-canvas .marked::after {
+      content: "评论";
+      position: absolute;
+      right: 0;
+      top: 4px;
+      writing-mode: vertical-rl;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .reader-bookmark {
+      position: absolute;
+      top: 0;
+      right: 40px;
+      width: 32px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+      border-radius: 0 0 8px 8px;
+      background: var(--danger);
+      color: white;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .reader-header,
+    .reader-footer {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: #7a6a56;
+      font-size: 12px;
+    }
+
+    .reader-header { top: 20px; }
+    .reader-footer { bottom: 24px; }
+
+    .reader-side {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .reader-tools {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .reader-note-box {
+      border-left: 4px solid var(--primary);
+      padding: 12px;
+      background: rgba(220, 239, 235, .55);
+    }
+
+    .reader-state-card {
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: rgba(255, 253, 248, .72);
+    }
+
+    @media (max-width: 860px) {
+      body { display: block; background: var(--page); }
+      .ipad {
+        width: 100vw;
+        min-height: 100vh;
+        border-radius: 0;
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .nav {
+        display: flex;
+        margin: 0;
+      }
+      .layout,
+      .reader-layout,
+      .book-grid,
+      .metric-list {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main id="shell" class="ipad">
+    <aside class="sidebar">
+      <div class="brand"><h1>LV Read</h1><p>iPad 信息架构</p></div>
+      <nav class="nav" aria-label="主导航">
+        <button class="active" type="button" data-page="shelf">书架</button>
+        <button type="button" data-page="notes">笔记</button>
+        <button type="button" data-page="profile">我的</button>
+      </nav>
+    </aside>
+
+    <section class="content">
+      <header class="topbar">
+        <div><h1 id="pageTitle">书架</h1><p id="pageSubtitle">双栏管理藏书与继续阅读</p></div>
+        <div class="actions">
+          <button id="toggleEmpty" class="button" type="button">切换空状态</button>
+          <button class="button primary" type="button">导入</button>
+        </div>
+      </header>
+
+      <section class="page active" data-page="shelf">
+        <div class="content-state layout">
+          <div class="book-grid">
+            <article class="book open-reader"><div class="cover" style="--cover: linear-gradient(135deg,#236d67,#2d425d)">长夜灯塔</div><div><h3>长夜灯塔</h3><p>林序 · 第 12 章 · 68%</p><div class="chips"><span class="chip">阅读中</span><span class="chip">TXT</span></div></div></article>
+            <article class="book"><div class="cover" style="--cover: linear-gradient(135deg,#b65a49,#c2933d)">产品决策手册</div><div><h3>产品决策手册</h3><p>周明远 · 尚未开始</p><div class="chips"><span class="chip">待读</span><span class="chip">EPUB</span></div></div></article>
+            <article class="book"><div class="cover" style="--cover: linear-gradient(135deg,#33425b,#6b7b46)">系统设计笔记</div><div><h3>系统设计笔记</h3><p>陈嘉树 · 已读 42%</p><div class="chips"><span class="chip">阅读中</span><span class="chip">PDF</span></div></div></article>
+          </div>
+          <aside class="panel"><h2>继续阅读</h2><p>长夜灯塔 · 还剩 18 分钟。iPad 右侧区域用于详情、统计和上下文操作，不让书籍卡片过度拉伸。</p><button class="button primary open-reader" type="button">打开阅读页</button></aside>
+        </div>
+        <div class="empty"><h2>书架还是空的</h2><p>导入本地文件或通过同网传输添加第一本书。</p><button class="button primary" type="button">导入本地文件</button></div>
+      </section>
+
+      <section class="page" data-page="reader">
+        <div class="reader-layout">
+          <article class="reader-canvas" aria-label="阅读正文">
+            <div class="reader-header"><span>长夜灯塔</span><span>第 12 章 · 68%</span></div>
+            <div class="reader-bookmark" aria-label="当前页已添加书签">书签</div>
+            <p>海面在夜色里缓慢起伏，灯塔的光像一条安静的线，从窗边扫过，又落回远处的雾里。</p>
+            <p class="marked">真正让人停下来的不是黑暗，而是远处仍然亮着的一束光。她把这句话按在纸页边缘，像给自己留下一个可以回来的路标。</p>
+            <p>风声越过礁石，旧钟在楼下响了三下。她知道下一页会进入新的章节，但这一页必须先被完整读完。</p>
+            <div class="reader-footer"><span>缓存窗口：当前页 ±5 页</span><strong>37 / 112</strong></div>
+          </article>
+          <aside class="reader-side">
+            <div class="panel"><h2>阅读工具栏</h2><div class="reader-tools"><button class="button" type="button">目录</button><button class="button" type="button">主题</button><button class="button" type="button">排版</button><button class="button" type="button">自动</button></div></div>
+            <div class="panel reader-note-box"><h2>段落评论</h2><p>这句适合作为本章的情绪锚点。保存后会在笔记 Tab 中出现。</p></div>
+            <div class="reader-state-card"><h2>状态覆盖</h2><p>首次加载显示骨架屏；空章节提示返回目录；内存警告时窗口收缩到当前页 ±1 页。</p></div>
+            <button class="button primary" type="button" id="backToShelf">返回书架</button>
+          </aside>
+        </div>
+      </section>
+
+      <section class="page" data-page="notes">
+        <div class="content-state layout">
+          <div class="note-list">
+            <article class="note"><h3>评论 · 长夜灯塔</h3><p>长按段落添加的评论会在这里汇总，点击后回到原文段落。</p><div class="chips"><span class="chip">第 12 章</span><span class="chip">今天 09:18</span></div></article>
+            <article class="note"><h3>书签 · 系统设计笔记</h3><p>下拉阅读页面设置书签，再次下拉取消书签。</p><div class="chips"><span class="chip">42%</span><span class="chip">昨天 21:06</span></div></article>
+          </div>
+          <aside class="panel"><h2>笔记统计</h2><p>评论 32 条，书签 18 个，最近记录来自《长夜灯塔》。</p></aside>
+        </div>
+        <div class="empty"><h2>还没有笔记</h2><p>阅读页长按段落可添加评论，下拉页面可设置书签。</p></div>
+      </section>
+
+      <section class="page" data-page="profile">
+        <div class="content-state">
+          <div class="metric-list">
+            <div class="metric"><strong>42m</strong><p>今日阅读</p></div>
+            <div class="metric"><strong>18万</strong><p>本月字数</p></div>
+            <div class="metric"><strong>12天</strong><p>连续阅读</p></div>
+          </div>
+          <div class="layout">
+            <article class="panel"><h2>阅读建议</h2><p>最近阅读集中在 23:00 后，建议提前 30 分钟结束阅读，避免影响睡眠。</p></article>
+            <article class="panel"><h2>藏书与笔记</h2><p>藏书 18 本，评论 32 条，书签 18 个。技术类和小说类阅读最活跃。</p></article>
+          </div>
+        </div>
+        <div class="empty"><h2>暂无统计</h2><p>开始阅读后，将按日、月、年生成阅读时间、字数和建议。</p></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const shell = document.querySelector("#shell");
+    const buttons = [...document.querySelectorAll(".nav button")];
+    const pages = [...document.querySelectorAll(".page")];
+    const title = document.querySelector("#pageTitle");
+    const subtitle = document.querySelector("#pageSubtitle");
+    const copy = {
+      shelf: ["书架", "双栏管理藏书与继续阅读"],
+      reader: ["阅读", "连续页流、评论标记与书签标识"],
+      notes: ["笔记", "评论、书签与阅读页标记"],
+      profile: ["我的", "阅读统计、藏书统计、笔记统计"]
+    };
+
+    buttons.forEach(button => {
+      button.addEventListener("click", () => {
+        buttons.forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        pages.forEach(page => page.classList.toggle("active", page.dataset.page === button.dataset.page));
+        title.textContent = copy[button.dataset.page][0];
+        subtitle.textContent = copy[button.dataset.page][1];
+      });
+    });
+
+    document.querySelector("#toggleEmpty").addEventListener("click", () => {
+      shell.classList.toggle("is-empty");
+    });
+
+    function showPage(pageName) {
+      buttons.forEach(item => item.classList.toggle("active", item.dataset.page === pageName));
+      pages.forEach(page => page.classList.toggle("active", page.dataset.page === pageName));
+      title.textContent = copy[pageName][0];
+      subtitle.textContent = copy[pageName][1];
+    }
+
+    document.querySelectorAll(".open-reader").forEach(item => {
+      item.addEventListener("click", () => showPage("reader"));
+    });
+
+    document.querySelector("#backToShelf").addEventListener("click", () => showPage("shelf"));
+  </script>
+</body>
+</html>

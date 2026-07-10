@@ -1,6 +1,26 @@
 import UIKit
 import CoreText
 
+enum ReaderTextContentSanitizer {
+    /// 将连续的换行序列统一折叠为一个 `\n`，保留正常段落边界并去除多余空行。
+    static func collapsingExcessiveLineBreaks(in content: String) -> String {
+        var result = ""
+        result.reserveCapacity(content.count)
+        var previousWasLineBreak = false
+        for character in content {
+            let isLineBreak = character.unicodeScalars.allSatisfy { CharacterSet.newlines.contains($0) }
+            if isLineBreak {
+                if !previousWasLineBreak { result.append("\n") }
+                previousWasLineBreak = true
+            } else {
+                result.append(character)
+                previousWasLineBreak = false
+            }
+        }
+        return result
+    }
+}
+
 /// Shared CoreText input used by pagination and page rendering.
 struct ReaderTextLayout {
     let font: UIFont
@@ -46,8 +66,11 @@ enum ReaderTextLayoutEngine {
         )
 
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = font.lineHeight * CGFloat(max(settings.lineSpacing - 1, 0))
-        paragraph.paragraphSpacing = font.lineHeight * CGFloat(max(settings.paragraphSpacing, 0))
+        let y = font.lineHeight * CGFloat(max(settings.lineSpacing - 1, 0))
+        let paragraphValue = settings.paragraphSpacing ?? settings.lineSpacing
+        let x = font.lineHeight * CGFloat(max(paragraphValue - 1, 0))
+        paragraph.lineSpacing = y
+        paragraph.paragraphSpacing = x - y
         paragraph.alignment = .justified
 
         return ReaderTextLayout(
@@ -83,6 +106,7 @@ enum ReaderTextLayoutEngine {
         pageSize: CGSize,
         settings: ReadingSettings
     ) throws -> [ReaderPageRange] {
+        let content = ReaderTextContentSanitizer.collapsingExcessiveLineBreaks(in: content)
         guard pageSize.width > 0, pageSize.height > 0 else {
             throw ReaderTextLayoutError.invalidPageSize(pageSize)
         }
@@ -148,9 +172,10 @@ enum ReaderTextLayoutEngine {
         pageSize: CGSize,
         settings: ReadingSettings
     ) throws -> [PageData] {
-        let source = content as NSString
+        let normalizedContent = ReaderTextContentSanitizer.collapsingExcessiveLineBreaks(in: content)
+        let source = normalizedContent as NSString
         return try pageRanges(
-            content: content,
+            content: normalizedContent,
             pageSize: pageSize,
             settings: settings
         ).enumerated().map { index, range in

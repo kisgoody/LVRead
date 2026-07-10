@@ -49,10 +49,9 @@ final class BookshelfViewController: UIViewController {
     private let collectionView: UICollectionView
     private let tableView: UITableView
     private let emptyStateView = LVEmptyStateView(
-        icon: "📚",
-        title: "书架空空如也",
-        subtitle: "点击右下角 + 按钮导入你的第一本书籍",
-        actionTitle: "导入书籍"
+        icon: "books.vertical",
+        title: "书架还是空的\n点击右上角“+”添加第一本书",
+        subtitle: "导入本地文件后，可以在这里继续阅读、筛选和管理藏书"
     )
     private let fabButton = UIButton(type: .system)
     private let topAddButton = UIButton(type: .system)
@@ -619,9 +618,23 @@ final class BookshelfViewController: UIViewController {
 
         filteredBooks = result
         let readingCount = books.filter { $0.readingProgress.progressPercent > 0 && $0.readingProgress.progressPercent < 100 }.count
+        let hasNoBooks = books.isEmpty
         summaryLabel.text = nil
         updateFilterChipTitles(readingCount: readingCount)
         emptyStateView.isHidden = !filteredBooks.isEmpty
+        filterScrollView.isHidden = hasNoBooks
+        sectionHeaderView.isHidden = hasNoBooks
+
+        if hasNoBooks {
+            emptyStateView.updateIcon("books.vertical")
+            emptyStateView.updateTitle("书架还是空的\n点击右上角“+”添加第一本书")
+            emptyStateView.updateSubtitle("导入本地文件后，可以在这里继续阅读、筛选和管理藏书")
+        } else if filteredBooks.isEmpty {
+            emptyStateView.updateIcon("line.3.horizontal.decrease.circle")
+            emptyStateView.updateTitle("没有找到符合条件的书籍")
+            emptyStateView.updateSubtitle("请尝试调整筛选条件或搜索关键词")
+        }
+
         updateContinueCard()
         collectionView.reloadData()
         tableView.reloadData()
@@ -876,7 +889,7 @@ final class BookshelfViewController: UIViewController {
     }
 
     private func openReader(for book: Book) {
-        let readerVC = ContinuousReaderViewController(book: book)
+        let readerVC = NativeDocumentReaderViewController(book: book)
         navigationController?.pushViewController(readerVC, animated: true)
     }
 

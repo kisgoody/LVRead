@@ -104,7 +104,7 @@ extension SearchViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let book = results[indexPath.row]
-        let readerVC = ContinuousReaderViewController(book: book)
+        let readerVC = NativeDocumentReaderViewController(book: book)
         readerVC.modalPresentationStyle = .fullScreen
         present(readerVC, animated: true)
     }

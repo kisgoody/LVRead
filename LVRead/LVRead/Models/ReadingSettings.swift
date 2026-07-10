@@ -5,7 +5,7 @@ struct ReadingSettings: Codable, Equatable, Hashable {
     var fontSize: Int
     var fontWeight: Int
     var lineSpacing: Double
-    var paragraphSpacing: Double
+    var paragraphSpacing: Double?
     var pageMarginHorizontal: Double
     var pageMarginVertical: Double
     var backgroundColor: String
@@ -32,23 +32,23 @@ struct ReadingSettings: Codable, Equatable, Hashable {
 
     static let `default` = ReadingSettings(
         fontFamily: "系统默认",
-        fontSize: 18,
+        fontSize: 24,
         fontWeight: 400,
-        lineSpacing: 1.6,
-        paragraphSpacing: 1.0,
-        pageMarginHorizontal: 10.0,
-        pageMarginVertical: 8.0,
-        backgroundColor: "#FFFFFF",
+        lineSpacing: 1.4,
+        paragraphSpacing: 1.4,
+        pageMarginHorizontal: 7.0,
+        pageMarginVertical: 2.0,
+        backgroundColor: "#FBF0D9",
         backgroundImagePath: Optional<String>.none,
         backgroundImageOpacity: 0.3,
-        brightness: 0.8,
+        brightness: 1.0,
         zodiacWatermark: ZodiacAnimal.currentYearZodiac(),
         eyeCareFilter: EyeCareFilter.none,
         nightMode: false,
         pageFlipMode: PageFlipMode.cover,
         autoReadEnabled: false,
         autoReadSpeed: 5,
-        readingTheme: ReadingTheme.white,
+        readingTheme: ReadingTheme.warmYellow,
         simulationCurlIntensity: 0.5,
         simulationShadowOpacity: 0.6,
         simulationDuration: 0.38,

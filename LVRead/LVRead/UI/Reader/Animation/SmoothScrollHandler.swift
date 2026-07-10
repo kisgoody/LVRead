@@ -272,8 +272,11 @@ final class SmoothScrollHandler: NSObject {
         let textWidth = max(1, pageWidth - marginH * 2)
         let font = FontManager.shared.font(named: settings.fontFamily, size: CGFloat(settings.fontSize))
         let para = NSMutableParagraphStyle()
-        para.lineSpacing = font.lineHeight * CGFloat(settings.lineSpacing - 1.0)
-        para.paragraphSpacing = font.lineHeight * CGFloat(settings.paragraphSpacing)
+        let y = font.lineHeight * CGFloat(max(settings.lineSpacing - 1.0, 0))
+        let paragraphValue = settings.paragraphSpacing ?? settings.lineSpacing
+        let x = font.lineHeight * CGFloat(max(paragraphValue - 1.0, 0))
+        para.lineSpacing = y
+        para.paragraphSpacing = x - y
         para.alignment = .natural
         let attr = NSAttributedString(string: page.content, attributes: [.font: font, .paragraphStyle: para])
         let rect = attr.boundingRect(

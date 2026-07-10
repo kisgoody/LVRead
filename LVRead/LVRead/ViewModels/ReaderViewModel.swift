@@ -170,13 +170,17 @@ final class ReaderViewModel: ObservableObject {
     }
 
     private func paginateContent(_ content: String, viewWidth: CGFloat, viewHeight: CGFloat) -> [PageData] {
+        let content = ReaderTextContentSanitizer.collapsingExcessiveLineBreaks(in: content)
         let marginH = CGFloat(settings.pageMarginHorizontal) * viewWidth / 100
         let pageW = viewWidth - marginH * 2
         
         let font = FontManager.shared.font(named: settings.fontFamily, size: CGFloat(settings.fontSize))
         let para = NSMutableParagraphStyle()
-        para.lineSpacing = font.lineHeight * CGFloat(settings.lineSpacing - 1.0)
-        para.paragraphSpacing = font.lineHeight * CGFloat(settings.paragraphSpacing)
+        let y = font.lineHeight * CGFloat(max(settings.lineSpacing - 1.0, 0))
+        let paragraphValue = settings.paragraphSpacing ?? settings.lineSpacing
+        let x = font.lineHeight * CGFloat(max(paragraphValue - 1.0, 0))
+        para.lineSpacing = y
+        para.paragraphSpacing = x - y
         para.alignment = .justified
         
         let attr = NSAttributedString(string: content, attributes: [.font: font, .paragraphStyle: para])

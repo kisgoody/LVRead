@@ -1,6 +1,90 @@
 import UIKit
 import CoreText
 
+enum ReaderChapterContentPolicy {
+    struct DirectoryEntry {
+        let chapter: Chapter
+        let sourceIndex: Int
+        var sourceIndices: [Int]
+    }
+
+    static func isTitleOnly(content: String, chapterTitle: String) -> Bool {
+        let normalizedContent = normalized(content)
+        return normalizedContent.isEmpty || normalizedContent == normalized(chapterTitle)
+    }
+
+    static func titlesMatch(_ lhs: String, _ rhs: String) -> Bool {
+        normalized(lhs) == normalized(rhs)
+    }
+
+    static func merging(pendingTitles: [String], with content: String) -> String {
+        let titles = pendingTitles
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !titles.isEmpty else { return content }
+        return titles.joined(separator: "\n") + "\n\n" + content
+    }
+
+    static func removingRepeatedLeadingTitles(
+        from content: String,
+        chapterTitle: String
+    ) -> String {
+        let normalizedTitle = normalized(chapterTitle)
+        guard !normalizedTitle.isEmpty else { return content }
+
+        let lines = content.components(separatedBy: .newlines)
+        var foundTitle = false
+        var isInLeadingBlock = true
+        var result: [String] = []
+
+        for line in lines {
+            let normalizedLine = normalized(line)
+            if isInLeadingBlock, normalizedLine.isEmpty {
+                result.append(line)
+                continue
+            }
+            if isInLeadingBlock, normalizedLine == normalizedTitle {
+                if !foundTitle {
+                    result.append(line)
+                }
+                foundTitle = true
+                continue
+            }
+            isInLeadingBlock = false
+            result.append(line)
+        }
+
+        return result.joined(separator: "\n")
+    }
+
+    static func directoryEntries(from chapters: [Chapter]) -> [DirectoryEntry] {
+        var entries: [DirectoryEntry] = []
+        for (index, chapter) in chapters.enumerated() {
+            if let existingIndex = entries.firstIndex(where: {
+                titlesMatch($0.chapter.title, chapter.title)
+            }) {
+                entries[existingIndex].sourceIndices.append(index)
+            } else {
+                entries.append(
+                    DirectoryEntry(
+                        chapter: chapter,
+                        sourceIndex: index,
+                        sourceIndices: [index]
+                    )
+                )
+            }
+        }
+        return entries
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\u{FEFF}", with: "")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+    }
+}
+
 fileprivate extension UIView {
     func addSubviews(_ views: UIView...) {
         views.forEach { addSubview($0) }
@@ -863,13 +947,57 @@ final class ReaderViewController: UIViewController {
     }
 
     private func parseChapterPages(_ chapterIndex: Int, parser: FileParserProtocol, fit size: CGSize) throws -> [PageData]? {
+        let chapter = chapters[chapterIndex]
         let content = try parser.parseChapterContent(
             filePath: book.resolvedFilePath(),
-            chapter: chapters[chapterIndex],
+            chapter: chapter,
             encoding: book.encoding ?? "UTF-8"
         )
-        guard content.trimmingCharacters(in: .whitespacesAndNewlines).count >= 50 else { return nil }
-        return paginateContent(content, fit: size, settings: settings, chapterIndex: chapterIndex)
+        let deduplicatedContent = ReaderChapterContentPolicy.removingRepeatedLeadingTitles(
+            from: content,
+            chapterTitle: chapter.title
+        )
+        guard !ReaderChapterContentPolicy.isTitleOnly(
+            content: deduplicatedContent,
+            chapterTitle: chapter.title
+        ) else {
+            return nil
+        }
+
+        var pendingTitles: [String] = []
+        var followingTitle = chapter.title
+        var previousIndex = chapterIndex - 1
+
+        while previousIndex >= 0 {
+            let previousChapter = chapters[previousIndex]
+            guard let previousContent = try? parser.parseChapterContent(
+                filePath: book.resolvedFilePath(),
+                chapter: previousChapter,
+                encoding: book.encoding ?? "UTF-8"
+            ), ReaderChapterContentPolicy.isTitleOnly(
+                content: previousContent,
+                chapterTitle: previousChapter.title
+            ) else {
+                break
+            }
+
+            if !ReaderChapterContentPolicy.titlesMatch(previousChapter.title, followingTitle) {
+                pendingTitles.insert(previousChapter.title, at: 0)
+            }
+            followingTitle = previousChapter.title
+            previousIndex -= 1
+        }
+
+        let mergedContent = ReaderChapterContentPolicy.merging(
+            pendingTitles: pendingTitles,
+            with: deduplicatedContent
+        )
+        return paginateContent(
+            mergedContent,
+            fit: size,
+            settings: settings,
+            chapterIndex: chapterIndex
+        )
     }
 
     private func loadChapterForScroll(_ chapterIndex: Int) {

@@ -65,9 +65,9 @@ final class LVReadTests: XCTestCase {
     func testDefaultReadingSettings() throws {
         let settings = ReadingSettings.default
         
-        XCTAssertEqual(settings.fontSize, 18)
+        XCTAssertEqual(settings.fontSize, 24)
         XCTAssertEqual(settings.fontFamily, "系统默认")
-        XCTAssertEqual(settings.lineSpacing, 1.6)
+        XCTAssertEqual(settings.lineSpacing, 1.4)
         XCTAssertEqual(settings.pageFlipMode, .cover)
     }
 
