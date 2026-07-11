@@ -4,7 +4,8 @@ protocol NativeDocumentPageDelegate: AnyObject {
     func documentPageDidTapBack()
     func documentPageDidTapCenter()
     func documentPageDidTapEdge(forward: Bool)
-    func documentPageDidPullBookmark(_ controller: NativeDocumentPageViewController)
+    func documentPage(_ controller: NativeDocumentPageViewController, didUpdatePull distance: CGFloat)
+    func documentPage(_ controller: NativeDocumentPageViewController, didFinishPull shouldToggleBookmark: Bool)
     func documentPage(_ controller: NativeDocumentPageViewController, didLongPress text: String)
     func documentPageDidTapComment(_ controller: NativeDocumentPageViewController)
 }
@@ -160,10 +161,12 @@ final class NativeDocumentPageViewController: UIViewController {
         switch gesture.state {
         case .changed:
             pullDistance = max(0, gesture.translation(in: view).y)
+            delegate?.documentPage(self, didUpdatePull: pullDistance)
         case .ended:
-            if pullDistance >= 72 { delegate?.documentPageDidPullBookmark(self) }
+            delegate?.documentPage(self, didFinishPull: pullDistance >= 72)
             pullDistance = 0
         case .cancelled, .failed:
+            delegate?.documentPage(self, didFinishPull: false)
             pullDistance = 0
         default:
             break

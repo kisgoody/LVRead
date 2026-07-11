@@ -80,9 +80,9 @@ final class BookshelfViewController: UIViewController {
     private let sectionSortButton = UIButton(type: .system)
     private let sectionMoreButton = UIButton(type: .system)
     private let bottomNavView = UIView()
-    private let bottomShelfButton = UIButton(type: .system)
-    private let bottomNotesButton = UIButton(type: .system)
-    private let bottomMineButton = UIButton(type: .system)
+    private let bottomShelfButton = LVModuleButton(type: .system)
+    private let bottomNotesButton = LVModuleButton(type: .system)
+    private let bottomMineButton = LVModuleButton(type: .system)
     private let filterScrollView = UIScrollView()
     private let filterStackView = UIStackView()
     private let skeletonContainer = UIView()
@@ -103,7 +103,17 @@ final class BookshelfViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         setupBindings()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDarkModeChanged),
+            name: .darkModeChanged,
+            object: nil
+        )
         loadBooks()
+    }
+
+    @objc private func appDarkModeChanged() {
+        applyReadingThemeToHome()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -139,7 +149,7 @@ final class BookshelfViewController: UIViewController {
         titleLabel.textAlignment = .left
         titleLabel.backgroundColor = .clear
 
-        taglineLabel.text = "为文字而生，因阅读而狂热"
+        taglineLabel.text = LVModuleSubtitleProvider.subtitle(for: .shelf)
         taglineLabel.font = .systemFont(ofSize: 14, weight: .regular)
         taglineLabel.textAlignment = .left
         taglineLabel.backgroundColor = .clear
@@ -485,6 +495,8 @@ final class BookshelfViewController: UIViewController {
         configureBottomNavButton(bottomShelfButton, title: "LVRead", icon: "book.closed", active: true)
         configureBottomNavButton(bottomNotesButton, title: "笔记", icon: "bookmark", active: false)
         configureBottomNavButton(bottomMineButton, title: "我的", icon: "person", active: false)
+        bottomNotesButton.addTarget(self, action: #selector(openNotesModule), for: .touchUpInside)
+        bottomMineButton.addTarget(self, action: #selector(openProfileModule), for: .touchUpInside)
 
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: bottomNavView.topAnchor, constant: 9),
@@ -492,6 +504,14 @@ final class BookshelfViewController: UIViewController {
             stack.trailingAnchor.constraint(equalTo: bottomNavView.trailingAnchor, constant: -18),
             stack.bottomAnchor.constraint(equalTo: bottomNavView.bottomAnchor, constant: -13)
         ])
+    }
+
+    @objc private func openNotesModule() {
+        showMainModule(.notes)
+    }
+
+    @objc private func openProfileModule() {
+        showMainModule(.profile)
     }
 
     private func configureBottomNavButton(_ button: UIButton, title: String, icon: String, active: Bool) {
@@ -504,16 +524,17 @@ final class BookshelfViewController: UIViewController {
         button.layer.cornerRadius = 8
         button.titleLabel?.font = .systemFont(ofSize: 11, weight: active ? .bold : .regular)
         button.imageView?.contentMode = .scaleAspectFit
-        button.contentHorizontalAlignment = .center
-        button.contentVerticalAlignment = .center
-        button.imageEdgeInsets = UIEdgeInsets(top: -14, left: 0, bottom: 14, right: -28)
-        button.titleEdgeInsets = UIEdgeInsets(top: 24, left: -22, bottom: 0, right: 0)
+        button.contentHorizontalAlignment = .fill
+        button.contentVerticalAlignment = .fill
     }
 
     private func applyReadingThemeToHome() {
-        let background = UIColor(hex: "#F5F2EC")
-        let panel = UIColor(hex: "#FFFDF8")
-        let text = UIColor(hex: "#24211D")
+        let isDark = DarkModeManager.shared.isDarkMode
+        let background = isDark ? UIColor.lvBgNight : UIColor(hex: "#F5F2EC")
+        let panel = isDark ? UIColor.lvSurfaceDark : UIColor(hex: "#FFFDF8")
+        let text = isDark ? UIColor.lvTextPrimaryDark : UIColor(hex: "#24211D")
+        let secondaryText = isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B")
+        let divider = isDark ? UIColor.lvDividerDark : UIColor(hex: "#E3DBCF")
         let accent = UIColor(hex: "#236D67")
 
         view.backgroundColor = background
@@ -527,6 +548,11 @@ final class BookshelfViewController: UIViewController {
         skeletonContainer.backgroundColor = background
         sectionHeaderView.backgroundColor = .clear
         sectionTitleLabel.textColor = text
+        sectionCountLabel.textColor = secondaryText
+        bottomNavView.backgroundColor = panel
+        bottomNavView.layer.borderColor = divider.cgColor
+        topAddButton.backgroundColor = panel
+        topAddButton.layer.borderColor = divider.cgColor
 
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
@@ -548,20 +574,30 @@ final class BookshelfViewController: UIViewController {
         fabButton.backgroundColor = accent
         fabButton.layer.shadowColor = accent.cgColor
 
+        configureBottomNavButton(bottomShelfButton, title: "LVRead", icon: "book.closed", active: true)
+        configureBottomNavButton(bottomNotesButton, title: "笔记", icon: "bookmark", active: false)
+        configureBottomNavButton(bottomMineButton, title: "我的", icon: "person", active: false)
+
         updateFilterChipColors()
     }
 
     private func updateFilterChipColors() {
-        let panel = UIColor(hex: "#FFFDF8")
-        let text = UIColor(hex: "#7C746B")
-        let accent = UIColor(hex: "#24211D")
+        let isDark = DarkModeManager.shared.isDarkMode
+        let panel = isDark ? UIColor.lvSurfaceDark : UIColor(hex: "#FFFDF8")
+        let text = isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B")
+        let accent = isDark ? UIColor.lvTextPrimaryDark : UIColor(hex: "#24211D")
+        let divider = isDark ? UIColor.lvDividerDark : UIColor(hex: "#E3DBCF")
         for case let chip as UIButton in filterStackView.arrangedSubviews {
             let selected = isChipSelected(chip)
             chip.backgroundColor = selected ? accent : panel
-            chip.layer.borderColor = (selected ? accent : UIColor(hex: "#E3DBCF")).cgColor
+            chip.layer.borderColor = (selected ? accent : divider).cgColor
             chip.titleLabel?.font = .systemFont(ofSize: 13, weight: selected ? .bold : .medium)
-            chip.setTitleColor(selected ? UIColor.white : text, for: .normal)
+            chip.setTitleColor(selected ? backgroundColorForSelectedChip(isDark: isDark) : text, for: .normal)
         }
+    }
+
+    private func backgroundColorForSelectedChip(isDark: Bool) -> UIColor {
+        isDark ? .lvBgNight : .white
     }
 
     private func isChipSelected(_ chip: UIButton) -> Bool {
@@ -851,8 +887,13 @@ final class BookshelfViewController: UIViewController {
                   !newTitle.isEmpty else { return }
             var updated = book
             updated.title = String(newTitle.prefix(50))
-            _ = BookRepository.shared.update(updated)
-            self?.loadBooks()
+            switch BookRepository.shared.update(updated) {
+            case .success:
+                self?.loadBooks()
+                LVToast.show(message: "书名已修改", style: .success)
+            case .failure:
+                LVToast.show(message: "修改失败，请稍后重试", style: .error)
+            }
         })
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         present(alert, animated: true)
@@ -869,7 +910,15 @@ final class BookshelfViewController: UIViewController {
 
     private func shareBook(_ book: Book) {
         let url = URL(fileURLWithPath: book.resolvedFilePath())
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            LVToast.show(message: "原文件不存在，无法分享", style: .error)
+            return
+        }
         let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+        }
         present(activityVC, animated: true)
     }
 
@@ -889,6 +938,38 @@ final class BookshelfViewController: UIViewController {
     }
 
     private func openReader(for book: Book) {
+        let filePath = book.resolvedFilePath()
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            LVToast.show(message: "原文件不存在，请重新导入", style: .error)
+            return
+        }
+        if book.fileFormat != .pdf,
+           BookRepository.shared.getChapters(for: book.id).isEmpty {
+            do {
+                let metadata = try BookImportManager.shared.parserFor(format: book.fileFormat)
+                    .parseMetadata(filePath: filePath)
+                let restored = metadata.chapters.enumerated().map { index, chapter in
+                    Chapter(
+                        bookId: book.id,
+                        title: chapter.title,
+                        level: chapter.level,
+                        orderIndex: index,
+                        startOffset: chapter.startOffset,
+                        endOffset: chapter.endOffset,
+                        pageCount: chapter.pageCount,
+                        internalHref: chapter.internalHref
+                    )
+                }
+                guard !restored.isEmpty else {
+                    LVToast.show(message: "无法恢复章节，请重新导入", style: .error)
+                    return
+                }
+                BookRepository.shared.insertChapters(restored)
+            } catch {
+                LVToast.show(message: "章节恢复失败，请重新导入", style: .error)
+                return
+            }
+        }
         let readerVC = NativeDocumentReaderViewController(book: book)
         navigationController?.pushViewController(readerVC, animated: true)
     }
@@ -1020,12 +1101,53 @@ extension BookshelfViewController: UITableViewDataSource, UITableViewDelegate {
         _ tableView: UITableView,
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     ) -> UISwipeActionsConfiguration? {
+        guard filteredBooks.indices.contains(indexPath.row) else { return nil }
+        let book = filteredBooks[indexPath.row]
         let delete = UIContextualAction(style: .destructive, title: "删除") { [weak self] _, _, completion in
-            guard let self = self else { return }
-            self.confirmDelete(self.filteredBooks[indexPath.row])
+            self?.confirmDelete(book)
             completion(true)
         }
-        return UISwipeActionsConfiguration(actions: [delete])
+        let share = UIContextualAction(style: .normal, title: "分享") { [weak self] _, _, completion in
+            self?.shareBook(book)
+            completion(true)
+        }
+        share.backgroundColor = UIColor(hex: "#236D67")
+        return UISwipeActionsConfiguration(actions: [delete, share])
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+        guard filteredBooks.indices.contains(indexPath.row) else { return nil }
+        let book = filteredBooks[indexPath.row]
+        let rename = UIContextualAction(style: .normal, title: "改名") { [weak self] _, _, completion in
+            self?.showRenameDialog(for: book)
+            completion(true)
+        }
+        rename.backgroundColor = UIColor(hex: "#C2933D")
+        return UISwipeActionsConfiguration(actions: [rename])
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        contextMenuConfigurationForRowAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard filteredBooks.indices.contains(indexPath.row) else { return nil }
+        let book = filteredBooks[indexPath.row]
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            let rename = UIAction(title: "修改书名", image: UIImage(systemName: "pencil")) { _ in
+                self?.showRenameDialog(for: book)
+            }
+            let share = UIAction(title: "分享", image: UIImage(systemName: "square.and.arrow.up")) { _ in
+                self?.shareBook(book)
+            }
+            let delete = UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+                self?.confirmDelete(book)
+            }
+            return UIMenu(children: [rename, share, delete])
+        }
     }
 }
 

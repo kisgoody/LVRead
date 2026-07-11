@@ -87,6 +87,21 @@ final class ReadingStatsRepositoryTests: XCTestCase {
         let after = repo.getStats()
         XCTAssertEqual(after.totalPagesRead, before.totalPagesRead + 10)
     }
+
+    func testRecordSessionUpdatesTotalsAndBookDimension() throws {
+        let repo = ReadingStatsRepository.shared
+        let bookId = "stats-test-\(UUID().uuidString)"
+        let before = repo.getStats()
+
+        repo.recordSession(bookId: bookId, seconds: 75, pages: 3)
+
+        let after = repo.getStats()
+        let bookStat = try XCTUnwrap(repo.getBookStats()[bookId])
+        XCTAssertEqual(after.totalReadingTimeSeconds, before.totalReadingTimeSeconds + 75)
+        XCTAssertEqual(after.totalPagesRead, before.totalPagesRead + 3)
+        XCTAssertEqual(bookStat.readingTimeSeconds, 75)
+        XCTAssertEqual(bookStat.pagesRead, 3)
+    }
     
     func testMarkBookFinished() throws {
         let repo = ReadingStatsRepository.shared
@@ -112,6 +127,54 @@ final class ReadingStatsRepositoryTests: XCTestCase {
         let repo = ReadingStatsRepository.shared
         let chartData = ReadingAnalytics(stats: repo.getStats()).weeklyChartData
         XCTAssertEqual(chartData.count, 7)
+    }
+}
+
+final class LVModuleSubtitleProviderTests: XCTestCase {
+    func testDailyModuleSubtitlesAreStableAndUnique() {
+        let first = [
+            LVModuleSubtitleProvider.subtitle(for: .shelf),
+            LVModuleSubtitleProvider.subtitle(for: .notes),
+            LVModuleSubtitleProvider.subtitle(for: .profile)
+        ]
+        let second = [
+            LVModuleSubtitleProvider.subtitle(for: .shelf),
+            LVModuleSubtitleProvider.subtitle(for: .notes),
+            LVModuleSubtitleProvider.subtitle(for: .profile)
+        ]
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(Set(first).count, 3)
+    }
+}
+
+final class BookRepositoryUpdateTests: XCTestCase {
+    func testRenamingBookPreservesChaptersAndFilePath() throws {
+        let repository = BookRepository.shared
+        let id = "rename-test-\(UUID().uuidString)"
+        let original = Book(
+            id: id,
+            title: "修改前",
+            filePath: "Books/rename-test.epub",
+            fileHash: UUID().uuidString,
+            fileSize: 128,
+            fileFormat: .epub,
+            source: .localFile
+        )
+        _ = try repository.insert(original).get()
+        repository.insertChapters([
+            Chapter(bookId: id, title: "第一章", orderIndex: 0, internalHref: "chapter1.xhtml")
+        ])
+
+        var renamed = original
+        renamed.title = "修改后"
+        _ = try repository.update(renamed).get()
+
+        let stored = try XCTUnwrap(repository.getById(id))
+        XCTAssertEqual(stored.title, "修改后")
+        XCTAssertEqual(stored.filePath, original.filePath)
+        XCTAssertEqual(repository.getChapters(for: id).map(\.title), ["第一章"])
+        _ = repository.delete(id)
     }
 }
 

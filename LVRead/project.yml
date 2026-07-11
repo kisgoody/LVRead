@@ -12,6 +12,10 @@ targets:
     platform: iOS
     sources:
       - path: LVRead
+        excludes:
+          # Legacy pages declare file-scoped layout helpers with the same names.
+          # Keep the unused global copy out of the target to avoid redeclarations.
+          - Extensions/UIView+Extensions.swift
     settings:
       base:
         INFOPLIST_FILE: LVRead/Info.plist

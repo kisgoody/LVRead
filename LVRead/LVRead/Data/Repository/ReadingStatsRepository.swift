@@ -10,6 +10,8 @@ final class ReadingStatsRepository {
     
     private let defaults = UserDefaults.standard
     private let statsKey = "reading_stats"
+    private let bookStatsKey = "reading_stats_by_book"
+    private let minuteRemainderKey = "reading_stats_minute_remainder_seconds"
     
     private init() {}
     
@@ -39,18 +41,48 @@ final class ReadingStatsRepository {
     
     /// Add reading time in seconds
     func addReadingTime(_ seconds: Int) {
+        guard seconds > 0 else { return }
         updateStats { stats in
             stats.totalReadingTimeSeconds += seconds
         }
-        updateDailyMinutes(minutes: seconds / 60)
-        updateWeeklyMinutes(minutes: seconds / 60)
+        let accumulatedSeconds = defaults.integer(forKey: minuteRemainderKey) + seconds
+        let wholeMinutes = accumulatedSeconds / 60
+        defaults.set(accumulatedSeconds % 60, forKey: minuteRemainderKey)
+        updateDailyMinutes(minutes: wholeMinutes)
+        updateWeeklyMinutes(minutes: wholeMinutes)
     }
     
     /// Record pages read
     func addPagesRead(_ pages: Int) {
+        guard pages > 0 else { return }
         updateStats { stats in
             stats.totalPagesRead += pages
         }
+    }
+
+    func recordSession(bookId: String, seconds: Int, pages: Int) {
+        let safeSeconds = max(0, seconds)
+        let safePages = max(0, pages)
+        addReadingTime(safeSeconds)
+        addPagesRead(safePages)
+
+        var values = getBookStats()
+        var value = values[bookId] ?? BookReadingStat()
+        value.readingTimeSeconds += safeSeconds
+        value.pagesRead += safePages
+        value.lastReadAt = Date()
+        values[bookId] = value
+        if let data = try? JSONEncoder().encode(values) {
+            defaults.set(data, forKey: bookStatsKey)
+        }
+    }
+
+    func getBookStats() -> [String: BookReadingStat] {
+        guard let data = defaults.data(forKey: bookStatsKey),
+              let values = try? JSONDecoder().decode([String: BookReadingStat].self, from: data) else {
+            return [:]
+        }
+        return values
     }
     
     /// Mark a book as finished
@@ -128,6 +160,12 @@ final class ReadingStatsRepository {
         dateComponents.weekOfYear = week
         return calendar.date(from: dateComponents)
     }
+}
+
+struct BookReadingStat: Codable, Equatable {
+    var readingTimeSeconds: Int = 0
+    var pagesRead: Int = 0
+    var lastReadAt: Date = .distantPast
 }
 
 // MARK: - Reading Analytics

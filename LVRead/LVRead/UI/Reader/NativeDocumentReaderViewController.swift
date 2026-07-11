@@ -3,6 +3,9 @@ import PDFKit
 
 final class NativeDocumentReaderViewController: UIViewController {
     private let book: Book
+    private let initialChapterIndex: Int?
+    private let initialPageOffset: Int
+    private let persistsReadingProgress: Bool
     private var settings: ReadingSettings
     private var navigationMode = ReaderNavigationMode.load()
     private var themeBeforeNight: ReadingTheme?
@@ -34,9 +37,20 @@ final class NativeDocumentReaderViewController: UIViewController {
     private let eyeCareOverlay = UIView()
     private let brightnessOverlay = UIView()
     private let skeleton = NativeDocumentSkeletonView()
+    private let pullBookmarkReveal = UIView()
+    private let pullBookmarkIcon = UIImageView(image: UIImage(systemName: "bookmark.fill"))
+    private let pullBookmarkLabel = UILabel()
 
-    init(book: Book) {
+    init(
+        book: Book,
+        initialChapterIndex: Int? = nil,
+        initialPageOffset: Int = 0,
+        persistsReadingProgress: Bool = true
+    ) {
         self.book = book
+        self.initialChapterIndex = initialChapterIndex
+        self.initialPageOffset = initialPageOffset
+        self.persistsReadingProgress = persistsReadingProgress
         settings = ReadingSettingsRepository.shared.load()
         super.init(nibName: nil, bundle: nil)
     }
@@ -65,10 +79,11 @@ final class NativeDocumentReaderViewController: UIViewController {
         super.viewWillDisappear(animated)
         saveProgress()
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
-        ReadingStatsRepository.shared.addReadingTime(
-            max(0, Int(Date().timeIntervalSince(readingStartedAt)))
+        ReadingStatsRepository.shared.recordSession(
+            bookId: book.id,
+            seconds: max(0, Int(Date().timeIntervalSince(readingStartedAt))),
+            pages: visited.count
         )
-        ReadingStatsRepository.shared.addPagesRead(visited.count)
         WebSyncServer.shared.stop()
         loadVersion += 1
         pages.removeAll()
@@ -177,12 +192,35 @@ final class NativeDocumentReaderViewController: UIViewController {
         bottomStatus.addSubview(batteryView)
         view.addSubview(topStatus)
         view.addSubview(bottomStatus)
+        pullBookmarkReveal.backgroundColor = UIColor(hex: settings.readingTheme.panelColor)
+        pullBookmarkReveal.alpha = 0
+        pullBookmarkIcon.tintColor = UIColor(hex: settings.readingTheme.accentColor)
+        pullBookmarkIcon.contentMode = .scaleAspectFit
+        pullBookmarkLabel.text = "下拉设置书签"
+        pullBookmarkLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        pullBookmarkLabel.textColor = UIColor(hex: settings.readingTheme.textColor)
+        pullBookmarkLabel.textAlignment = .center
+        let pullStack = UIStackView(arrangedSubviews: [pullBookmarkIcon, pullBookmarkLabel])
+        pullStack.axis = .vertical
+        pullStack.alignment = .center
+        pullStack.spacing = 4
+        view.insertSubview(pullBookmarkReveal, at: 0)
+        pullBookmarkReveal.addSubview(pullStack)
         topStatus.isHidden = true
         bottomStatus.isHidden = true
-        [topStatus, bottomStatus, back, chapterLabel, progressLabel, timeLabel, batteryView].forEach {
+        [topStatus, bottomStatus, back, chapterLabel, progressLabel, timeLabel, batteryView,
+         pullBookmarkReveal, pullStack, pullBookmarkIcon].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         NSLayoutConstraint.activate([
+            pullBookmarkReveal.topAnchor.constraint(equalTo: view.topAnchor),
+            pullBookmarkReveal.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pullBookmarkReveal.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pullBookmarkReveal.heightAnchor.constraint(equalToConstant: 104),
+            pullStack.centerXAnchor.constraint(equalTo: pullBookmarkReveal.centerXAnchor),
+            pullStack.bottomAnchor.constraint(equalTo: pullBookmarkReveal.bottomAnchor, constant: -8),
+            pullBookmarkIcon.widthAnchor.constraint(equalToConstant: 22),
+            pullBookmarkIcon.heightAnchor.constraint(equalToConstant: 28),
             topStatus.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             topStatus.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topStatus.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -359,6 +397,9 @@ final class NativeDocumentReaderViewController: UIViewController {
         bottomStatus.backgroundColor = background
         topMenu.backgroundColor = panel
         bottomMenu.backgroundColor = panel
+        pullBookmarkReveal.backgroundColor = panel
+        pullBookmarkIcon.tintColor = UIColor(hex: settings.readingTheme.accentColor)
+        pullBookmarkLabel.textColor = foreground
         [chapterLabel, progressLabel, timeLabel, menuTitle].forEach { $0.textColor = foreground }
         batteryView.strokeColor = foreground.withAlphaComponent(0.7)
         batteryView.fillColor = foreground.withAlphaComponent(0.8)
@@ -384,6 +425,8 @@ final class NativeDocumentReaderViewController: UIViewController {
         let continuous = navigationMode == .continuousVertical
         continuousScrollView.isHidden = !continuous
         pageViewController.view.isHidden = continuous
+        topStatus.isHidden = !continuous
+        bottomStatus.isHidden = !continuous
     }
 
     private func loadBook() {
@@ -392,11 +435,13 @@ final class NativeDocumentReaderViewController: UIViewController {
             chapters = [Chapter(bookId: book.id, title: "正文", orderIndex: 0)]
         }
         let progress = BookRepository.shared.getById(book.id)?.readingProgress ?? book.readingProgress
+        let startChapter = initialChapterIndex ?? progress.currentChapterIndex
+        let startPage = initialChapterIndex == nil ? progress.currentPageOffset : initialPageOffset
         loadWindow(
-            chapterIndex: min(max(progress.currentChapterIndex, 0), chapters.count - 1),
-            pageIndex: max(0, progress.currentPageOffset),
+            chapterIndex: min(max(startChapter, 0), chapters.count - 1),
+            pageIndex: max(0, startPage),
             characterOffset: nil,
-            showSkeleton: true
+            showSkeleton: false
         )
     }
 
@@ -418,7 +463,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         let readingSafeAreaInsets = view.safeAreaInsets
         let snapshotSettings = settings
         let snapshotChapters = chapters
-        let radius = preloadRadius
+        let radius = navigationMode == .continuousVertical ? max(preloadRadius, 6) : preloadRadius
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             if self.book.fileFormat == .pdf {
@@ -593,11 +638,16 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     private func apply(window: [NativeDocumentPage], target: Int) {
         suppressWindowRefresh = true
+        let continuousHeight = max(continuousScrollView.bounds.height, 1)
+        let previousPageID = currentPage?.id
+        let previousIntraPageOffset = navigationMode == .continuousVertical
+            ? continuousScrollView.contentOffset.y - CGFloat(currentIndex) * continuousHeight
+            : 0
         pages = window
-        currentIndex = target
+        currentIndex = previousPageID.flatMap { id in window.firstIndex(where: { $0.id == id }) } ?? target
         if navigationMode == .continuousVertical {
-            renderContinuousWindow(target: target)
-        } else if let controller = makePageController(at: target) {
+            renderContinuousWindow(target: currentIndex, intraPageOffset: previousIntraPageOffset)
+        } else if let controller = makePageController(at: currentIndex) {
             pageViewController.setViewControllers([controller], direction: .forward, animated: false)
         }
         skeleton.stop()
@@ -636,7 +686,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         "\(page.pageIndex + 1)/\(chapterPageCounts[page.chapterIndex] ?? page.pageIndex + 1)"
     }
 
-    private func renderContinuousWindow(target: Int) {
+    private func renderContinuousWindow(target: Int, intraPageOffset: CGFloat = 0) {
         continuousStack.arrangedSubviews.forEach {
             continuousStack.removeArrangedSubview($0)
             $0.removeFromSuperview()
@@ -652,14 +702,16 @@ final class NativeDocumentReaderViewController: UIViewController {
         }
         view.layoutIfNeeded()
         continuousScrollView.setContentOffset(
-            CGPoint(x: 0, y: CGFloat(target) * height),
+            CGPoint(x: 0, y: max(0, CGFloat(target) * height + intraPageOffset)),
             animated: false
         )
     }
 
     private func refreshVisiblePages() {
         if navigationMode == .continuousVertical {
-            renderContinuousWindow(target: currentIndex)
+            let height = max(continuousScrollView.bounds.height, 1)
+            let intraPageOffset = continuousScrollView.contentOffset.y - CGFloat(currentIndex) * height
+            renderContinuousWindow(target: currentIndex, intraPageOffset: intraPageOffset)
         } else if let controller = makePageController(at: currentIndex) {
             pageViewController.setViewControllers([controller], direction: .forward, animated: false)
         }
@@ -687,7 +739,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func saveProgress() {
-        guard let page = currentPage else { return }
+        guard persistsReadingProgress, let page = currentPage else { return }
         let chapterFraction = Double(page.pageIndex + 1)
             / Double(max(chapterPageCounts[page.chapterIndex] ?? page.pageIndex + 1, 1))
         let percent = (Double(page.chapterIndex) + chapterFraction)
@@ -875,7 +927,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             settings: settings
         )
         catalog.onSelect = { [weak self] index in
-            self?.loadWindow(chapterIndex: index, pageIndex: 0, characterOffset: nil, showSkeleton: true)
+            self?.loadWindow(chapterIndex: index, pageIndex: 0, characterOffset: nil, showSkeleton: false)
         }
         present(catalog, animated: true)
     }
@@ -958,7 +1010,10 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
 
 extension NativeDocumentReaderViewController: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard navigationMode == .continuousVertical, scrollView.bounds.height > 0, !pages.isEmpty else { return }
+        guard navigationMode == .continuousVertical,
+              !suppressWindowRefresh,
+              scrollView.bounds.height > 0,
+              !pages.isEmpty else { return }
         let index = min(
             max(Int((scrollView.contentOffset.y + scrollView.bounds.height / 2) / scrollView.bounds.height), 0),
             pages.count - 1
@@ -980,8 +1035,29 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
         turnWithoutAnimation(forward: forward)
     }
 
-    func documentPageDidPullBookmark(_ controller: NativeDocumentPageViewController) {
-        toggleBookmark(controller)
+    func documentPage(_ controller: NativeDocumentPageViewController, didUpdatePull distance: CGFloat) {
+        guard allowsPullBookmark else { return }
+        let translation = min(max(distance, 0), 96)
+        pageViewController.view.transform = CGAffineTransform(translationX: 0, y: translation)
+        pullBookmarkReveal.alpha = min(1, translation / 56)
+        pullBookmarkLabel.text = translation >= 72 ? "松开设置书签" : "下拉设置书签"
+    }
+
+    func documentPage(_ controller: NativeDocumentPageViewController, didFinishPull shouldToggleBookmark: Bool) {
+        if shouldToggleBookmark {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            toggleBookmark(controller)
+        }
+        UIView.animate(
+            withDuration: 0.42,
+            delay: 0,
+            usingSpringWithDamping: 0.78,
+            initialSpringVelocity: 0.5,
+            options: [.curveEaseOut, .allowUserInteraction]
+        ) {
+            self.pageViewController.view.transform = .identity
+            self.pullBookmarkReveal.alpha = 0
+        }
     }
 
     func documentPage(_ controller: NativeDocumentPageViewController, didLongPress text: String) {
@@ -1003,6 +1079,7 @@ private final class NativeDocumentSkeletonView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isHidden = true
         backgroundColor = .systemBackground
         stack.axis = .vertical
         stack.spacing = 16

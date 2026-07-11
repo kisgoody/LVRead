@@ -88,7 +88,23 @@ final class BookRepository {
     func update(_ book: Book) -> Result<Book, LVError> {
         var mutableBook = book
         mutableBook.updatedAt = Date()
-        return insert(mutableBook)
+        let success = db.execute("""
+            UPDATE books SET title = ?, author = ?, cover_image_path = ?, file_path = ?,
+                encoding = ?, category = ?, is_favorite = ?, custom_order = ?, updated_at = ?
+            WHERE id = ?;
+        """, params: [
+            mutableBook.title,
+            mutableBook.author,
+            mutableBook.coverImagePath ?? NSNull(),
+            mutableBook.filePath,
+            mutableBook.encoding ?? NSNull(),
+            mutableBook.category ?? NSNull(),
+            mutableBook.isFavorite ? 1 : 0,
+            mutableBook.customOrder,
+            mutableBook.updatedAt.timeIntervalSince1970,
+            mutableBook.id
+        ])
+        return success ? .success(mutableBook) : .failure(.databaseError)
     }
 
     func updateProgress(bookId: String, progress: ReadingProgress) {
