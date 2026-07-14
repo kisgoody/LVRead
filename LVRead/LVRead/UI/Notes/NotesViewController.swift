@@ -40,6 +40,13 @@ final class NotesViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         buildInterface()
+        applyDarkAppearance()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(notesDarkModeChanged),
+            name: .darkModeChanged,
+            object: nil
+        )
         loadAssets()
         NotificationCenter.default.addObserver(
             self,
@@ -61,10 +68,10 @@ final class NotesViewController: UIViewController {
         view.backgroundColor = modulePageBackground
         titleLabel.text = "笔记"
         titleLabel.font = .systemFont(ofSize: 30, weight: .bold)
-        titleLabel.textColor = .lvAdaptiveTextPrimary
+        titleLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         subtitleLabel.text = LVModuleSubtitleProvider.subtitle(for: .notes)
         subtitleLabel.font = .systemFont(ofSize: 14)
-        subtitleLabel.textColor = .lvAdaptiveTextSecondary
+        subtitleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
 
         searchBar.placeholder = "搜索书名、章节、摘录或批注"
         searchBar.searchBarStyle = .minimal
@@ -80,9 +87,7 @@ final class NotesViewController: UIViewController {
 
         filterControl.selectedSegmentIndex = 0
         filterControl.addTarget(self, action: #selector(filterChanged), for: .valueChanged)
-        filterControl.selectedSegmentTintColor = .lvAdaptiveTextPrimary
-        filterControl.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
-        filterControl.setTitleTextAttributes([.foregroundColor: UIColor.lvAdaptiveTextSecondary], for: .normal)
+        applyFilterAppearance()
 
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
@@ -132,17 +137,14 @@ final class NotesViewController: UIViewController {
 
     private func makeMetricCard(valueLabel: UILabel, title: String) -> UIView {
         let card = UIView()
-        card.backgroundColor = moduleCardBackground
-        card.layer.cornerRadius = 8
-        card.layer.borderWidth = 1 / UIScreen.main.scale
-        card.layer.borderColor = UIColor.lvAdaptiveDivider.cgColor
+        LVBookshelfModuleStyle.applyCard(to: card)
         valueLabel.font = .systemFont(ofSize: 20, weight: .bold)
-        valueLabel.textColor = .lvAdaptiveTextPrimary
+        valueLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         valueLabel.textAlignment = .center
         let caption = UILabel()
         caption.text = title
         caption.font = .systemFont(ofSize: 12)
-        caption.textColor = .lvAdaptiveTextSecondary
+        caption.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         caption.textAlignment = .center
         let stack = UIStackView(arrangedSubviews: [valueLabel, caption])
         stack.axis = .vertical
@@ -206,6 +208,35 @@ final class NotesViewController: UIViewController {
     @objc private func filterChanged() {
         filter = Filter(rawValue: filterControl.selectedSegmentIndex) ?? .all
         applyFilter()
+    }
+
+    @objc private func notesDarkModeChanged() {
+        applyDarkAppearance()
+    }
+
+    private func applyDarkAppearance() {
+        view.backgroundColor = LVBookshelfModuleStyle.pageBackground
+        searchBar.searchTextField.backgroundColor = LVBookshelfModuleStyle.cardBackground
+        searchBar.searchTextField.textColor = LVBookshelfModuleStyle.primaryText
+        searchBar.tintColor = LVBookshelfModuleStyle.accent
+        LVBookshelfModuleStyle.refreshCards(in: view)
+        LVBookshelfModuleStyle.refreshAccents(in: view)
+        applyFilterAppearance()
+        tableView.reloadData()
+    }
+
+    private func applyFilterAppearance() {
+        let isDark = DarkModeManager.shared.isDarkMode
+        filterControl.backgroundColor = LVBookshelfModuleStyle.cardBackground
+        filterControl.selectedSegmentTintColor = isDark ? .lvTextPrimaryDark : UIColor(hex: "#24211D")
+        filterControl.setTitleTextAttributes(
+            [.foregroundColor: isDark ? UIColor.lvBgNight : UIColor.white],
+            for: .selected
+        )
+        filterControl.setTitleTextAttributes(
+            [.foregroundColor: LVBookshelfModuleStyle.secondaryText],
+            for: .normal
+        )
     }
 
     private func open(_ asset: Asset) {
@@ -282,22 +313,19 @@ private final class LVNoteCardCell: UITableViewCell {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear
         selectionStyle = .none
-        card.backgroundColor = moduleCardBackground
-        card.layer.cornerRadius = 8
-        card.layer.borderWidth = 1 / UIScreen.main.scale
-        card.layer.borderColor = UIColor.lvAdaptiveDivider.cgColor
+        LVBookshelfModuleStyle.applyCard(to: card)
         kindLabel.font = .systemFont(ofSize: 12, weight: .bold)
-        kindLabel.textColor = UIColor(hex: "#236D67")
+        LVBookshelfModuleStyle.applyAccent(to: kindLabel)
         titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        titleLabel.textColor = .lvAdaptiveTextPrimary
+        titleLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         bodyLabel.font = .systemFont(ofSize: 14)
-        bodyLabel.textColor = .lvAdaptiveTextSecondary
+        bodyLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         bodyLabel.numberOfLines = 2
         dateLabel.font = .systemFont(ofSize: 12)
-        dateLabel.textColor = .lvAdaptiveTextSecondary
+        dateLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         actionLabel.text = "回到原文"
         actionLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        actionLabel.textColor = UIColor(hex: "#236D67")
+        LVBookshelfModuleStyle.applyAccent(to: actionLabel)
         let footer = UIStackView(arrangedSubviews: [dateLabel, UIView(), actionLabel])
         footer.axis = .horizontal
         let stack = UIStackView(arrangedSubviews: [kindLabel, titleLabel, bodyLabel, footer])
@@ -323,6 +351,9 @@ private final class LVNoteCardCell: UITableViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(kind: String, title: String, body: String, date: String) {
+        LVBookshelfModuleStyle.applyCard(to: card)
+        LVBookshelfModuleStyle.applyAccent(to: kindLabel)
+        LVBookshelfModuleStyle.applyAccent(to: actionLabel)
         kindLabel.text = kind
         titleLabel.text = title
         bodyLabel.text = body
@@ -331,13 +362,5 @@ private final class LVNoteCardCell: UITableViewCell {
 }
 
 private var modulePageBackground: UIColor {
-    UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .lvBgNight : UIColor(hex: "#F5F2EC")
-    }
-}
-
-private var moduleCardBackground: UIColor {
-    UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .lvSurfaceDark : UIColor(hex: "#FFFDF8")
-    }
+    LVBookshelfModuleStyle.pageBackground
 }

@@ -163,6 +163,86 @@ extension UIColor {
     }
 }
 
+/// Shared visual language taken from the bookshelf page.
+enum LVBookshelfModuleStyle {
+    private static let cardIdentifier = "lv_bookshelf_module_card"
+    private static let accentIdentifier = "lv_bookshelf_module_accent"
+
+    static var pageBackground: UIColor {
+        DarkModeManager.shared.isDarkMode ? .lvBgNight : UIColor(hex: "#F5F2EC")
+    }
+
+    static var cardBackground: UIColor {
+        DarkModeManager.shared.isDarkMode
+            ? UIColor(hex: "#20231F")
+            : UIColor(hex: "#FFFDF8").withAlphaComponent(0.92)
+    }
+
+    static var divider: UIColor {
+        DarkModeManager.shared.isDarkMode ? UIColor(hex: "#3A4039") : UIColor(hex: "#E3DBCF")
+    }
+
+    static var accent: UIColor {
+        DarkModeManager.shared.isDarkMode ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67")
+    }
+
+    static var primaryText: UIColor {
+        DarkModeManager.shared.isDarkMode ? .lvTextPrimaryDark : UIColor(hex: "#24211D")
+    }
+
+    static var secondaryText: UIColor {
+        DarkModeManager.shared.isDarkMode ? .lvTextSecondaryDark : UIColor(hex: "#7C746B")
+    }
+
+    static var adaptivePrimaryText: UIColor {
+        .adaptiveColor(light: UIColor(hex: "#24211D"), dark: .lvTextPrimaryDark)
+    }
+
+    static var adaptiveSecondaryText: UIColor {
+        .adaptiveColor(light: UIColor(hex: "#7C746B"), dark: .lvTextSecondaryDark)
+    }
+
+    static var adaptiveDivider: UIColor {
+        .adaptiveColor(light: UIColor(hex: "#E3DBCF"), dark: UIColor(hex: "#3A4039"))
+    }
+
+    static func applyCard(to card: UIView) {
+        card.layer.name = cardIdentifier
+        card.backgroundColor = cardBackground
+        card.layer.cornerRadius = 8
+        card.layer.borderWidth = 1 / UIScreen.main.scale
+        card.layer.borderColor = divider.cgColor
+        card.layer.shadowColor = (DarkModeManager.shared.isDarkMode ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
+        card.layer.shadowOffset = CGSize(width: 0, height: 10)
+        card.layer.shadowRadius = 24
+        card.layer.shadowOpacity = 0.06
+    }
+
+    static func refreshCards(in root: UIView) {
+        if root.layer.name == cardIdentifier {
+            applyCard(to: root)
+        }
+        root.subviews.forEach { refreshCards(in: $0) }
+    }
+
+    static func applyAccent(to view: UIView) {
+        view.layer.name = accentIdentifier
+        view.tintColor = accent
+        if let button = view as? UIButton {
+            button.setTitleColor(accent, for: .normal)
+        } else if let label = view as? UILabel {
+            label.textColor = accent
+        }
+    }
+
+    static func refreshAccents(in root: UIView) {
+        if root.layer.name == accentIdentifier {
+            applyAccent(to: root)
+        }
+        root.subviews.forEach { refreshAccents(in: $0) }
+    }
+}
+
 // MARK: - Simple Global Logger (Debug only)
 #if DEBUG
 func LVLog(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {

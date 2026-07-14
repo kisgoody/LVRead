@@ -12,6 +12,7 @@ final class ReadingStatsRepository {
     private let statsKey = "reading_stats"
     private let bookStatsKey = "reading_stats_by_book"
     private let minuteRemainderKey = "reading_stats_minute_remainder_seconds"
+    private let hourlySecondsKey = "reading_stats_hourly_seconds"
     
     private init() {}
     
@@ -77,6 +78,68 @@ final class ReadingStatsRepository {
         }
     }
 
+    /// Records an active foreground reading interval and distributes it across
+    /// every clock hour it overlaps. Background and lock-screen intervals must
+    /// be paused by the caller and are therefore never included here.
+    func recordActiveInterval(bookId: String, from start: Date, to end: Date, pages: Int) {
+        guard end > start else {
+            if pages > 0 { addPagesRead(pages) }
+            return
+        }
+        let seconds = max(0, Int(end.timeIntervalSince(start)))
+        recordSession(bookId: bookId, seconds: seconds, pages: pages)
+        addHourlyReadingTime(from: start, to: end)
+    }
+
+    func hourlyReadingMinutes(for date: Date = Date()) -> [Double] {
+        let prefix = hourlyDateKey(from: date) + "-"
+        let values = hourlySeconds()
+        return (0..<24).map { hour in
+            Double(values[prefix + String(format: "%02d", hour)] ?? 0) / 60.0
+        }
+    }
+
+    /// Chronological dates with precise hourly data or legacy daily totals.
+    func hourlyReadingDates() -> [Date] {
+        var keys = Set(hourlySeconds().keys.map { String($0.prefix(10)) })
+        for (key, minutes) in getStats().dailyReadingMinutes where minutes > 0 {
+            keys.insert(key)
+        }
+        let dates = keys.compactMap(dateFromString).sorted()
+        return dates.isEmpty ? [Calendar.current.startOfDay(for: Date())] : dates
+    }
+
+    func totalReadingMinutes(for date: Date) -> Double {
+        let hourlyTotal = hourlyReadingMinutes(for: date).reduce(0, +)
+        if hourlyTotal > 0 { return hourlyTotal }
+        return Double(getStats().dailyReadingMinutes[hourlyDateKey(from: date)] ?? 0)
+    }
+
+    /// Integer values shared by the chart, point details and summary cards.
+    func displayedHourlyMinutes(for date: Date) -> [Int] {
+        hourlyReadingMinutes(for: date).map { Int(max($0, 0).rounded()) }
+    }
+
+    func displayedReadingMinutes(for date: Date) -> Int {
+        let hourly = displayedHourlyMinutes(for: date)
+        let hourlyTotal = hourly.reduce(0, +)
+        if hourlyTotal > 0 { return hourlyTotal }
+        return getStats().dailyReadingMinutes[hourlyDateKey(from: date)] ?? 0
+    }
+
+    func consistentReadingSummary(endingAt endDate: Date = Date()) -> (total: Int, weekly: Int) {
+        let calendar = Calendar.current
+        let weekly = (0..<7).reduce(0) { result, offset in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: endDate) else { return result }
+            return result + displayedReadingMinutes(for: date)
+        }
+        let storedTotal = Int((Double(getStats().totalReadingTimeSeconds) / 60).rounded())
+        let detailedTotal = hourlyReadingDates().reduce(0) {
+            $0 + displayedReadingMinutes(for: $1)
+        }
+        return (max(storedTotal, detailedTotal, weekly), weekly)
+    }
+
     func getBookStats() -> [String: BookReadingStat] {
         guard let data = defaults.data(forKey: bookStatsKey),
               let values = try? JSONDecoder().decode([String: BookReadingStat].self, from: data) else {
@@ -131,6 +194,50 @@ final class ReadingStatsRepository {
                 return weekStart >= twelveWeeksAgo
             }
         }
+    }
+
+    private func addHourlyReadingTime(from start: Date, to end: Date) {
+        var values = hourlySeconds()
+        var cursor = start
+        let calendar = Calendar.current
+        while cursor < end {
+            guard let nextHour = calendar.nextDate(
+                after: cursor,
+                matching: DateComponents(minute: 0, second: 0),
+                matchingPolicy: .nextTime
+            ) else { break }
+            let segmentEnd = min(end, nextHour)
+            let key = hourlyKey(from: cursor)
+            values[key, default: 0] += max(0, Int(segmentEnd.timeIntervalSince(cursor)))
+            cursor = segmentEnd
+        }
+
+        let cutoff = calendar.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
+        values = values.filter { key, _ in
+            guard key.count >= 10,
+                  let date = dateFromString(String(key.prefix(10))) else { return false }
+            return date >= cutoff
+        }
+        if let data = try? JSONEncoder().encode(values) {
+            defaults.set(data, forKey: hourlySecondsKey)
+        }
+    }
+
+    private func hourlySeconds() -> [String: Int] {
+        guard let data = defaults.data(forKey: hourlySecondsKey),
+              let values = try? JSONDecoder().decode([String: Int].self, from: data) else {
+            return [:]
+        }
+        return values
+    }
+
+    private func hourlyKey(from date: Date) -> String {
+        let hour = Calendar.current.component(.hour, from: date)
+        return hourlyDateKey(from: date) + "-" + String(format: "%02d", hour)
+    }
+
+    private func hourlyDateKey(from date: Date) -> String {
+        dateString(from: date)
     }
     
     private func dateString(from date: Date) -> String {

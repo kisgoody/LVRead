@@ -33,6 +33,7 @@ final class ProfileViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+        applyAppearance()
         updateContent()
     }
 
@@ -42,10 +43,10 @@ final class ProfileViewController: UIViewController {
         view.backgroundColor = profilePageBackground
         titleLabel.text = "我的"
         titleLabel.font = .systemFont(ofSize: 30, weight: .bold)
-        titleLabel.textColor = .lvAdaptiveTextPrimary
+        titleLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         subtitleLabel.text = LVModuleSubtitleProvider.subtitle(for: .profile)
         subtitleLabel.font = .systemFont(ofSize: 14)
-        subtitleLabel.textColor = .lvAdaptiveTextSecondary
+        subtitleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
 
         scrollView.alwaysBounceVertical = true
         stackView.axis = .vertical
@@ -101,14 +102,14 @@ final class ProfileViewController: UIViewController {
     private func makeMetric(valueLabel: UILabel, title: String) -> UIView {
         let card = makeCard()
         valueLabel.font = .systemFont(ofSize: 20, weight: .bold)
-        valueLabel.textColor = .lvAdaptiveTextPrimary
+        valueLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         valueLabel.textAlignment = .center
         valueLabel.adjustsFontSizeToFitWidth = true
         valueLabel.minimumScaleFactor = 0.7
         let caption = UILabel()
         caption.text = title
         caption.font = .systemFont(ofSize: 12)
-        caption.textColor = .lvAdaptiveTextSecondary
+        caption.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         caption.textAlignment = .center
         let stack = UIStackView(arrangedSubviews: [valueLabel, caption])
         stack.axis = .vertical
@@ -126,18 +127,15 @@ final class ProfileViewController: UIViewController {
 
     private func makeAdviceCard() -> UIView {
         let card = UIView()
-        card.backgroundColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark ? UIColor(hex: "#2B2418") : UIColor(hex: "#FFF7E8")
-        }
-        card.layer.cornerRadius = 8
+        LVBookshelfModuleStyle.applyCard(to: card)
         let marker = UIView()
         marker.backgroundColor = UIColor(hex: "#C2933D")
         let heading = UILabel()
         heading.text = "阅读建议"
         heading.font = .systemFont(ofSize: 14, weight: .bold)
-        heading.textColor = .lvAdaptiveTextPrimary
+        heading.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         adviceLabel.font = .systemFont(ofSize: 14)
-        adviceLabel.textColor = .lvAdaptiveTextSecondary
+        adviceLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         adviceLabel.numberOfLines = 0
         let stack = UIStackView(arrangedSubviews: [heading, adviceLabel])
         stack.axis = .vertical
@@ -164,13 +162,12 @@ final class ProfileViewController: UIViewController {
         let heading = makeHeading("阅读统计")
         summaryLabel.numberOfLines = 0
         summaryLabel.font = .systemFont(ofSize: 14)
-        summaryLabel.textColor = .lvAdaptiveTextSecondary
+        summaryLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
 
         let button = UIButton(type: .system)
         button.setTitle("查看完整统计与建议", for: .normal)
         button.setImage(UIImage(systemName: "chart.bar.xaxis"), for: .normal)
-        button.tintColor = UIColor(hex: "#236D67")
-        button.setTitleColor(UIColor(hex: "#236D67"), for: .normal)
+        LVBookshelfModuleStyle.applyAccent(to: button)
         button.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
         button.contentHorizontalAlignment = .left
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
@@ -178,11 +175,11 @@ final class ProfileViewController: UIViewController {
 
         let libraryHeading = makeSectionTitle("藏书统计")
         libraryStatsLabel.font = .systemFont(ofSize: 14)
-        libraryStatsLabel.textColor = .lvAdaptiveTextSecondary
+        libraryStatsLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         libraryStatsLabel.numberOfLines = 0
         let noteHeading = makeSectionTitle("笔记统计")
         noteStatsLabel.font = .systemFont(ofSize: 14)
-        noteStatsLabel.textColor = .lvAdaptiveTextSecondary
+        noteStatsLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         noteStatsLabel.numberOfLines = 0
         let content = UIStackView(arrangedSubviews: [
             heading, summaryLabel, divider(), libraryHeading, libraryStatsLabel,
@@ -198,7 +195,7 @@ final class ProfileViewController: UIViewController {
         let label = UILabel()
         label.text = text
         label.font = .systemFont(ofSize: 14, weight: .semibold)
-        label.textColor = .lvAdaptiveTextPrimary
+        label.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         return label
     }
 
@@ -215,7 +212,7 @@ final class ProfileViewController: UIViewController {
         goalStepper.addTarget(self, action: #selector(goalChanged), for: .valueChanged)
         let goalRow = makeRow(title: "每日目标", subtitle: "用于生成阅读建议", control: goalStepper)
         goalLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
-        goalLabel.textColor = UIColor(hex: "#236D67")
+        LVBookshelfModuleStyle.applyAccent(to: goalLabel)
 
         let goalValueRow = UIStackView(arrangedSubviews: [goalLabel, UIView()])
         goalValueRow.axis = .horizontal
@@ -233,7 +230,7 @@ final class ProfileViewController: UIViewController {
         let label = UILabel()
         label.text = "笔记用于管理书签、摘录和批注；我的用于阅读统计、目标和全局偏好。"
         label.font = .systemFont(ofSize: 14)
-        label.textColor = .lvAdaptiveTextSecondary
+        label.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         label.numberOfLines = 0
         let content = UIStackView(arrangedSubviews: [heading, label])
         content.axis = .vertical
@@ -244,14 +241,7 @@ final class ProfileViewController: UIViewController {
 
     private func makeCard() -> UIView {
         let card = UIView()
-        card.backgroundColor = profileCardBackground
-        card.layer.cornerRadius = 8
-        card.layer.borderWidth = 1 / UIScreen.main.scale
-        card.layer.borderColor = UIColor.lvAdaptiveDivider.cgColor
-        card.layer.shadowColor = UIColor.black.cgColor
-        card.layer.shadowOpacity = 0.06
-        card.layer.shadowRadius = 17
-        card.layer.shadowOffset = CGSize(width: 0, height: 7)
+        LVBookshelfModuleStyle.applyCard(to: card)
         return card
     }
 
@@ -259,7 +249,7 @@ final class ProfileViewController: UIViewController {
         let label = UILabel()
         label.text = text
         label.font = .systemFont(ofSize: 20, weight: .semibold)
-        label.textColor = .lvAdaptiveTextPrimary
+        label.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         return label
     }
 
@@ -267,11 +257,11 @@ final class ProfileViewController: UIViewController {
         let titleLabel = UILabel()
         titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 14, weight: .medium)
-        titleLabel.textColor = .lvAdaptiveTextPrimary
+        titleLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         let subtitleLabel = UILabel()
         subtitleLabel.text = subtitle
         subtitleLabel.font = .systemFont(ofSize: 12)
-        subtitleLabel.textColor = .lvAdaptiveTextSecondary
+        subtitleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         subtitleLabel.numberOfLines = 0
         let labels = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
         labels.axis = .vertical
@@ -286,7 +276,7 @@ final class ProfileViewController: UIViewController {
 
     private func divider() -> UIView {
         let value = UIView()
-        value.backgroundColor = .lvAdaptiveDivider
+        value.backgroundColor = LVBookshelfModuleStyle.adaptiveDivider
         value.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale).isActive = true
         return value
     }
@@ -345,20 +335,18 @@ final class ProfileViewController: UIViewController {
     }
 
     @objc private func themeChanged() {
-        view.backgroundColor = profilePageBackground
+        applyAppearance()
         view.setNeedsLayout()
         updateContent()
+    }
+
+    private func applyAppearance() {
+        view.backgroundColor = LVBookshelfModuleStyle.pageBackground
+        LVBookshelfModuleStyle.refreshCards(in: view)
+        LVBookshelfModuleStyle.refreshAccents(in: view)
     }
 }
 
 private var profilePageBackground: UIColor {
-    UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .lvBgNight : UIColor(hex: "#F5F2EC")
-    }
-}
-
-private var profileCardBackground: UIColor {
-    UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .lvSurfaceDark : UIColor(hex: "#FFFDF8")
-    }
+    LVBookshelfModuleStyle.pageBackground
 }

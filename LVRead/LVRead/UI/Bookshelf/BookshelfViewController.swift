@@ -515,12 +515,17 @@ final class BookshelfViewController: UIViewController {
     }
 
     private func configureBottomNavButton(_ button: UIButton, title: String, icon: String, active: Bool) {
-        let color = active ? UIColor(hex: "#236D67") : UIColor(hex: "#7C746B")
+        let isDark = DarkModeManager.shared.isDarkMode
+        let color = active
+            ? (isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67"))
+            : (isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B"))
         button.setImage(UIImage(systemName: icon), for: .normal)
         button.setTitle(title, for: .normal)
         button.tintColor = color
         button.setTitleColor(color, for: .normal)
-        button.backgroundColor = active ? UIColor(hex: "#DCEFEB") : .clear
+        button.backgroundColor = active
+            ? (isDark ? UIColor(hex: "#294844") : UIColor(hex: "#DCEFEB"))
+            : .clear
         button.layer.cornerRadius = 8
         button.titleLabel?.font = .systemFont(ofSize: 11, weight: active ? .bold : .regular)
         button.imageView?.contentMode = .scaleAspectFit
@@ -551,6 +556,10 @@ final class BookshelfViewController: UIViewController {
         sectionCountLabel.textColor = secondaryText
         bottomNavView.backgroundColor = panel
         bottomNavView.layer.borderColor = divider.cgColor
+        continueGradientLayer.colors = isDark
+            ? [UIColor(hex: "#142C2A").cgColor, UIColor(hex: "#1B2230").cgColor]
+            : [UIColor(hex: "#236D67").cgColor, UIColor(hex: "#2D425D").cgColor]
+        continueView.layer.shadowColor = (isDark ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
         topAddButton.backgroundColor = panel
         topAddButton.layer.borderColor = divider.cgColor
 
@@ -579,6 +588,8 @@ final class BookshelfViewController: UIViewController {
         configureBottomNavButton(bottomMineButton, title: "我的", icon: "person", active: false)
 
         updateFilterChipColors()
+        collectionView.visibleCells.compactMap { $0 as? BookCell }.forEach { $0.applyAppearance() }
+        tableView.visibleCells.compactMap { $0 as? BookListCell }.forEach { $0.applyAppearance() }
     }
 
     private func updateFilterChipColors() {

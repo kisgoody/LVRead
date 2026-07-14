@@ -179,6 +179,7 @@ final class BookCell: UICollectionViewCell {
     }
 
     func configure(with book: Book) {
+        applyAppearance()
         representedBookId = book.id
         titleLabel.text = book.title
         coverTitleLabel.text = book.fileFormat.displayName
@@ -194,6 +195,22 @@ final class BookCell: UICollectionViewCell {
         zodiacBadge.image = nil
         zodiacBadge.isHidden = true
         coverImageView.image = generatePlaceholderCover(for: book)
+    }
+
+    func applyAppearance() {
+        let isDark = DarkModeManager.shared.isDarkMode
+        let surface = isDark ? UIColor(hex: "#20231F") : UIColor(hex: "#FFFDF8").withAlphaComponent(0.92)
+        let divider = isDark ? UIColor(hex: "#3A4039") : UIColor(hex: "#E3DBCF")
+        let secondary = isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B")
+        shadowView.backgroundColor = surface
+        containerView.backgroundColor = surface
+        containerView.layer.borderColor = divider.cgColor
+        shadowView.layer.shadowColor = (isDark ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
+        progressBar.trackTintColor = isDark ? UIColor(hex: "#3A4039") : UIColor(hex: "#E3DBCF")
+        progressBar.progressTintColor = isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67")
+        progressLabel.textColor = secondary
+        sourceBadge.textColor = secondary
+        formatBadge.textColor = secondary
     }
 
     private func coverPalette(for book: Book) -> (UIColor, UIColor, UIColor) {

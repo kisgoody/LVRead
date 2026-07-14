@@ -165,6 +165,28 @@ final class BookListCell: UITableViewCell {
         cardView.addSubview(zodiacBadge)
     }
 
+    func applyAppearance() {
+        let isDark = DarkModeManager.shared.isDarkMode
+        let surface = isDark ? UIColor(hex: "#20231F") : UIColor(hex: "#FFFDF8").withAlphaComponent(0.92)
+        let text = isDark ? UIColor.lvTextPrimaryDark : UIColor(hex: "#24211D")
+        let secondary = isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B")
+        let divider = isDark ? UIColor(hex: "#3A4039") : UIColor(hex: "#E3DBCF")
+        cardView.backgroundColor = surface
+        cardView.layer.borderColor = divider.cgColor
+        cardView.layer.shadowColor = (isDark ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
+        titleLabel.textColor = text
+        authorLabel.textColor = secondary
+        progressLabel.textColor = secondary
+        detailLabel.textColor = secondary
+        sourceBadge.backgroundColor = isDark ? UIColor(hex: "#294844") : UIColor(hex: "#DCEFEB")
+        sourceBadge.textColor = isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67")
+        progressBar.trackTintColor = divider
+        progressBar.progressTintColor = isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67")
+        bookActionButton.backgroundColor = surface
+        bookActionButton.tintColor = text
+        bookActionButton.layer.borderColor = divider.cgColor
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         if !zodiacBadge.isHidden {
@@ -229,6 +251,7 @@ final class BookListCell: UITableViewCell {
     }
 
     func configure(with book: Book) {
+        applyAppearance()
         representedBookId = book.id
         titleLabel.text = book.title
         coverTitleLabel.text = book.title

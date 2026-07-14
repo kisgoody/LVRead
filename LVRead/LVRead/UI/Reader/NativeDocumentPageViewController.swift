@@ -60,6 +60,9 @@ final class NativeDocumentPageViewController: UIViewController {
         canvas.page = page
         canvas.settings = settings
         canvas.readingSafeAreaInsets = readingSafeAreaInsets
+        let pageBackground = UIColor(hex: settings.readingTheme.backgroundColor)
+        view.backgroundColor = pageBackground
+        canvas.backgroundColor = pageBackground
         let foreground = UIColor(hex: settings.readingTheme.textColor)
         let backConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: backConfiguration), for: .normal)
@@ -118,7 +121,7 @@ final class NativeDocumentPageViewController: UIViewController {
             timeLabel.trailingAnchor.constraint(equalTo: batteryView.leadingAnchor, constant: -8),
             timeLabel.centerYAnchor.constraint(equalTo: progressLabel.centerYAnchor),
             bookmark.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
-            bookmark.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            bookmark.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
             bookmark.widthAnchor.constraint(equalToConstant: 24),
             bookmark.heightAnchor.constraint(equalToConstant: 32),
             comment.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
@@ -176,6 +179,49 @@ final class NativeDocumentPageViewController: UIViewController {
     @objc private func commentTapped() { delegate?.documentPageDidTapComment(self) }
 
     @objc private func backTapped() { delegate?.documentPageDidTapBack() }
+}
+
+/// UIPageViewController 仿真翻页的显式纸张背面。
+/// 使用当前主题的协调色，并透印当前页而非下一页的文字。
+final class NativeDocumentPageBackViewController: UIViewController {
+    let page: NativeDocumentPage
+    private let settings: ReadingSettings
+    private let readingSafeAreaInsets: UIEdgeInsets
+    private let canvas = NativeCoreTextView()
+
+    init(page: NativeDocumentPage, settings: ReadingSettings, readingSafeAreaInsets: UIEdgeInsets) {
+        self.page = page
+        self.settings = settings
+        self.readingSafeAreaInsets = readingSafeAreaInsets
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        let backColor = UIColor(hex: settings.readingTheme.pageBackColor)
+        view.backgroundColor = backColor
+        view.isOpaque = true
+
+        canvas.page = page
+        canvas.settings = settings
+        canvas.readingSafeAreaInsets = readingSafeAreaInsets
+        canvas.backgroundColor = backColor
+        canvas.isOpaque = true
+        canvas.alpha = settings.readingTheme.pageBackTextOpacity
+        canvas.transform = CGAffineTransform(scaleX: -1, y: 1)
+        view.addSubview(canvas)
+        canvas.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            canvas.topAnchor.constraint(equalTo: view.topAnchor),
+            canvas.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            canvas.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            canvas.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        accessibilityElementsHidden = true
+    }
 }
 
 extension NativeDocumentPageViewController: UIGestureRecognizerDelegate {

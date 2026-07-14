@@ -18,7 +18,8 @@ final class NativeDocumentReaderViewController: UIViewController {
     private var initialLoadStarted = false
     private var suppressWindowRefresh = false
     private var menuVisible = false
-    private var readingStartedAt = Date()
+    private var isProgrammaticPageTurn = false
+    private var activeReadingStartedAt: Date?
     private var visited: Set<String> = []
 
     private var pageViewController: UIPageViewController!
@@ -60,7 +61,26 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        syncWithAppDarkMode()
         buildInterface()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDarkModeChanged),
+            name: .darkModeChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
 
     override func viewDidLayoutSubviews() {
@@ -73,21 +93,58 @@ final class NativeDocumentReaderViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+        resumeReadingTimerIfNeeded()
+        if syncWithAppDarkMode() {
+            applyAppearance()
+            refreshVisiblePages()
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        resumeReadingTimerIfNeeded()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         saveProgress()
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
-        ReadingStatsRepository.shared.recordSession(
-            bookId: book.id,
-            seconds: max(0, Int(Date().timeIntervalSince(readingStartedAt))),
-            pages: visited.count
-        )
+        flushActiveReadingInterval(recordPages: true)
         WebSyncServer.shared.stop()
         loadVersion += 1
         pages.removeAll()
         continuousStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    }
+
+    private func resumeReadingTimerIfNeeded() {
+        guard activeReadingStartedAt == nil,
+              UIApplication.shared.applicationState == .active,
+              viewIfLoaded?.window != nil else { return }
+        activeReadingStartedAt = Date()
+    }
+
+    private func flushActiveReadingInterval(recordPages: Bool) {
+        let pagesRead = recordPages ? visited.count : 0
+        if let start = activeReadingStartedAt {
+            ReadingStatsRepository.shared.recordActiveInterval(
+                bookId: book.id,
+                from: start,
+                to: Date(),
+                pages: pagesRead
+            )
+        } else if pagesRead > 0 {
+            ReadingStatsRepository.shared.addPagesRead(pagesRead)
+        }
+        activeReadingStartedAt = nil
+        if recordPages { visited.removeAll() }
+    }
+
+    @objc private func appWillResignActive() {
+        flushActiveReadingInterval(recordPages: false)
+    }
+
+    @objc private func appDidBecomeActive() {
+        resumeReadingTimerIfNeeded()
     }
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
@@ -131,15 +188,16 @@ final class NativeDocumentReaderViewController: UIViewController {
             navigationMode == .simulation ? .pageCurl : .scroll
         let orientation: UIPageViewController.NavigationOrientation =
             navigationMode == .vertical ? .vertical : .horizontal
+        var options: [UIPageViewController.OptionsKey: Any] = [.interPageSpacing: 0]
+        if navigationMode == .simulation {
+            options[.spineLocation] = NSNumber(value: UIPageViewController.SpineLocation.min.rawValue)
+        }
         let controller = UIPageViewController(
             transitionStyle: style,
             navigationOrientation: orientation,
-            options: [.interPageSpacing: 0]
+            options: options
         )
-        // 阅读器没有独立的纸张背面内容。开启 doubleSided 后，UIKit 会把数据源中的
-        // 下一页当作当前纸张背面，导致翻页过程中正反面文字不一致。保持单面后，
-        // pageCurl 会使用当前页面生成背面透印效果，翻页完成后再显示下一页。
-        controller.isDoubleSided = false
+        controller.isDoubleSided = navigationMode == .simulation
         controller.dataSource = self
         controller.delegate = self
         return controller
@@ -272,6 +330,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func setNativePagingEnabled(_ enabled: Bool) {
+        pageViewController.gestureRecognizers.forEach { $0.isEnabled = enabled }
         pageViewController.view.subviews
             .compactMap { $0 as? UIScrollView }
             .forEach {
@@ -393,6 +452,8 @@ final class NativeDocumentReaderViewController: UIViewController {
         let foreground = UIColor(hex: settings.readingTheme.textColor)
         let panel = UIColor(hex: settings.readingTheme.panelColor).withAlphaComponent(0.98)
         view.backgroundColor = background
+        pageViewController.view.backgroundColor = background
+        pageViewController.view.subviews.forEach { $0.backgroundColor = background }
         topStatus.backgroundColor = background
         bottomStatus.backgroundColor = background
         topMenu.backgroundColor = panel
@@ -647,8 +708,8 @@ final class NativeDocumentReaderViewController: UIViewController {
         currentIndex = previousPageID.flatMap { id in window.firstIndex(where: { $0.id == id }) } ?? target
         if navigationMode == .continuousVertical {
             renderContinuousWindow(target: currentIndex, intraPageOffset: previousIntraPageOffset)
-        } else if let controller = makePageController(at: currentIndex) {
-            pageViewController.setViewControllers([controller], direction: .forward, animated: false)
+        } else if let controllers = pageControllers(at: currentIndex) {
+            pageViewController.setViewControllers(controllers, direction: .forward, animated: false)
         }
         skeleton.stop()
         pageViewController.view.isUserInteractionEnabled = true
@@ -682,6 +743,22 @@ final class NativeDocumentReaderViewController: UIViewController {
         return controller
     }
 
+    private func makeBackPageController(at index: Int) -> NativeDocumentPageBackViewController? {
+        guard pages.indices.contains(index) else { return nil }
+        return NativeDocumentPageBackViewController(
+            page: pages[index],
+            settings: settings,
+            readingSafeAreaInsets: view.safeAreaInsets
+        )
+    }
+
+    private func pageControllers(at index: Int) -> [UIViewController]? {
+        guard let front = makePageController(at: index) else { return nil }
+        // iPhone 使用 .min 书脊时只有一个可见页面。背面必须由 dataSource
+        // 在翻页过程中按需提供，不能与正面一起传给 setViewControllers。
+        return [front]
+    }
+
     private func progressText(for page: NativeDocumentPage) -> String {
         "\(page.pageIndex + 1)/\(chapterPageCounts[page.chapterIndex] ?? page.pageIndex + 1)"
     }
@@ -712,8 +789,8 @@ final class NativeDocumentReaderViewController: UIViewController {
             let height = max(continuousScrollView.bounds.height, 1)
             let intraPageOffset = continuousScrollView.contentOffset.y - CGFloat(currentIndex) * height
             renderContinuousWindow(target: currentIndex, intraPageOffset: intraPageOffset)
-        } else if let controller = makePageController(at: currentIndex) {
-            pageViewController.setViewControllers([controller], direction: .forward, animated: false)
+        } else if let controllers = pageControllers(at: currentIndex) {
+            pageViewController.setViewControllers(controllers, direction: .forward, animated: false)
         }
     }
 
@@ -756,25 +833,74 @@ final class NativeDocumentReaderViewController: UIViewController {
         )
     }
 
-    private func turnWithoutAnimation(forward: Bool) {
-        let target = currentIndex + (forward ? 1 : -1)
-        guard let controller = makePageController(at: target) else { return }
-        pageViewController.setViewControllers(
-            [controller],
-            direction: forward ? .forward : .reverse,
-            animated: false
-        )
-        currentIndex = target
-        settleOnCurrentPage()
-    }
-
     private func toggleMenu() {
         menuVisible.toggle()
+        updatePagingInteraction()
         setNeedsStatusBarAppearanceUpdate()
         UIView.animate(withDuration: 0.2) {
             self.topMenu.alpha = self.menuVisible ? 1 : 0
             self.bottomMenu.alpha = self.menuVisible ? 1 : 0
         }
+    }
+
+    private func updatePagingInteraction() {
+        let enabled = !menuVisible && presentedViewController == nil
+        setNativePagingEnabled(enabled && navigationMode != .none)
+        continuousScrollView.isScrollEnabled = enabled
+    }
+
+    private func turnPage(forward: Bool, animated: Bool) {
+        guard !menuVisible, presentedViewController == nil, !isProgrammaticPageTurn else { return }
+        let target = currentIndex + (forward ? 1 : -1)
+        guard let controllers = pageControllers(at: target) else { return }
+        isProgrammaticPageTurn = true
+        pageViewController.setViewControllers(
+            controllers,
+            direction: forward ? .forward : .reverse,
+            animated: animated
+        ) { [weak self] completed in
+            guard let self else { return }
+            self.isProgrammaticPageTurn = false
+            guard completed, animated else { return }
+            self.currentIndex = target
+            self.settleOnCurrentPage()
+        }
+        if !animated {
+            currentIndex = target
+            settleOnCurrentPage()
+            isProgrammaticPageTurn = false
+        }
+    }
+
+    @discardableResult
+    private func syncWithAppDarkMode() -> Bool {
+        let shouldUseDarkTheme = DarkModeManager.shared.isDarkMode
+        if shouldUseDarkTheme, settings.readingTheme != .oled {
+            themeBeforeNight = settings.readingTheme
+            settings.readingTheme = .oled
+        } else if !shouldUseDarkTheme, settings.readingTheme == .oled {
+            settings.readingTheme = themeBeforeNight ?? .warmYellow
+            themeBeforeNight = nil
+        } else {
+            return false
+        }
+        settings.nightMode = shouldUseDarkTheme
+        settings.backgroundColor = settings.readingTheme.backgroundColor
+        ReadingSettingsRepository.shared.save(settings)
+        return true
+    }
+
+    @objc private func appDarkModeChanged() {
+        guard syncWithAppDarkMode() else { return }
+        applyAppearance()
+        refreshVisiblePages()
+        guard let page = currentPage else { return }
+        loadWindow(
+            chapterIndex: page.chapterIndex,
+            pageIndex: page.pageIndex,
+            characterOffset: page.startOffset,
+            showSkeleton: false
+        )
     }
 
     private func highlight(for page: NativeDocumentPage) -> Highlight? {
@@ -980,18 +1106,34 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
         _ pageViewController: UIPageViewController,
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
+        guard !menuVisible, presentedViewController == nil else { return nil }
+        if navigationMode == .simulation,
+           let back = viewController as? NativeDocumentPageBackViewController,
+           let index = pages.firstIndex(where: { $0.id == back.page.id }) {
+            return makePageController(at: index)
+        }
         guard let page = viewController as? NativeDocumentPageViewController,
               let index = pages.firstIndex(where: { $0.id == page.page.id }) else { return nil }
-        return makePageController(at: index - 1)
+        return navigationMode == .simulation
+            ? makeBackPageController(at: index - 1)
+            : makePageController(at: index - 1)
     }
 
     func pageViewController(
         _ pageViewController: UIPageViewController,
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
+        guard !menuVisible, presentedViewController == nil else { return nil }
+        if navigationMode == .simulation,
+           let back = viewController as? NativeDocumentPageBackViewController,
+           let index = pages.firstIndex(where: { $0.id == back.page.id }) {
+            return makePageController(at: index + 1)
+        }
         guard let page = viewController as? NativeDocumentPageViewController,
               let index = pages.firstIndex(where: { $0.id == page.page.id }) else { return nil }
-        return makePageController(at: index + 1)
+        return navigationMode == .simulation
+            ? makeBackPageController(at: index)
+            : makePageController(at: index + 1)
     }
 
     func pageViewController(
@@ -1031,12 +1173,19 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
     func documentPageDidTapCenter() { toggleMenu() }
 
     func documentPageDidTapEdge(forward: Bool) {
-        guard navigationMode == .none else { return }
-        turnWithoutAnimation(forward: forward)
+        guard !menuVisible, presentedViewController == nil else { return }
+        switch navigationMode {
+        case .simulation, .horizontal:
+            turnPage(forward: forward, animated: true)
+        case .none:
+            turnPage(forward: forward, animated: false)
+        case .vertical, .continuousVertical:
+            break
+        }
     }
 
     func documentPage(_ controller: NativeDocumentPageViewController, didUpdatePull distance: CGFloat) {
-        guard allowsPullBookmark else { return }
+        guard allowsPullBookmark, !menuVisible, presentedViewController == nil else { return }
         let translation = min(max(distance, 0), 96)
         pageViewController.view.transform = CGAffineTransform(translationX: 0, y: translation)
         pullBookmarkReveal.alpha = min(1, translation / 56)
@@ -1044,6 +1193,7 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
     }
 
     func documentPage(_ controller: NativeDocumentPageViewController, didFinishPull shouldToggleBookmark: Bool) {
+        guard !menuVisible, presentedViewController == nil else { return }
         if shouldToggleBookmark {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             toggleBookmark(controller)

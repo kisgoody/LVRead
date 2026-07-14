@@ -56,15 +56,22 @@ final class LVModuleNavigationView: UIView {
         self.selectedModule = selectedModule
         super.init(frame: .zero)
         build()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(darkModeChanged),
+            name: .darkModeChanged,
+            object: nil
+        )
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    deinit { NotificationCenter.default.removeObserver(self) }
+
     private func build() {
-        backgroundColor = UIColor(hex: "#FFFDF8")
+        applyAppearance()
         layer.borderWidth = 1 / UIScreen.main.scale
-        layer.borderColor = UIColor(hex: "#E3DBCF").cgColor
 
         stackView.axis = .horizontal
         stackView.distribution = .fillEqually
@@ -92,7 +99,10 @@ final class LVModuleNavigationView: UIView {
         module: LVMainModule
     ) {
         let selected = module == selectedModule
-        let color = selected ? UIColor(hex: "#236D67") : UIColor(hex: "#7C746B")
+        let isDark = DarkModeManager.shared.isDarkMode
+        let color = selected
+            ? (isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67"))
+            : (isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B"))
         button.setImage(
             UIImage(systemName: selected ? "\(symbol).fill" : symbol) ?? UIImage(systemName: symbol),
             for: .normal
@@ -100,7 +110,9 @@ final class LVModuleNavigationView: UIView {
         button.setTitle(title, for: .normal)
         button.tintColor = color
         button.setTitleColor(color, for: .normal)
-        button.backgroundColor = selected ? UIColor(hex: "#DCEFEB") : .clear
+        button.backgroundColor = selected
+            ? (isDark ? UIColor(hex: "#294844") : UIColor(hex: "#DCEFEB"))
+            : .clear
         button.layer.cornerRadius = 8
         button.titleLabel?.font = .systemFont(ofSize: 12, weight: selected ? .semibold : .regular)
         button.imageView?.contentMode = .scaleAspectFit
@@ -119,7 +131,38 @@ final class LVModuleNavigationView: UIView {
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         guard traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) else { return }
-        layer.borderColor = UIColor(hex: "#E3DBCF").cgColor
+        applyAppearance()
+    }
+
+    private func applyAppearance() {
+        let isDark = DarkModeManager.shared.isDarkMode
+        backgroundColor = isDark ? UIColor.lvSurfaceDark : UIColor(hex: "#FFFDF8")
+        layer.borderColor = (isDark ? UIColor.lvDividerDark : UIColor(hex: "#E3DBCF")).cgColor
+        applyButtonAppearance(shelfButton, symbol: "book.closed", module: .shelf)
+        applyButtonAppearance(notesButton, symbol: "bookmark", module: .notes)
+        applyButtonAppearance(profileButton, symbol: "person", module: .profile)
+    }
+
+    @objc private func darkModeChanged() {
+        applyAppearance()
+        setNeedsLayout()
+    }
+
+    private func applyButtonAppearance(_ button: UIButton, symbol: String, module: LVMainModule) {
+        let selected = module == selectedModule
+        let isDark = DarkModeManager.shared.isDarkMode
+        let color = selected
+            ? (isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67"))
+            : (isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B"))
+        button.setImage(
+            UIImage(systemName: selected ? "\(symbol).fill" : symbol) ?? UIImage(systemName: symbol),
+            for: .normal
+        )
+        button.tintColor = color
+        button.setTitleColor(color, for: .normal)
+        button.backgroundColor = selected
+            ? (isDark ? UIColor(hex: "#294844") : UIColor(hex: "#DCEFEB"))
+            : .clear
     }
 }
 

@@ -102,6 +102,22 @@ final class ReadingStatsRepositoryTests: XCTestCase {
         XCTAssertEqual(bookStat.readingTimeSeconds, 75)
         XCTAssertEqual(bookStat.pagesRead, 3)
     }
+
+    func testActiveIntervalIsRecordedInHourlyDimension() throws {
+        let repo = ReadingStatsRepository.shared
+        let calendar = Calendar.current
+        let start = try XCTUnwrap(calendar.date(bySettingHour: 12, minute: 10, second: 0, of: Date()))
+        let before = repo.hourlyReadingMinutes()[12]
+
+        repo.recordActiveInterval(
+            bookId: "hourly-stats-test-\(UUID().uuidString)",
+            from: start,
+            to: start.addingTimeInterval(120),
+            pages: 0
+        )
+
+        XCTAssertEqual(repo.hourlyReadingMinutes()[12], before + 2, accuracy: 0.01)
+    }
     
     func testMarkBookFinished() throws {
         let repo = ReadingStatsRepository.shared

@@ -177,6 +177,30 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
         }
     }
 
+    /// UIPageViewController 仿真翻页使用的背面色。
+    /// 与正面保持同一色相，并通过轻微明度差表现纸张背面。
+    var pageBackColor: String {
+        switch self {
+        case .white: return "#F2EFE8"
+        case .warmYellow: return "#EAD7B5"
+        case .mint: return "#D5E8D8"
+        case .latte: return "#DCC4AA"
+        case .bookshelf: return "#E8E0D4"
+        case .midnight: return "#141725"
+        case .oled: return "#050505"
+        case .custom: return backgroundColor
+        }
+    }
+
+    /// 当前页文字在背面的透印强度。
+    var pageBackTextOpacity: CGFloat {
+        switch self {
+        case .midnight: return 0.14
+        case .oled: return 0.10
+        default: return 0.18
+        }
+    }
+
     var displayName: String {
         switch self {
         case .white: return "纯白经典"
