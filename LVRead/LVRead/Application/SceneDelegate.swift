@@ -36,6 +36,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             UIView.transition(with: self.window!, duration: 0.4, options: .transitionCrossDissolve) {
                 self.window?.rootViewController = navigationController
             }
+            WebSyncServer.shared.resumeSavedSessionIfNeeded()
 
             if let url = connectionOptions.urlContexts.first?.url {
                 self.handleIncomingFile(url)
@@ -53,7 +54,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
-        WebSyncServer.shared.stopIfNeeded()
+        // 保留同步监听器；返回前台后原链接仍可继续使用。
         TransferManager.shared.handleBackgroundTransition()
         PageCacheManager.shared.handleBackgroundTransition()
         ImageCacheManager.shared.handleBackgroundTransition()
@@ -61,6 +62,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneWillEnterForeground(_ scene: UIScene) {
         TransferManager.shared.handleForegroundTransition()
+        WebSyncServer.shared.resumeSavedSessionIfNeeded()
     }
 
     private func handleIncomingFile(_ url: URL) {

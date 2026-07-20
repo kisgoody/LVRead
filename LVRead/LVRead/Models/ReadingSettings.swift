@@ -32,13 +32,13 @@ struct ReadingSettings: Codable, Equatable, Hashable {
 
     static let `default` = ReadingSettings(
         fontFamily: "系统默认",
-        fontSize: 24,
+        fontSize: 23,
         fontWeight: 400,
-        lineSpacing: 1.4,
-        paragraphSpacing: 1.4,
+        lineSpacing: 1.3,
+        paragraphSpacing: 1.5,
         pageMarginHorizontal: 7.0,
         pageMarginVertical: 2.0,
-        backgroundColor: "#FBF0D9",
+        backgroundColor: "#F5F2EC",
         backgroundImagePath: Optional<String>.none,
         backgroundImageOpacity: 0.3,
         brightness: 1.0,
@@ -48,7 +48,7 @@ struct ReadingSettings: Codable, Equatable, Hashable {
         pageFlipMode: PageFlipMode.cover,
         autoReadEnabled: false,
         autoReadSpeed: 5,
-        readingTheme: ReadingTheme.warmYellow,
+        readingTheme: ReadingTheme.bookshelf,
         simulationCurlIntensity: 0.5,
         simulationShadowOpacity: 0.6,
         simulationDuration: 0.38,
@@ -110,9 +110,18 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
     case mint = "MINT"
     case latte = "LATTE"
     case bookshelf = "BOOKSHELF"
+    case bookshelfNight = "BOOKSHELF_NIGHT"
     case midnight = "MIDNIGHT"
     case oled = "OLED"
     case custom = "CUSTOM"
+
+    static let lightThemes: [ReadingTheme] = [.bookshelf, .white, .warmYellow, .mint, .latte]
+    static let darkThemes: [ReadingTheme] = [.bookshelfNight, .midnight, .oled]
+    static let visibleThemes: [ReadingTheme] = lightThemes + darkThemes
+
+    var isDarkAppearance: Bool {
+        Self.darkThemes.contains(self)
+    }
 
     var backgroundColor: String {
         switch self {
@@ -121,6 +130,7 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
         case .mint: return "#E8F5E9"
         case .latte: return "#EFE3D3"
         case .bookshelf: return "#F5F2EC"
+        case .bookshelfNight: return "#1A1410"
         case .midnight: return "#1A1D2E"
         case .oled: return "#000000"
         case .custom: return "#FFFFFF"
@@ -133,6 +143,7 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
         case .warmYellow: return "#3D3226"
         case .latte: return "#4A3728"
         case .bookshelf: return "#24211D"
+        case .bookshelfNight: return "#F5F0E8"
         case .midnight: return "#C8CCD8"
         case .oled: return "#B0B0B0"
         case .custom: return "#1A1A1A"
@@ -146,6 +157,7 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
         case .mint: return "#00A86B"
         case .latte: return "#C67B5C"
         case .bookshelf: return "#236D67"
+        case .bookshelfNight: return "#8FD8D0"
         case .midnight: return "#7B8FFF"
         case .custom: return "#FF5E3A"
         }
@@ -158,6 +170,7 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
         case .mint: return "#DCEFE1"
         case .latte: return "#E7D2BA"
         case .bookshelf: return "#FFFDF8"
+        case .bookshelfNight: return "#20231F"
         case .midnight: return "#24283A"
         case .oled: return "#111111"
         case .custom: return "#F7F7F5"
@@ -171,6 +184,7 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
         case .mint: return "#F0FAF2"
         case .latte: return "#F5E7D8"
         case .bookshelf: return "#FFFDF8"
+        case .bookshelfNight: return "#292D28"
         case .midnight: return "#30364D"
         case .oled: return "#1C1C1C"
         case .custom: return "#FFFFFF"
@@ -186,6 +200,7 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
         case .mint: return "#D5E8D8"
         case .latte: return "#DCC4AA"
         case .bookshelf: return "#E8E0D4"
+        case .bookshelfNight: return "#15110E"
         case .midnight: return "#141725"
         case .oled: return "#050505"
         case .custom: return backgroundColor
@@ -195,7 +210,7 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
     /// 当前页文字在背面的透印强度。
     var pageBackTextOpacity: CGFloat {
         switch self {
-        case .midnight: return 0.14
+        case .midnight, .bookshelfNight: return 0.14
         case .oled: return 0.10
         default: return 0.18
         }
@@ -203,14 +218,14 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
 
     var displayName: String {
         switch self {
-        case .white: return "纯白经典"
-        case .warmYellow: return "暖黄护眼"
-        case .mint: return "薄荷清新"
-        case .latte: return "拿铁咖啡"
-        case .bookshelf: return "书架暖调"
-        case .midnight: return "深夜墨蓝"
-        case .oled: return "纯黑OLED"
-        case .custom: return "自定义"
+        case .white, .custom: return "素白"
+        case .warmYellow: return "暖黄"
+        case .mint: return "薄荷"
+        case .latte: return "拿铁"
+        case .bookshelf: return "青白"
+        case .bookshelfNight: return "青岚"
+        case .midnight: return "墨蓝"
+        case .oled: return "纯黑"
         }
     }
 }

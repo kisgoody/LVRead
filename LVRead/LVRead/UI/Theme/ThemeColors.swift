@@ -3,7 +3,7 @@ import UIKit
 // MARK: - Brand Colors — 古色古香 (Classical Chinese Aesthetic)
 extension UIColor {
     // Primary - 朱砂红 (Cinnabar Red)
-    static let lvPrimary = UIColor(hex: "#C0392B")
+    static var lvPrimary: UIColor { UIColor(hex: DarkModeManager.shared.currentTheme.accentColor) }
     static let lvPrimaryLight = UIColor(hex: "#D4695E")
     static let lvPrimaryDark = UIColor(hex: "#9E2E22")
 
@@ -22,27 +22,27 @@ extension UIColor {
     static let lvSuccess = UIColor(hex: "#8DA47E")
 
     // Background - 日间/夜间模式
-    static let lvBgDay = UIColor(hex: "#F5F0E8")
+    static var lvBgDay: UIColor { UIColor(hex: DarkModeManager.shared.currentTheme.backgroundColor) }
     static let lvBgNight = UIColor(hex: "#1A1410")
     static let lvBgCard = UIColor(hex: "#F5F0E8")
     static let lvBgCardDark = UIColor(hex: "#2A2216")
 
     // Text - 墨色系
-    static let lvTextPrimary = UIColor(hex: "#2C2416")
-    static let lvTextSecondary = UIColor(hex: "#6B5D4F")
+    static var lvTextPrimary: UIColor { UIColor(hex: DarkModeManager.shared.currentTheme.textColor) }
+    static var lvTextSecondary: UIColor { lvTextPrimary.withAlphaComponent(0.64) }
     static let lvTextTertiary = UIColor(hex: "#8C7E6F")
     static let lvTextPrimaryDark = UIColor(hex: "#F5F0E8")
     static let lvTextSecondaryDark = UIColor(hex: "#A89984")
 
     // Surface colors
-    static let lvSurface = UIColor(hex: "#F5F0E8")
+    static var lvSurface: UIColor { UIColor(hex: DarkModeManager.shared.currentTheme.panelColor) }
     static let lvSurfaceSecondary = UIColor(hex: "#EDE5D8")
     static let lvSurfaceElevated = UIColor(hex: "#F5F0E8")
     static let lvSurfaceDark = UIColor(hex: "#1E1812")
     static let lvSurfaceSecondaryDark = UIColor(hex: "#2A2216")
 
     // Divider / Border
-    static let lvDivider = UIColor(hex: "#D4C9B5")
+    static var lvDivider: UIColor { lvTextPrimary.withAlphaComponent(0.14) }
     static let lvDividerDark = UIColor(hex: "#3D3020")
 
     // Overlay
@@ -139,27 +139,27 @@ extension UIColor {
     }
 
     static var lvAdaptiveBackground: UIColor {
-        return adaptiveColor(light: lvBgDay, dark: lvBgNight)
+        UIColor { _ in LVBookshelfModuleStyle.pageBackground }
     }
 
     static var lvAdaptiveTextPrimary: UIColor {
-        return adaptiveColor(light: lvTextPrimary, dark: lvTextPrimaryDark)
+        UIColor { _ in LVBookshelfModuleStyle.primaryText }
     }
 
     static var lvAdaptiveTextSecondary: UIColor {
-        return adaptiveColor(light: lvTextSecondary, dark: lvTextSecondaryDark)
+        UIColor { _ in LVBookshelfModuleStyle.secondaryText }
     }
 
     static var lvAdaptiveSurface: UIColor {
-        return adaptiveColor(light: lvSurface, dark: lvSurfaceDark)
+        UIColor { _ in LVBookshelfModuleStyle.cardBackground }
     }
 
     static var lvAdaptiveSurfaceSecondary: UIColor {
-        return adaptiveColor(light: lvSurfaceSecondary, dark: lvSurfaceSecondaryDark)
+        UIColor { _ in LVBookshelfModuleStyle.cardBackground }
     }
 
     static var lvAdaptiveDivider: UIColor {
-        return adaptiveColor(light: lvDivider, dark: lvDividerDark)
+        UIColor { _ in LVBookshelfModuleStyle.divider }
     }
 }
 
@@ -168,42 +168,42 @@ enum LVBookshelfModuleStyle {
     private static let cardIdentifier = "lv_bookshelf_module_card"
     private static let accentIdentifier = "lv_bookshelf_module_accent"
 
+    private static var theme: ReadingTheme { DarkModeManager.shared.currentTheme }
+
     static var pageBackground: UIColor {
-        DarkModeManager.shared.isDarkMode ? .lvBgNight : UIColor(hex: "#F5F2EC")
+        UIColor(hex: theme.backgroundColor)
     }
 
     static var cardBackground: UIColor {
-        DarkModeManager.shared.isDarkMode
-            ? UIColor(hex: "#20231F")
-            : UIColor(hex: "#FFFDF8").withAlphaComponent(0.92)
+        UIColor(hex: theme.panelColor).withAlphaComponent(0.96)
     }
 
     static var divider: UIColor {
-        DarkModeManager.shared.isDarkMode ? UIColor(hex: "#3A4039") : UIColor(hex: "#E3DBCF")
+        primaryText.withAlphaComponent(0.14)
     }
 
     static var accent: UIColor {
-        DarkModeManager.shared.isDarkMode ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67")
+        UIColor(hex: theme.accentColor)
     }
 
     static var primaryText: UIColor {
-        DarkModeManager.shared.isDarkMode ? .lvTextPrimaryDark : UIColor(hex: "#24211D")
+        UIColor(hex: theme.textColor)
     }
 
     static var secondaryText: UIColor {
-        DarkModeManager.shared.isDarkMode ? .lvTextSecondaryDark : UIColor(hex: "#7C746B")
+        primaryText.withAlphaComponent(0.64)
     }
 
     static var adaptivePrimaryText: UIColor {
-        .adaptiveColor(light: UIColor(hex: "#24211D"), dark: .lvTextPrimaryDark)
+        UIColor { _ in primaryText }
     }
 
     static var adaptiveSecondaryText: UIColor {
-        .adaptiveColor(light: UIColor(hex: "#7C746B"), dark: .lvTextSecondaryDark)
+        UIColor { _ in secondaryText }
     }
 
     static var adaptiveDivider: UIColor {
-        .adaptiveColor(light: UIColor(hex: "#E3DBCF"), dark: UIColor(hex: "#3A4039"))
+        UIColor { _ in divider }
     }
 
     static func applyCard(to card: UIView) {

@@ -126,11 +126,12 @@ final class ParserTests: XCTestCase {
     func testReadingSettingsDefault() throws {
         let settings = ReadingSettings.default
         
-        XCTAssertEqual(settings.fontSize, 18)
+        XCTAssertEqual(settings.fontSize, 23)
         XCTAssertEqual(settings.fontFamily, "系统默认")
-        XCTAssertEqual(settings.lineSpacing, 1.6)
-        XCTAssertEqual(settings.pageMarginHorizontal, 10.0)
-        XCTAssertEqual(settings.brightness, 0.8)
+        XCTAssertEqual(settings.lineSpacing, 1.3)
+        XCTAssertEqual(settings.paragraphSpacing, 1.5)
+        XCTAssertEqual(settings.pageMarginHorizontal, 7.0)
+        XCTAssertEqual(settings.brightness, 1.0)
         XCTAssertEqual(settings.pageFlipMode, .cover)
         XCTAssertEqual(settings.nightMode, false)
         XCTAssertEqual(settings.autoReadEnabled, false)
@@ -155,7 +156,7 @@ final class ParserTests: XCTestCase {
         
         XCTAssertEqual(settings.fontSize, 24)
         XCTAssertEqual(settings.fontFamily, "宋体")
-        XCTAssertEqual(ReadingSettings.default.fontSize, 18) // Original unchanged
+        XCTAssertEqual(ReadingSettings.default.fontSize, 23) // Original unchanged
     }
 
     // MARK: - ReadingTheme Tests

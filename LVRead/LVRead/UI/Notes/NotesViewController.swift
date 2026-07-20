@@ -226,11 +226,10 @@ final class NotesViewController: UIViewController {
     }
 
     private func applyFilterAppearance() {
-        let isDark = DarkModeManager.shared.isDarkMode
         filterControl.backgroundColor = LVBookshelfModuleStyle.cardBackground
-        filterControl.selectedSegmentTintColor = isDark ? .lvTextPrimaryDark : UIColor(hex: "#24211D")
+        filterControl.selectedSegmentTintColor = LVBookshelfModuleStyle.primaryText
         filterControl.setTitleTextAttributes(
-            [.foregroundColor: isDark ? UIColor.lvBgNight : UIColor.white],
+            [.foregroundColor: LVBookshelfModuleStyle.pageBackground],
             for: .selected
         )
         filterControl.setTitleTextAttributes(

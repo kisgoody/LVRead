@@ -63,7 +63,7 @@ final class BookshelfViewController: UIViewController {
     private let taglineLabel = UILabel()
     private let navigationTitleStack = UIStackView()
     private let summaryLabel = UILabel()
-    private let continueView = UIView()
+    private let continueView = UIButton(type: .custom)
     private let continueEyebrowLabel = UILabel()
     private let continueTitleLabel = UILabel()
     private let continueSubtitleLabel = UILabel()
@@ -232,7 +232,11 @@ final class BookshelfViewController: UIViewController {
         continueButton.layer.borderWidth = 1
         continueButton.layer.borderColor = UIColor.white.withAlphaComponent(0.28).cgColor
         continueButton.backgroundColor = UIColor.white.withAlphaComponent(0.14)
-        continueButton.addTarget(self, action: #selector(continueReadingTapped), for: .touchUpInside)
+        continueButton.isUserInteractionEnabled = false
+        continueButton.isAccessibilityElement = false
+        continueView.addTarget(self, action: #selector(continueReadingTapped), for: .touchUpInside)
+        continueView.accessibilityTraits = .button
+        continueView.accessibilityLabel = "继续阅读"
         continueView.addSubviews(continueEyebrowLabel, continueTitleLabel, continueSubtitleLabel, continueProgressBar, continueProgressLabel, continueButton)
         view.addSubview(continueView)
 
@@ -480,9 +484,9 @@ final class BookshelfViewController: UIViewController {
     }
 
     private func configureBottomNavigation() {
-        bottomNavView.backgroundColor = UIColor(hex: "#FFFDF8").withAlphaComponent(0.94)
+        bottomNavView.backgroundColor = LVBookshelfModuleStyle.cardBackground
         bottomNavView.layer.borderWidth = 1
-        bottomNavView.layer.borderColor = UIColor(hex: "#E3DBCF").cgColor
+        bottomNavView.layer.borderColor = LVBookshelfModuleStyle.divider.cgColor
         view.addSubview(bottomNavView)
 
         let stack = UIStackView(arrangedSubviews: [bottomShelfButton, bottomNotesButton, bottomMineButton])
@@ -515,16 +519,13 @@ final class BookshelfViewController: UIViewController {
     }
 
     private func configureBottomNavButton(_ button: UIButton, title: String, icon: String, active: Bool) {
-        let isDark = DarkModeManager.shared.isDarkMode
-        let color = active
-            ? (isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67"))
-            : (isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B"))
+        let color = active ? LVBookshelfModuleStyle.accent : LVBookshelfModuleStyle.secondaryText
         button.setImage(UIImage(systemName: icon), for: .normal)
         button.setTitle(title, for: .normal)
         button.tintColor = color
         button.setTitleColor(color, for: .normal)
         button.backgroundColor = active
-            ? (isDark ? UIColor(hex: "#294844") : UIColor(hex: "#DCEFEB"))
+            ? LVBookshelfModuleStyle.accent.withAlphaComponent(0.14)
             : .clear
         button.layer.cornerRadius = 8
         button.titleLabel?.font = .systemFont(ofSize: 11, weight: active ? .bold : .regular)
@@ -535,12 +536,12 @@ final class BookshelfViewController: UIViewController {
 
     private func applyReadingThemeToHome() {
         let isDark = DarkModeManager.shared.isDarkMode
-        let background = isDark ? UIColor.lvBgNight : UIColor(hex: "#F5F2EC")
-        let panel = isDark ? UIColor.lvSurfaceDark : UIColor(hex: "#FFFDF8")
-        let text = isDark ? UIColor.lvTextPrimaryDark : UIColor(hex: "#24211D")
-        let secondaryText = isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B")
-        let divider = isDark ? UIColor.lvDividerDark : UIColor(hex: "#E3DBCF")
-        let accent = UIColor(hex: "#236D67")
+        let background = LVBookshelfModuleStyle.pageBackground
+        let panel = LVBookshelfModuleStyle.cardBackground
+        let text = LVBookshelfModuleStyle.primaryText
+        let secondaryText = LVBookshelfModuleStyle.secondaryText
+        let divider = LVBookshelfModuleStyle.divider
+        let accent = LVBookshelfModuleStyle.accent
 
         view.backgroundColor = background
         headerView.backgroundColor = background
@@ -556,9 +557,42 @@ final class BookshelfViewController: UIViewController {
         sectionCountLabel.textColor = secondaryText
         bottomNavView.backgroundColor = panel
         bottomNavView.layer.borderColor = divider.cgColor
-        continueGradientLayer.colors = isDark
-            ? [UIColor(hex: "#142C2A").cgColor, UIColor(hex: "#1B2230").cgColor]
-            : [UIColor(hex: "#236D67").cgColor, UIColor(hex: "#2D425D").cgColor]
+        let theme = DarkModeManager.shared.currentTheme
+        let usesClassicContinueStyle: Bool = {
+            switch theme {
+            case .bookshelf, .warmYellow, .mint, .latte: return true
+            default: return false
+            }
+        }()
+        if usesClassicContinueStyle {
+            continueGradientLayer.colors = [accent.cgColor, accent.darker(by: 0.16).cgColor]
+            continueView.layer.borderWidth = 0
+            continueEyebrowLabel.textColor = UIColor.white.withAlphaComponent(0.74)
+            continueTitleLabel.textColor = .white
+            continueSubtitleLabel.textColor = UIColor.white.withAlphaComponent(0.72)
+            continueProgressBar.trackTintColor = UIColor.white.withAlphaComponent(0.22)
+            continueProgressBar.progressTintColor = .white
+            continueProgressLabel.textColor = .white
+            continueButton.tintColor = .white
+            continueButton.layer.borderColor = UIColor.white.withAlphaComponent(0.28).cgColor
+            continueButton.backgroundColor = UIColor.white.withAlphaComponent(0.14)
+        } else {
+            continueGradientLayer.colors = [
+                UIColor(hex: theme.panelColor).cgColor,
+                UIColor(hex: theme.controlSurfaceColor).cgColor
+            ]
+            continueView.layer.borderWidth = 1
+            continueView.layer.borderColor = accent.withAlphaComponent(0.22).cgColor
+            continueEyebrowLabel.textColor = accent
+            continueTitleLabel.textColor = text
+            continueSubtitleLabel.textColor = secondaryText
+            continueProgressBar.trackTintColor = divider
+            continueProgressBar.progressTintColor = accent
+            continueProgressLabel.textColor = accent
+            continueButton.tintColor = accent
+            continueButton.layer.borderColor = accent.withAlphaComponent(0.28).cgColor
+            continueButton.backgroundColor = accent.withAlphaComponent(0.10)
+        }
         continueView.layer.shadowColor = (isDark ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
         topAddButton.backgroundColor = panel
         topAddButton.layer.borderColor = divider.cgColor
@@ -593,22 +627,17 @@ final class BookshelfViewController: UIViewController {
     }
 
     private func updateFilterChipColors() {
-        let isDark = DarkModeManager.shared.isDarkMode
-        let panel = isDark ? UIColor.lvSurfaceDark : UIColor(hex: "#FFFDF8")
-        let text = isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B")
-        let accent = isDark ? UIColor.lvTextPrimaryDark : UIColor(hex: "#24211D")
-        let divider = isDark ? UIColor.lvDividerDark : UIColor(hex: "#E3DBCF")
+        let panel = LVBookshelfModuleStyle.cardBackground
+        let text = LVBookshelfModuleStyle.secondaryText
+        let accent = LVBookshelfModuleStyle.primaryText
+        let divider = LVBookshelfModuleStyle.divider
         for case let chip as UIButton in filterStackView.arrangedSubviews {
             let selected = isChipSelected(chip)
             chip.backgroundColor = selected ? accent : panel
             chip.layer.borderColor = (selected ? accent : divider).cgColor
             chip.titleLabel?.font = .systemFont(ofSize: 13, weight: selected ? .bold : .medium)
-            chip.setTitleColor(selected ? backgroundColorForSelectedChip(isDark: isDark) : text, for: .normal)
+            chip.setTitleColor(selected ? LVBookshelfModuleStyle.pageBackground : text, for: .normal)
         }
-    }
-
-    private func backgroundColorForSelectedChip(isDark: Bool) -> UIColor {
-        isDark ? .lvBgNight : .white
     }
 
     private func isChipSelected(_ chip: UIButton) -> Bool {
@@ -719,6 +748,7 @@ final class BookshelfViewController: UIViewController {
         continueSubtitleLabel.text = "\(book.author) · 第\(book.readingProgress.currentChapterIndex + 1)章 · \(book.fileFormat.displayName)"
         continueProgressBar.progress = Float(book.readingProgress.progressPercent / 100)
         continueProgressLabel.text = String(format: "%.0f%%", book.readingProgress.progressPercent)
+        continueView.accessibilityLabel = "继续阅读《\(book.title)》，进度 \(continueProgressLabel.text ?? "")"
     }
 
     // MARK: - Actions

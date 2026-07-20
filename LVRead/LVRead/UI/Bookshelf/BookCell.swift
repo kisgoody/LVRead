@@ -199,15 +199,15 @@ final class BookCell: UICollectionViewCell {
 
     func applyAppearance() {
         let isDark = DarkModeManager.shared.isDarkMode
-        let surface = isDark ? UIColor(hex: "#20231F") : UIColor(hex: "#FFFDF8").withAlphaComponent(0.92)
-        let divider = isDark ? UIColor(hex: "#3A4039") : UIColor(hex: "#E3DBCF")
-        let secondary = isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B")
+        let surface = LVBookshelfModuleStyle.cardBackground
+        let divider = LVBookshelfModuleStyle.divider
+        let secondary = LVBookshelfModuleStyle.secondaryText
         shadowView.backgroundColor = surface
         containerView.backgroundColor = surface
         containerView.layer.borderColor = divider.cgColor
         shadowView.layer.shadowColor = (isDark ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
         progressBar.trackTintColor = isDark ? UIColor(hex: "#3A4039") : UIColor(hex: "#E3DBCF")
-        progressBar.progressTintColor = isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67")
+        progressBar.progressTintColor = LVBookshelfModuleStyle.accent
         progressLabel.textColor = secondary
         sourceBadge.textColor = secondary
         formatBadge.textColor = secondary

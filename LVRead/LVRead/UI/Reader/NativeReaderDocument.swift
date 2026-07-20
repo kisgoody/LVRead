@@ -54,6 +54,11 @@ enum NativeDocumentTypography {
         )
     }
 
+    static func continuousInsets(size: CGSize, settings: ReadingSettings) -> UIEdgeInsets {
+        let horizontal = CGFloat(min(max(settings.pageMarginHorizontal, 5), 20)) * size.width / 100
+        return UIEdgeInsets(top: 0, left: horizontal, bottom: 0, right: horizontal)
+    }
+
     /// CoreText 使用左下角原点；UIKit 的 bottom inset 必须映射为路径的 y。
     static func coreTextPathRect(size: CGSize, insets: UIEdgeInsets) -> CGRect {
         CGRect(
@@ -81,12 +86,13 @@ enum NativeDocumentPaginator {
         chapterIndex: Int,
         size: CGSize,
         safeAreaInsets: UIEdgeInsets = .zero,
+        textInsets: UIEdgeInsets? = nil,
         settings: ReadingSettings
     ) throws -> [NativeDocumentPage] {
         guard size.width > 0, size.height > 0 else { throw PaginationError.invalidSize }
         let source = text as NSString
         guard source.length > 0 else { return [] }
-        let insets = NativeDocumentTypography.insets(
+        let insets = textInsets ?? NativeDocumentTypography.insets(
             size: size,
             safeAreaInsets: safeAreaInsets,
             settings: settings
@@ -162,6 +168,7 @@ final class NativeCoreTextView: UIView {
     var page: NativeDocumentPage?
     var settings: ReadingSettings = .default
     var readingSafeAreaInsets: UIEdgeInsets = .zero
+    var textInsets: UIEdgeInsets?
 
     override func draw(_ rect: CGRect) {
         guard let page, let context = UIGraphicsGetCurrentContext() else { return }
@@ -180,7 +187,7 @@ final class NativeCoreTextView: UIView {
             )
             return
         }
-        let insets = NativeDocumentTypography.insets(
+        let insets = textInsets ?? NativeDocumentTypography.insets(
             size: bounds.size,
             safeAreaInsets: readingSafeAreaInsets,
             settings: settings

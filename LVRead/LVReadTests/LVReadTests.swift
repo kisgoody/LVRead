@@ -1,3 +1,5 @@
+import CryptoKit
+import Security
 import XCTest
 @testable import LVRead
 
@@ -65,9 +67,10 @@ final class LVReadTests: XCTestCase {
     func testDefaultReadingSettings() throws {
         let settings = ReadingSettings.default
         
-        XCTAssertEqual(settings.fontSize, 24)
+        XCTAssertEqual(settings.fontSize, 23)
         XCTAssertEqual(settings.fontFamily, "系统默认")
-        XCTAssertEqual(settings.lineSpacing, 1.4)
+        XCTAssertEqual(settings.lineSpacing, 1.3)
+        XCTAssertEqual(settings.paragraphSpacing, 1.5)
         XCTAssertEqual(settings.pageFlipMode, .cover)
     }
 
@@ -89,6 +92,103 @@ final class LVReadTests: XCTestCase {
         XCTAssertEqual(ReadingTheme.white.backgroundColor, "#FFFFFF")
         XCTAssertEqual(ReadingTheme.oled.backgroundColor, "#000000")
         XCTAssertEqual(ReadingTheme.warmYellow.textColor, "#3D3226")
+    }
+
+    func testReadingThemeGroupsAndDefaults() {
+        XCTAssertEqual(
+            ReadingTheme.lightThemes,
+            [.bookshelf, .white, .warmYellow, .mint, .latte]
+        )
+        XCTAssertEqual(
+            ReadingTheme.darkThemes,
+            [.bookshelfNight, .midnight, .oled]
+        )
+        XCTAssertEqual(ReadingSettings.default.readingTheme, .bookshelf)
+        XCTAssertTrue(ReadingTheme.darkThemes.allSatisfy(\.isDarkAppearance))
+        XCTAssertTrue(ReadingTheme.lightThemes.allSatisfy { !$0.isDarkAppearance })
+    }
+
+    func testReaderChineseFontChoicesResolveDifferently() {
+        let manager = FontManager.shared
+        let system = manager.font(named: "系统默认", size: 20).fontDescriptor
+        let song = manager.font(named: "宋体", size: 20).fontDescriptor
+        let fang = manager.font(named: "仿宋", size: 20).fontDescriptor
+        let kai = manager.font(named: "楷体", size: 20).fontDescriptor
+
+        XCTAssertNotEqual(system, song)
+        XCTAssertNotEqual(song, fang)
+        XCTAssertNotEqual(fang, kai)
+    }
+
+    // MARK: - Web Sync Certificate Tests
+
+    func testWebSyncIdentityKeepsStableRootAndMatchingHost() throws {
+        let first = try WebSyncIdentityManager.shared.makeIdentity()
+        let second = try WebSyncIdentityManager.shared.makeIdentity()
+        let rootData = try Data(contentsOf: first.rootCertificateURL)
+        let fingerprint = SHA256.hash(data: rootData)
+            .map { String(format: "%02X", $0) }
+            .joined(separator: ":")
+
+        XCTAssertTrue(first.hostName.hasPrefix("lvread-"))
+        XCTAssertTrue(first.hostName.hasSuffix(".local"))
+        XCTAssertEqual(first.hostName, second.hostName)
+        XCTAssertEqual(first.rootFingerprint, second.rootFingerprint)
+        XCTAssertEqual(first.rootFingerprint, fingerprint)
+        guard let rootCertificate = SecCertificateCreateWithData(nil, rootData as CFData) else {
+            XCTFail("无法解析根证书")
+            return
+        }
+
+        var leafCertificate: SecCertificate?
+        XCTAssertEqual(SecIdentityCopyCertificate(first.secIdentity, &leafCertificate), errSecSuccess)
+        guard let leafCertificate else {
+            XCTFail("TLS 身份缺少服务证书")
+            return
+        }
+
+        let policy = SecPolicyCreateSSL(true, first.hostName as CFString)
+        var trust: SecTrust?
+        XCTAssertEqual(
+            SecTrustCreateWithCertificates([leafCertificate, rootCertificate] as CFArray, policy, &trust),
+            errSecSuccess
+        )
+        guard let trust else {
+            XCTFail("无法创建证书信任链")
+            return
+        }
+        XCTAssertEqual(SecTrustSetAnchorCertificates(trust, [rootCertificate] as CFArray), errSecSuccess)
+        XCTAssertEqual(SecTrustSetAnchorCertificatesOnly(trust, true), errSecSuccess)
+        var trustError: CFError?
+        XCTAssertTrue(
+            SecTrustEvaluateWithError(trust, &trustError),
+            trustError.map { CFErrorCopyDescription($0) as String } ?? "证书信任校验失败"
+        )
+    }
+
+    func testWebSyncUsesStableDistinctBookTokens() {
+        let server = WebSyncServer.shared
+        let first = server.stableToken(for: "web-sync-test-book-a")
+        let repeated = server.stableToken(for: "web-sync-test-book-a")
+        let secondBook = server.stableToken(for: "web-sync-test-book-b")
+
+        XCTAssertEqual(first, repeated)
+        XCTAssertNotEqual(first, secondBook)
+        XCTAssertEqual(first.count, 32)
+        XCTAssertEqual(secondBook.count, 32)
+    }
+
+    func testWebSyncReaderHTMLUsesAppThemeAndConsistentTypography() {
+        let html = WebSyncServer.shared.webReaderHTML()
+
+        XCTAssertTrue(html.contains("<span>LVRead</span>"))
+        XCTAssertTrue(html.contains("var(--reader-bg)"))
+        XCTAssertTrue(html.contains("readerFontFamily"))
+        XCTAssertFalse(html.contains("fitReadingText"))
+        XCTAssertTrue(html.contains("(Number(d.fontSize)||23)*1.12"))
+        XCTAssertTrue(html.contains("(Number(d.lineSpacing)||1.3)+.2"))
+        XCTAssertFalse(html.contains("readingChapterTitle"))
+        XCTAssertTrue(html.contains("contentEl.textContent=d.content"))
     }
 
     // MARK: - PageFlipMode Tests

@@ -28,6 +28,7 @@ final class NativeDocumentPageViewController: UIViewController {
     private let bookmark = UIImageView(image: UIImage(systemName: "bookmark.fill"))
     private let comment = UIButton(type: .system)
     private var pullDistance: CGFloat = 0
+    private var isBookmarked: Bool
 
     init(
         page: NativeDocumentPage,
@@ -47,6 +48,7 @@ final class NativeDocumentPageViewController: UIViewController {
         self.timeText = timeText
         self.batteryLevel = batteryLevel
         self.readingSafeAreaInsets = readingSafeAreaInsets
+        self.isBookmarked = bookmarked
         super.init(nibName: nil, bundle: nil)
         bookmark.isHidden = !bookmarked
         comment.isHidden = !hasComment
@@ -105,7 +107,10 @@ final class NativeDocumentPageViewController: UIViewController {
             canvas.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             canvas.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             backButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            backButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            backButton.topAnchor.constraint(
+                equalTo: view.topAnchor,
+                constant: readingSafeAreaInsets.top
+            ),
             backButton.widthAnchor.constraint(equalToConstant: 44),
             backButton.heightAnchor.constraint(equalToConstant: NativeDocumentTypography.topReadingStatusHeight),
             chapterLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 8),
@@ -113,13 +118,17 @@ final class NativeDocumentPageViewController: UIViewController {
             chapterLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
             chapterLabel.heightAnchor.constraint(equalTo: backButton.heightAnchor),
             progressLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            progressLabel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            progressLabel.bottomAnchor.constraint(
+                equalTo: view.bottomAnchor,
+                constant: -(readingSafeAreaInsets.bottom + 8)
+            ),
             batteryView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             batteryView.centerYAnchor.constraint(equalTo: progressLabel.centerYAnchor),
             batteryView.widthAnchor.constraint(equalToConstant: 26),
             batteryView.heightAnchor.constraint(equalToConstant: 13),
             timeLabel.trailingAnchor.constraint(equalTo: batteryView.leadingAnchor, constant: -8),
             timeLabel.centerYAnchor.constraint(equalTo: progressLabel.centerYAnchor),
+            // 阅读状态下系统状态栏隐藏，书签使用其顶部空间，避免遮挡页眉章节名。
             bookmark.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
             bookmark.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
             bookmark.widthAnchor.constraint(equalToConstant: 24),
@@ -132,7 +141,14 @@ final class NativeDocumentPageViewController: UIViewController {
         configureGestures()
     }
 
-    func setBookmarked(_ value: Bool) { bookmark.isHidden = !value }
+    func setBookmarked(_ value: Bool) {
+        isBookmarked = value
+        bookmark.isHidden = !value
+    }
+
+    func setPullBookmarkPreviewVisible(_ visible: Bool) {
+        bookmark.isHidden = !(isBookmarked || visible)
+    }
     func setCommentVisible(_ value: Bool) { comment.isHidden = !value }
 
     private func configureGestures() {

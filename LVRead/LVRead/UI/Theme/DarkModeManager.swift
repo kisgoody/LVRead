@@ -21,7 +21,9 @@ final class DarkModeManager: ObservableObject {
         }
     }
 
-    @Published var appearanceMode: AppearanceMode = .system {
+    @Published private(set) var currentTheme: ReadingTheme = .bookshelf
+
+    @Published private(set) var appearanceMode: AppearanceMode = .light {
         didSet {
             UserDefaults.standard.set(appearanceMode.rawValue, forKey: Keys.appearanceMode)
             updateFromAppearanceMode()
@@ -49,6 +51,8 @@ final class DarkModeManager: ObservableObject {
     private struct Keys {
         static let darkModeEnabled = "darkModeEnabled"
         static let appearanceMode = "appearanceMode"
+        static let lastLightTheme = "lastLightReadingTheme"
+        static let lastDarkTheme = "lastDarkReadingTheme"
     }
 
     // MARK: - Private Properties
@@ -67,31 +71,63 @@ final class DarkModeManager: ObservableObject {
 
     /// Apply dark mode theme to all UI
     func applyTheme() {
-        DispatchQueue.main.async {
-            self.updateNavigationBarAppearance()
-            self.updateTabBarAppearance()
-            self.updateWindowTheme()
-            
-            // Post notification for view controllers to update
-            NotificationCenter.default.post(name: .darkModeChanged, object: nil)
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.applyTheme()
+            }
+            return
         }
+
+        updateWindowTheme()
+        updateNavigationBarAppearance()
+        updateTabBarAppearance()
+        NotificationCenter.default.post(name: .darkModeChanged, object: nil)
     }
 
     /// Toggle between dark and light mode
     func toggleDarkMode() {
-        isDarkMode.toggle()
+        setNightMode(!isDarkMode)
+    }
+
+    func selectReadingTheme(_ theme: ReadingTheme) {
+        let selected = theme == .custom ? .white : theme
+        let modeChanged = isDarkMode != selected.isDarkAppearance
+        currentTheme = selected
+        remember(selected)
+
+        var settings = ReadingSettingsRepository.shared.load()
+        settings.readingTheme = selected
+        settings.backgroundColor = selected.backgroundColor
+        settings.nightMode = selected.isDarkAppearance
+        ReadingSettingsRepository.shared.save(settings)
+
+        appearanceMode = selected.isDarkAppearance ? .dark : .light
+        if !modeChanged { applyTheme() }
+    }
+
+    func setNightMode(_ enabled: Bool) {
+        let key = enabled ? Keys.lastDarkTheme : Keys.lastLightTheme
+        let fallback: ReadingTheme = enabled ? .oled : .bookshelf
+        let saved = UserDefaults.standard.string(forKey: key)
+            .flatMap(ReadingTheme.init(rawValue:))
+        let selected = saved.flatMap { $0.isDarkAppearance == enabled ? $0 : nil } ?? fallback
+        selectReadingTheme(selected)
     }
 
     // MARK: - Private Methods
 
     private func loadSavedSettings() {
-        if let savedMode = UserDefaults.standard.string(forKey: Keys.appearanceMode),
-           let mode = AppearanceMode(rawValue: savedMode) {
-            appearanceMode = mode
+        var settings = ReadingSettingsRepository.shared.load()
+        let selected = settings.readingTheme == .custom ? ReadingTheme.white : settings.readingTheme
+        currentTheme = selected
+        remember(selected)
+        if settings.readingTheme != selected {
+            settings.readingTheme = selected
+            settings.backgroundColor = selected.backgroundColor
+            settings.nightMode = selected.isDarkAppearance
+            ReadingSettingsRepository.shared.save(settings)
         }
-        
-        isDarkMode = UserDefaults.standard.bool(forKey: Keys.darkModeEnabled)
-        updateFromAppearanceMode()
+        appearanceMode = selected.isDarkAppearance ? .dark : .light
     }
 
     private func updateFromAppearanceMode() {
@@ -116,33 +152,24 @@ final class DarkModeManager: ObservableObject {
             let isDark = UITraitCollection.current.userInterfaceStyle == .dark
             if self.isDarkMode != isDark {
                 self.isDarkMode = isDark
-                self.applyTheme()
             }
         }
+    }
+
+    private func remember(_ theme: ReadingTheme) {
+        UserDefaults.standard.set(
+            theme.rawValue,
+            forKey: theme.isDarkAppearance ? Keys.lastDarkTheme : Keys.lastLightTheme
+        )
     }
 
     private func updateNavigationBarAppearance() {
         let appearance = UINavigationBarAppearance()
         
-        if isDarkMode {
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = .lvBgNight
-            appearance.titleTextAttributes = [
-                .foregroundColor: UIColor.lvTextPrimaryDark
-            ]
-            appearance.largeTitleTextAttributes = [
-                .foregroundColor: UIColor.lvTextPrimaryDark
-            ]
-        } else {
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = .lvPrimary
-            appearance.titleTextAttributes = [
-                .foregroundColor: UIColor.white
-            ]
-            appearance.largeTitleTextAttributes = [
-                .foregroundColor: UIColor.white
-            ]
-        }
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor(hex: currentTheme.backgroundColor)
+        appearance.titleTextAttributes = [.foregroundColor: UIColor(hex: currentTheme.textColor)]
+        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor(hex: currentTheme.textColor)]
 
         UINavigationBar.appearance().standardAppearance = appearance
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
@@ -152,13 +179,8 @@ final class DarkModeManager: ObservableObject {
     private func updateTabBarAppearance() {
         let appearance = UITabBarAppearance()
         
-        if isDarkMode {
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = .lvSurfaceDark
-        } else {
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = .lvSurface
-        }
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor(hex: currentTheme.panelColor)
 
         UITabBar.appearance().standardAppearance = appearance
         if #available(iOS 15.0, *) {
@@ -167,12 +189,11 @@ final class DarkModeManager: ObservableObject {
     }
 
     private func updateWindowTheme() {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first else { return }
-        
-        UIView.animate(withDuration: 0.3) {
-            window.overrideUserInterfaceStyle = self.isDarkMode ? .dark : .light
-        }
+        let style: UIUserInterfaceStyle = isDarkMode ? .dark : .light
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .forEach { $0.overrideUserInterfaceStyle = style }
     }
 
     // MARK: - Color Helpers
@@ -184,23 +205,23 @@ final class DarkModeManager: ObservableObject {
     }
 
     static var adaptiveBackground: UIColor {
-        return adaptiveColor(light: .lvBgDay, dark: .lvBgNight)
+        UIColor { _ in UIColor(hex: DarkModeManager.shared.currentTheme.backgroundColor) }
     }
 
     static var adaptiveTextPrimary: UIColor {
-        return adaptiveColor(light: .lvTextPrimary, dark: .lvTextPrimaryDark)
+        UIColor { _ in UIColor(hex: DarkModeManager.shared.currentTheme.textColor) }
     }
 
     static var adaptiveTextSecondary: UIColor {
-        return adaptiveColor(light: .lvTextSecondary, dark: .lvTextSecondaryDark)
+        UIColor { _ in UIColor(hex: DarkModeManager.shared.currentTheme.textColor).withAlphaComponent(0.64) }
     }
 
     static var adaptiveSurface: UIColor {
-        return adaptiveColor(light: .lvSurface, dark: .lvSurfaceDark)
+        UIColor { _ in UIColor(hex: DarkModeManager.shared.currentTheme.panelColor) }
     }
 
     static var adaptiveDivider: UIColor {
-        return adaptiveColor(light: .lvDivider, dark: .lvDividerDark)
+        UIColor { _ in UIColor(hex: DarkModeManager.shared.currentTheme.textColor).withAlphaComponent(0.14) }
     }
 }
 

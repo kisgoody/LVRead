@@ -167,10 +167,10 @@ final class BookListCell: UITableViewCell {
 
     func applyAppearance() {
         let isDark = DarkModeManager.shared.isDarkMode
-        let surface = isDark ? UIColor(hex: "#20231F") : UIColor(hex: "#FFFDF8").withAlphaComponent(0.92)
-        let text = isDark ? UIColor.lvTextPrimaryDark : UIColor(hex: "#24211D")
-        let secondary = isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B")
-        let divider = isDark ? UIColor(hex: "#3A4039") : UIColor(hex: "#E3DBCF")
+        let surface = LVBookshelfModuleStyle.cardBackground
+        let text = LVBookshelfModuleStyle.primaryText
+        let secondary = LVBookshelfModuleStyle.secondaryText
+        let divider = LVBookshelfModuleStyle.divider
         cardView.backgroundColor = surface
         cardView.layer.borderColor = divider.cgColor
         cardView.layer.shadowColor = (isDark ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
@@ -178,10 +178,10 @@ final class BookListCell: UITableViewCell {
         authorLabel.textColor = secondary
         progressLabel.textColor = secondary
         detailLabel.textColor = secondary
-        sourceBadge.backgroundColor = isDark ? UIColor(hex: "#294844") : UIColor(hex: "#DCEFEB")
-        sourceBadge.textColor = isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67")
+        sourceBadge.backgroundColor = LVBookshelfModuleStyle.accent.withAlphaComponent(0.14)
+        sourceBadge.textColor = LVBookshelfModuleStyle.accent
         progressBar.trackTintColor = divider
-        progressBar.progressTintColor = isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67")
+        progressBar.progressTintColor = LVBookshelfModuleStyle.accent
         bookActionButton.backgroundColor = surface
         bookActionButton.tintColor = text
         bookActionButton.layer.borderColor = divider.cgColor

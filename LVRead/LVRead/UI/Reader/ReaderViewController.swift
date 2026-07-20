@@ -308,7 +308,6 @@ final class ReaderViewController: UIViewController {
         saveProgress()
         stopReadingTimer()
         stopAutoRead()
-        WebSyncServer.shared.stop()
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
             releaseReaderResources()
         }
@@ -1470,8 +1469,10 @@ final class ReaderViewController: UIViewController {
     }
 
     @objc private func toggleNightMode() {
-        settings.nightMode.toggle()
-        settings.readingTheme = settings.nightMode ? .midnight : .white
+        DarkModeManager.shared.setNightMode(!DarkModeManager.shared.isDarkMode)
+        settings.readingTheme = DarkModeManager.shared.currentTheme
+        settings.nightMode = settings.readingTheme.isDarkAppearance
+        settings.backgroundColor = settings.readingTheme.backgroundColor
         applyThemeChange()
     }
 

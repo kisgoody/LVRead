@@ -99,10 +99,7 @@ final class LVModuleNavigationView: UIView {
         module: LVMainModule
     ) {
         let selected = module == selectedModule
-        let isDark = DarkModeManager.shared.isDarkMode
-        let color = selected
-            ? (isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67"))
-            : (isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B"))
+        let color = selected ? LVBookshelfModuleStyle.accent : LVBookshelfModuleStyle.secondaryText
         button.setImage(
             UIImage(systemName: selected ? "\(symbol).fill" : symbol) ?? UIImage(systemName: symbol),
             for: .normal
@@ -111,7 +108,7 @@ final class LVModuleNavigationView: UIView {
         button.tintColor = color
         button.setTitleColor(color, for: .normal)
         button.backgroundColor = selected
-            ? (isDark ? UIColor(hex: "#294844") : UIColor(hex: "#DCEFEB"))
+            ? LVBookshelfModuleStyle.accent.withAlphaComponent(0.14)
             : .clear
         button.layer.cornerRadius = 8
         button.titleLabel?.font = .systemFont(ofSize: 12, weight: selected ? .semibold : .regular)
@@ -135,9 +132,8 @@ final class LVModuleNavigationView: UIView {
     }
 
     private func applyAppearance() {
-        let isDark = DarkModeManager.shared.isDarkMode
-        backgroundColor = isDark ? UIColor.lvSurfaceDark : UIColor(hex: "#FFFDF8")
-        layer.borderColor = (isDark ? UIColor.lvDividerDark : UIColor(hex: "#E3DBCF")).cgColor
+        backgroundColor = LVBookshelfModuleStyle.cardBackground
+        layer.borderColor = LVBookshelfModuleStyle.divider.cgColor
         applyButtonAppearance(shelfButton, symbol: "book.closed", module: .shelf)
         applyButtonAppearance(notesButton, symbol: "bookmark", module: .notes)
         applyButtonAppearance(profileButton, symbol: "person", module: .profile)
@@ -150,10 +146,7 @@ final class LVModuleNavigationView: UIView {
 
     private func applyButtonAppearance(_ button: UIButton, symbol: String, module: LVMainModule) {
         let selected = module == selectedModule
-        let isDark = DarkModeManager.shared.isDarkMode
-        let color = selected
-            ? (isDark ? UIColor(hex: "#8FD8D0") : UIColor(hex: "#236D67"))
-            : (isDark ? UIColor.lvTextSecondaryDark : UIColor(hex: "#7C746B"))
+        let color = selected ? LVBookshelfModuleStyle.accent : LVBookshelfModuleStyle.secondaryText
         button.setImage(
             UIImage(systemName: selected ? "\(symbol).fill" : symbol) ?? UIImage(systemName: symbol),
             for: .normal
@@ -161,7 +154,7 @@ final class LVModuleNavigationView: UIView {
         button.tintColor = color
         button.setTitleColor(color, for: .normal)
         button.backgroundColor = selected
-            ? (isDark ? UIColor(hex: "#294844") : UIColor(hex: "#DCEFEB"))
+            ? LVBookshelfModuleStyle.accent.withAlphaComponent(0.14)
             : .clear
     }
 }

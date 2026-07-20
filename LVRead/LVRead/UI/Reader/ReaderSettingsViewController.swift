@@ -398,7 +398,7 @@ final class ReaderSettingsViewController: UIViewController {
         return container
     }
 
-    private static let themeChoices: [ReadingTheme] = [.white, .bookshelf, .warmYellow, .mint, .latte, .midnight, .oled]
+    private static let themeChoices = ReadingTheme.visibleThemes
 
     private func makeThemeItem(theme: ReadingTheme, index: Int) -> UIView {
         let item = UIStackView()
@@ -435,6 +435,8 @@ final class ReaderSettingsViewController: UIViewController {
         guard sender.tag < Self.themeChoices.count else { return }
         settings.readingTheme = Self.themeChoices[sender.tag]
         settings.backgroundColor = Self.themeChoices[sender.tag].backgroundColor
+        settings.nightMode = settings.readingTheme.isDarkAppearance
+        DarkModeManager.shared.selectReadingTheme(settings.readingTheme)
         containerView.backgroundColor = panelColor
         updateMenuColors()
         notifyChange()

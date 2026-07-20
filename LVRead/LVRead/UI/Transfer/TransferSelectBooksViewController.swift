@@ -25,7 +25,6 @@ final class TransferSelectBooksViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .lvBgDay
 
         allBooks = BookRepository.shared.getAll()
 
@@ -33,7 +32,6 @@ final class TransferSelectBooksViewController: UIViewController {
         tableView.dataSource = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "BookCell")
         tableView.allowsMultipleSelection = true
-        tableView.backgroundColor = .lvBgDay
 
         sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
 
@@ -51,6 +49,39 @@ final class TransferSelectBooksViewController: UIViewController {
             sendButton.widthAnchor.constraint(equalToConstant: 200),
             sendButton.heightAnchor.constraint(equalToConstant: 48)
         ])
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appThemeDidChange),
+            name: .darkModeChanged,
+            object: nil
+        )
+        applyAppearance()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        applyAppearance()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func appThemeDidChange() {
+        applyAppearance()
+    }
+
+    private func applyAppearance() {
+        let style = LVBookshelfModuleStyle.self
+        view.backgroundColor = style.pageBackground
+        tableView.backgroundColor = style.pageBackground
+        sendButton.backgroundColor = style.accent
+        sendButton.setTitleColor(
+            style.accent.contrastingTextColor,
+            for: .normal
+        )
+        tableView.reloadData()
     }
 
     @objc private func sendTapped() {
@@ -80,9 +111,12 @@ extension TransferSelectBooksViewController: UITableViewDataSource, UITableViewD
         var config = UIListContentConfiguration.subtitleCell()
         config.text = book.title
         config.secondaryText = "\(book.author) · \(book.fileSizeDisplay)"
+        config.textProperties.color = LVBookshelfModuleStyle.primaryText
+        config.secondaryTextProperties.color = LVBookshelfModuleStyle.secondaryText
+        cell.backgroundColor = LVBookshelfModuleStyle.cardBackground
         cell.contentConfiguration = config
         cell.accessoryType = selectedBooks.contains(book.id) ? .checkmark : .none
-        cell.tintColor = .lvPrimary
+        cell.tintColor = LVBookshelfModuleStyle.accent
         return cell
     }
 

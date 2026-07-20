@@ -96,7 +96,11 @@
 		</dict>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>LV Read uses the local network to discover nearby devices for book sharing.</string>
+	<string>LVRead 需要访问本地网络，以便电脑通过 HTTPS 同步阅读。</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_lvread._tcp</string>
+	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>

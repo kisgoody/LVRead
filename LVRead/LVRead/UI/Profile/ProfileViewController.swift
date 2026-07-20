@@ -293,8 +293,10 @@ final class ProfileViewController: UIViewController {
     }
 
     private func updateContent() {
-        let stats = ReadingStatsRepository.shared.getStats()
+        let statsRepository = ReadingStatsRepository.shared
+        let stats = statsRepository.getStats()
         let analytics = ReadingAnalytics(stats: stats)
+        let todayMinutes = statsRepository.displayedReadingMinutes(for: Date())
         let books = BookRepository.shared.getAll()
         let noteCount = books.reduce(0) {
             $0 + BookRepository.shared.getBookmarks(for: $1.id).count
@@ -302,14 +304,14 @@ final class ProfileViewController: UIViewController {
         }
         let finishedCount = books.filter { $0.readingProgress.progressPercent >= 100 }.count
         let readingCount = books.filter { $0.readingProgress.progressPercent > 0 && $0.readingProgress.progressPercent < 100 }.count
-        todayMetricLabel.text = "\(analytics.todayReadingMinutes)m"
+        todayMetricLabel.text = "\(todayMinutes)分钟"
         pagesMetricLabel.text = "\(stats.totalPagesRead)"
         streakMetricLabel.text = "\(analytics.currentStreak)天"
         let savedGoal = UserDefaults.standard.integer(forKey: Keys.dailyGoalMinutes)
         let goal = savedGoal > 0 ? savedGoal : 30
-        adviceLabel.text = analytics.todayReadingMinutes >= goal
+        adviceLabel.text = todayMinutes >= goal
             ? "今天已完成 \(goal) 分钟目标，保持当前阅读节奏。"
-            : "今天距离目标还差 \(goal - analytics.todayReadingMinutes) 分钟，可以安排一次短阅读。"
+            : "今天距离目标还差 \(goal - todayMinutes) 分钟，可以安排一次短阅读。"
         summaryLabel.text = "累计阅读 \(analytics.totalReadingTimeFormatted)\n阅读 \(stats.totalPagesRead) 页 · 完成 \(finishedCount) 本 · 沉淀 \(noteCount) 条笔记"
         libraryStatsLabel.text = "总藏书 \(books.count) 本，阅读中 \(readingCount) 本，已读完 \(finishedCount) 本。"
         let bookmarkCount = books.reduce(0) { $0 + BookRepository.shared.getBookmarks(for: $1.id).count }
@@ -325,7 +327,7 @@ final class ProfileViewController: UIViewController {
     }
 
     @objc private func nightChanged() {
-        DarkModeManager.shared.appearanceMode = nightSwitch.isOn ? .dark : .light
+        DarkModeManager.shared.setNightMode(nightSwitch.isOn)
     }
 
     @objc private func goalChanged() {

@@ -214,7 +214,20 @@ extension PageCacheManager {
     
     /// Get all cached page indices for a book
     func getCachedPageIndices(bookId: String) -> [Int] {
-        // This would enumerate the cache in a full implementation
-        return []
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: l3BasePath) else { return [] }
+        let prefix = "\(bookId)_"
+        return files.compactMap { file in
+            guard file.hasPrefix(prefix), file.hasSuffix(".json") else { return nil }
+            return Int(file.dropLast(5).split(separator: "_").last ?? "")
+        }.sorted()
+    }
+
+    func getCachedPageIndices(bookId: String, chapterIndex: Int) -> [Int] {
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: l3BasePath) else { return [] }
+        let prefix = "\(bookId)_\(chapterIndex)_"
+        return files.compactMap { file in
+            guard file.hasPrefix(prefix), file.hasSuffix(".json") else { return nil }
+            return Int(file.dropFirst(prefix.count).dropLast(5))
+        }.sorted()
     }
 }

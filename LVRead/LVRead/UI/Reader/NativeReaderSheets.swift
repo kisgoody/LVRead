@@ -156,6 +156,10 @@ extension NativeReaderCatalogViewController: UITableViewDataSource, UITableViewD
 final class NativeReaderSettingsSheet: UIViewController {
     enum Section { case theme, layout }
 
+    private static let themeChoices = ReadingTheme.visibleThemes.map {
+        (title: $0.displayName, theme: $0)
+    }
+
     var onChange: ((ReadingSettings, ReaderNavigationMode) -> Void)?
     private var settings: ReadingSettings
     private var mode: ReaderNavigationMode
@@ -165,6 +169,8 @@ final class NativeReaderSettingsSheet: UIViewController {
     private let titleLabel = UILabel()
     private let doneButton = UIButton(type: .system)
     private let divider = UIView()
+    private weak var themeScrollView: UIScrollView?
+    private weak var fontScrollView: UIScrollView?
 
     private var accent: UIColor { UIColor(hex: settings.readingTheme.accentColor) }
     private var textColor: UIColor { UIColor(hex: settings.readingTheme.textColor) }
@@ -270,6 +276,9 @@ final class NativeReaderSettingsSheet: UIViewController {
             $0.removeFromSuperview()
         }
         section == .theme ? buildTheme() : buildLayout()
+        DispatchQueue.main.async { [weak self] in
+            self?.scrollSelectedOptionIntoView()
+        }
     }
 
     private func applyThemeToSheet() {
@@ -372,6 +381,7 @@ final class NativeReaderSettingsSheet: UIViewController {
     private func themeSection() -> UIView {
         let container = sectionStack(title: "阅读主题")
         let scroll = UIScrollView()
+        themeScrollView = scroll
         scroll.showsHorizontalScrollIndicator = false
         let row = UIStackView()
         row.axis = .horizontal
@@ -385,12 +395,8 @@ final class NativeReaderSettingsSheet: UIViewController {
             row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             row.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)
         ])
-        let themes: [(String, ReadingTheme)] = [
-            ("纯白", .white), ("暖黄", .warmYellow), ("薄荷", .mint),
-            ("拿铁", .latte), ("墨蓝", .midnight), ("OLED", .oled), ("自定义", .custom)
-        ]
-        themes.enumerated().forEach { index, item in
-            row.addArrangedSubview(themeButton(title: item.0, theme: item.1, tag: index))
+        Self.themeChoices.enumerated().forEach { index, item in
+            row.addArrangedSubview(themeButton(title: item.title, theme: item.theme, tag: index))
         }
         scroll.heightAnchor.constraint(equalToConstant: 84).isActive = true
         container.addArrangedSubview(scroll)
@@ -401,6 +407,7 @@ final class NativeReaderSettingsSheet: UIViewController {
         let row = baseRow(height: 64)
         row.addArrangedSubview(rowLabel("字体"))
         let scroll = UIScrollView()
+        fontScrollView = scroll
         scroll.showsHorizontalScrollIndicator = false
         let chips = UIStackView()
         chips.axis = .horizontal
@@ -560,7 +567,7 @@ final class NativeReaderSettingsSheet: UIViewController {
         let button = UIButton(type: .system)
         button.tag = tag
         button.setTitle(title, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 14, weight: settings.fontFamily == title ? .semibold : .regular)
+        button.titleLabel?.font = FontManager.shared.font(named: title, size: 14)
         button.setTitleColor(settings.fontFamily == title ? accent : textColor, for: .normal)
         button.backgroundColor = settings.fontFamily == title ? accent.withAlphaComponent(0.12) : panelColor
         button.layer.cornerRadius = 12
@@ -579,6 +586,28 @@ final class NativeReaderSettingsSheet: UIViewController {
         onChange?(settings, mode)
     }
 
+    private func scrollSelectedOptionIntoView() {
+        view.layoutIfNeeded()
+        if let index = Self.themeChoices.firstIndex(where: { $0.theme == settings.readingTheme }),
+           let scroll = themeScrollView {
+            scrollOption(at: index, in: scroll)
+        }
+        if let index = FontManager.shared.availableFonts.firstIndex(of: settings.fontFamily),
+           let scroll = fontScrollView {
+            scrollOption(at: index, in: scroll)
+        }
+    }
+
+    private func scrollOption(at index: Int, in scrollView: UIScrollView) {
+        guard let stack = scrollView.subviews.compactMap({ $0 as? UIStackView }).first,
+              stack.arrangedSubviews.indices.contains(index) else { return }
+        let frame = stack.arrangedSubviews[index].convert(
+            stack.arrangedSubviews[index].bounds,
+            to: scrollView
+        ).insetBy(dx: -12, dy: 0)
+        scrollView.scrollRectToVisible(frame, animated: false)
+    }
+
     /// 行距与段距是两个独立设置；修改行距时保留当前段距值。
     private func updateLineSpacing(_ value: Double) {
         settings.lineSpacing = min(max(value, 1), 2.5)
@@ -588,9 +617,8 @@ final class NativeReaderSettingsSheet: UIViewController {
     @objc private func doneTapped() { dismiss(animated: true) }
 
     @objc private func themeSwatchTapped(_ sender: UIControl) {
-        let themes: [ReadingTheme] = [.white, .warmYellow, .mint, .latte, .midnight, .oled, .custom]
-        guard themes.indices.contains(sender.tag) else { return }
-        settings.readingTheme = themes[sender.tag]
+        guard Self.themeChoices.indices.contains(sender.tag) else { return }
+        settings.readingTheme = Self.themeChoices[sender.tag].theme
         settings.backgroundColor = settings.readingTheme.backgroundColor
         notify()
         applyThemeToSheet()

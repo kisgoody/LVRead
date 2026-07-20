@@ -31,7 +31,6 @@ final class ChapterListViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
 
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: "\u{5173}\u{95ED}",
@@ -62,6 +61,30 @@ final class ChapterListViewController: UIViewController {
                 animated: false
             )
         }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appThemeDidChange),
+            name: .darkModeChanged,
+            object: nil
+        )
+        applyAppearance()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func appThemeDidChange() {
+        applyAppearance()
+    }
+
+    private func applyAppearance() {
+        view.backgroundColor = LVBookshelfModuleStyle.pageBackground
+        tableView.backgroundColor = LVBookshelfModuleStyle.pageBackground
+        navigationItem.rightBarButtonItem?.tintColor = LVBookshelfModuleStyle.accent
+        tableView.separatorColor = LVBookshelfModuleStyle.divider
+        tableView.reloadData()
     }
 
     // MARK: - Actions
@@ -87,10 +110,13 @@ extension ChapterListViewController: UITableViewDataSource {
         cell.textLabel?.font = (chapter.level == 1)
             ? .systemFont(ofSize: 15, weight: .medium)
             : .systemFont(ofSize: 14, weight: .regular)
-        cell.textLabel?.textColor = (indexPath.row == currentEntryIndex) ? .lvPrimary : .lvTextPrimary
+        cell.textLabel?.textColor = (indexPath.row == currentEntryIndex)
+            ? LVBookshelfModuleStyle.accent
+            : LVBookshelfModuleStyle.primaryText
         cell.indentationLevel = (chapter.level - 1) * 2
         cell.accessoryType = (indexPath.row == currentEntryIndex) ? .checkmark : .none
-        cell.tintColor = .lvPrimary
+        cell.tintColor = LVBookshelfModuleStyle.accent
+        cell.backgroundColor = LVBookshelfModuleStyle.cardBackground
 
         return cell
     }

@@ -876,8 +876,9 @@ final class ContinuousReaderViewController: UIViewController {
     }
 
     @objc private func nightTapped() {
-        settings.nightMode.toggle()
-        settings.readingTheme = settings.nightMode ? .midnight : .white
+        DarkModeManager.shared.setNightMode(!DarkModeManager.shared.isDarkMode)
+        settings.readingTheme = DarkModeManager.shared.currentTheme
+        settings.nightMode = settings.readingTheme.isDarkAppearance
         settings.backgroundColor = settings.readingTheme.backgroundColor
         renderCurrentPage()
         rebuildScrollPages(keepOffset: true)

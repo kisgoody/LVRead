@@ -38,7 +38,6 @@ final class TransferDeviceListViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "同网传输"
-        view.backgroundColor = .systemGroupedBackground
 
         tableView.delegate = self
         tableView.dataSource = self
@@ -66,12 +65,39 @@ final class TransferDeviceListViewController: UIViewController {
         ])
 
         startScan()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appThemeDidChange),
+            name: .darkModeChanged,
+            object: nil
+        )
+        applyAppearance()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         scanTimer?.invalidate()
         UDPDiscoveryService.shared.stop()
+    }
+
+    @objc private func appThemeDidChange() {
+        applyAppearance()
+    }
+
+    private func applyAppearance() {
+        view.backgroundColor = LVBookshelfModuleStyle.pageBackground
+        tableView.backgroundColor = LVBookshelfModuleStyle.pageBackground
+        scanButton.backgroundColor = LVBookshelfModuleStyle.accent
+        scanButton.setTitleColor(
+            LVBookshelfModuleStyle.accent.contrastingTextColor,
+            for: .normal
+        )
+        tableView.reloadData()
     }
 
     @objc private func startScan() {
@@ -132,12 +158,15 @@ extension TransferDeviceListViewController: UITableViewDataSource, UITableViewDe
         config.text = device.deviceName
         config.secondaryText = "\(device.platform) · \(device.ipAddress)"
         config.image = UIImage(systemName: device.platform == "IOS" ? "iphone" : "desktopcomputer")
-        config.imageProperties.tintColor = .lvPrimary
+        config.textProperties.color = LVBookshelfModuleStyle.primaryText
+        config.secondaryTextProperties.color = LVBookshelfModuleStyle.secondaryText
+        config.imageProperties.tintColor = LVBookshelfModuleStyle.accent
 
         let statusDot = UIView(frame: CGRect(x: 0, y: 0, width: 8, height: 8))
         statusDot.backgroundColor = device.isOnline ? .lvAccent : .lvTextTertiary
         statusDot.layer.cornerRadius = 4
         cell.accessoryView = statusDot
+        cell.backgroundColor = LVBookshelfModuleStyle.cardBackground
         cell.contentConfiguration = config
         return cell
     }

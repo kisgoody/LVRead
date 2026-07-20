@@ -42,13 +42,13 @@ private final class BookOpenPresentAnimator: NSObject, UIViewControllerAnimatedT
         container.addSubview(toView)
 
         let pageView = UIView(frame: sourceFrame)
-        pageView.backgroundColor = .lvBgDay
+        pageView.backgroundColor = LVBookshelfModuleStyle.pageBackground
         pageView.layer.cornerRadius = 10
         pageView.layer.masksToBounds = true
         container.addSubview(pageView)
 
         let coverView = UIView(frame: sourceFrame)
-        coverView.backgroundColor = .lvPrimary
+        coverView.backgroundColor = LVBookshelfModuleStyle.accent
         coverView.layer.cornerRadius = 10
         coverView.layer.masksToBounds = true
         coverView.layer.anchorPoint = CGPoint(x: 0, y: 0.5)

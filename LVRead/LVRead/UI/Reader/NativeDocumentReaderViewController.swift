@@ -8,17 +8,18 @@ final class NativeDocumentReaderViewController: UIViewController {
     private let persistsReadingProgress: Bool
     private var settings: ReadingSettings
     private var navigationMode = ReaderNavigationMode.load()
-    private var themeBeforeNight: ReadingTheme?
     private var chapters: [Chapter] = []
     private var pages: [NativeDocumentPage] = []
     private var chapterPageCounts: [Int: Int] = [:]
     private var currentIndex = 0
     private var loadVersion = 0
-    private var preloadRadius = 2
+    private var preloadRadius = 6
     private var initialLoadStarted = false
     private var suppressWindowRefresh = false
     private var menuVisible = false
     private var isProgrammaticPageTurn = false
+    private var isPageTransitioning = false
+    private var pendingWindow: (pages: [NativeDocumentPage], target: Int)?
     private var activeReadingStartedAt: Date?
     private var visited: Set<String> = []
 
@@ -39,7 +40,6 @@ final class NativeDocumentReaderViewController: UIViewController {
     private let brightnessOverlay = UIView()
     private let skeleton = NativeDocumentSkeletonView()
     private let pullBookmarkReveal = UIView()
-    private let pullBookmarkIcon = UIImageView(image: UIImage(systemName: "bookmark.fill"))
     private let pullBookmarkLabel = UILabel()
 
     init(
@@ -61,7 +61,7 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        syncWithAppDarkMode()
+        syncWithAppTheme()
         buildInterface()
         NotificationCenter.default.addObserver(
             self,
@@ -81,6 +81,12 @@ final class NativeDocumentReaderViewController: UIViewController {
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(webSyncPageTurnRequested(_:)),
+            name: .webSyncPageTurnRequested,
+            object: nil
+        )
     }
 
     override func viewDidLayoutSubviews() {
@@ -94,7 +100,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
         resumeReadingTimerIfNeeded()
-        if syncWithAppDarkMode() {
+        if syncWithAppTheme() {
             applyAppearance()
             refreshVisiblePages()
         }
@@ -110,7 +116,6 @@ final class NativeDocumentReaderViewController: UIViewController {
         saveProgress()
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
         flushActiveReadingInterval(recordPages: true)
-        WebSyncServer.shared.stop()
         loadVersion += 1
         pages.removeAll()
         continuousStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -149,7 +154,7 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
         switch settings.readingTheme {
-        case .midnight, .oled:
+        case .bookshelfNight, .midnight, .oled:
             return .lightContent
         default:
             if #available(iOS 13.0, *) { return .darkContent }
@@ -163,7 +168,7 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
-        preloadRadius = 1
+        preloadRadius = 3
         guard let page = currentPage else { return }
         loadWindow(
             chapterIndex: page.chapterIndex,
@@ -252,22 +257,19 @@ final class NativeDocumentReaderViewController: UIViewController {
         view.addSubview(bottomStatus)
         pullBookmarkReveal.backgroundColor = UIColor(hex: settings.readingTheme.panelColor)
         pullBookmarkReveal.alpha = 0
-        pullBookmarkIcon.tintColor = UIColor(hex: settings.readingTheme.accentColor)
-        pullBookmarkIcon.contentMode = .scaleAspectFit
         pullBookmarkLabel.text = "下拉设置书签"
         pullBookmarkLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         pullBookmarkLabel.textColor = UIColor(hex: settings.readingTheme.textColor)
-        pullBookmarkLabel.textAlignment = .center
-        let pullStack = UIStackView(arrangedSubviews: [pullBookmarkIcon, pullBookmarkLabel])
-        pullStack.axis = .vertical
+        pullBookmarkLabel.textAlignment = .right
+        let pullStack = UIStackView(arrangedSubviews: [pullBookmarkLabel])
+        pullStack.axis = .horizontal
         pullStack.alignment = .center
-        pullStack.spacing = 4
         view.insertSubview(pullBookmarkReveal, at: 0)
         pullBookmarkReveal.addSubview(pullStack)
         topStatus.isHidden = true
         bottomStatus.isHidden = true
         [topStatus, bottomStatus, back, chapterLabel, progressLabel, timeLabel, batteryView,
-         pullBookmarkReveal, pullStack, pullBookmarkIcon].forEach {
+         pullBookmarkReveal, pullStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         NSLayoutConstraint.activate([
@@ -275,10 +277,8 @@ final class NativeDocumentReaderViewController: UIViewController {
             pullBookmarkReveal.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pullBookmarkReveal.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pullBookmarkReveal.heightAnchor.constraint(equalToConstant: 104),
-            pullStack.centerXAnchor.constraint(equalTo: pullBookmarkReveal.centerXAnchor),
-            pullStack.bottomAnchor.constraint(equalTo: pullBookmarkReveal.bottomAnchor, constant: -8),
-            pullBookmarkIcon.widthAnchor.constraint(equalToConstant: 22),
-            pullBookmarkIcon.heightAnchor.constraint(equalToConstant: 28),
+            pullStack.trailingAnchor.constraint(equalTo: pullBookmarkReveal.trailingAnchor, constant: -24),
+            pullStack.bottomAnchor.constraint(equalTo: pullBookmarkReveal.bottomAnchor, constant: -16),
             topStatus.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             topStatus.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topStatus.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -324,6 +324,13 @@ final class NativeDocumentReaderViewController: UIViewController {
         pageViewController.view.removeFromSuperview()
         pageViewController.removeFromParent()
         pageViewController = makePageViewController()
+        if let controllers = pageControllers(at: currentIndex) {
+            pageViewController.setViewControllers(
+                controllers,
+                direction: .forward,
+                animated: false
+            )
+        }
         installPageViewController()
         [topStatus, bottomStatus, topMenu, bottomMenu, eyeCareOverlay, brightnessOverlay, skeleton]
             .forEach(view.bringSubviewToFront)
@@ -350,10 +357,10 @@ final class NativeDocumentReaderViewController: UIViewController {
         continuousScrollView.translatesAutoresizingMaskIntoConstraints = false
         continuousStack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            continuousScrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            continuousScrollView.topAnchor.constraint(equalTo: topStatus.bottomAnchor),
             continuousScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             continuousScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            continuousScrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            continuousScrollView.bottomAnchor.constraint(equalTo: bottomStatus.topAnchor),
             continuousStack.topAnchor.constraint(equalTo: continuousScrollView.contentLayoutGuide.topAnchor),
             continuousStack.leadingAnchor.constraint(equalTo: continuousScrollView.contentLayoutGuide.leadingAnchor),
             continuousStack.trailingAnchor.constraint(equalTo: continuousScrollView.contentLayoutGuide.trailingAnchor),
@@ -459,7 +466,6 @@ final class NativeDocumentReaderViewController: UIViewController {
         topMenu.backgroundColor = panel
         bottomMenu.backgroundColor = panel
         pullBookmarkReveal.backgroundColor = panel
-        pullBookmarkIcon.tintColor = UIColor(hex: settings.readingTheme.accentColor)
         pullBookmarkLabel.textColor = foreground
         [chapterLabel, progressLabel, timeLabel, menuTitle].forEach { $0.textColor = foreground }
         batteryView.strokeColor = foreground.withAlphaComponent(0.7)
@@ -524,6 +530,10 @@ final class NativeDocumentReaderViewController: UIViewController {
         let readingSafeAreaInsets = view.safeAreaInsets
         let snapshotSettings = settings
         let snapshotChapters = chapters
+        let isContinuous = navigationMode == .continuousVertical
+        let continuousTextInsets = isContinuous
+            ? NativeDocumentTypography.continuousInsets(size: size, settings: snapshotSettings)
+            : nil
         let radius = navigationMode == .continuousVertical ? max(preloadRadius, 6) : preloadRadius
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -643,7 +653,8 @@ final class NativeDocumentReaderViewController: UIViewController {
                         chapter: chapter,
                         chapterIndex: index,
                         size: size,
-                        safeAreaInsets: readingSafeAreaInsets,
+                        safeAreaInsets: isContinuous ? .zero : readingSafeAreaInsets,
+                        textInsets: continuousTextInsets,
                         settings: snapshotSettings
                     )
                     cache[index] = value
@@ -679,14 +690,11 @@ final class NativeDocumentReaderViewController: UIViewController {
                     combined += try parse(next)
                     next += 1
                 }
-                let lower = max(0, target - radius)
-                let upper = min(combined.count, target + radius + 1)
-                let window = Array(combined[lower..<upper])
                 let pageCounts = cache.mapValues(\.count)
                 DispatchQueue.main.async {
                     guard version == self.loadVersion else { return }
                     self.chapterPageCounts.merge(pageCounts) { _, new in new }
-                    self.apply(window: window, target: target - lower)
+                    self.apply(window: combined, target: target)
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -698,12 +706,27 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func apply(window: [NativeDocumentPage], target: Int) {
+        guard !isPageTransitioning else {
+            pendingWindow = (window, target)
+            return
+        }
         suppressWindowRefresh = true
         let continuousHeight = max(continuousScrollView.bounds.height, 1)
         let previousPageID = currentPage?.id
         let previousIntraPageOffset = navigationMode == .continuousVertical
             ? continuousScrollView.contentOffset.y - CGFloat(currentIndex) * continuousHeight
             : 0
+        let cachedPages = window.map {
+            PageData(
+                pageIndex: $0.pageIndex,
+                startCharOffset: $0.startOffset,
+                endCharOffset: $0.endOffset,
+                content: $0.text,
+                chapterTitle: $0.chapterTitle,
+                chapterIndex: $0.chapterIndex
+            )
+        }
+        PageCacheManager.shared.cachePages(cachedPages, bookId: book.id, centerPage: target)
         pages = window
         currentIndex = previousPageID.flatMap { id in window.firstIndex(where: { $0.id == id }) } ?? target
         if navigationMode == .continuousVertical {
@@ -752,11 +775,17 @@ final class NativeDocumentReaderViewController: UIViewController {
         )
     }
 
-    private func pageControllers(at index: Int) -> [UIViewController]? {
+    private func pageControllers(
+        at index: Int,
+        previouslyDisplayedIndex: Int? = nil,
+        animated: Bool = false
+    ) -> [UIViewController]? {
         guard let front = makePageController(at: index) else { return nil }
-        // iPhone 使用 .min 书脊时只有一个可见页面。背面必须由 dataSource
-        // 在翻页过程中按需提供，不能与正面一起传给 setViewControllers。
-        return [front]
+        guard navigationMode == .simulation, animated else { return [front] }
+        let backIndex = previouslyDisplayedIndex ?? index
+        guard let back = makeBackPageController(at: backIndex) else { return nil }
+        // .min 书脊静态设置只显示一个正面；双面动画额外需要前一页背面。
+        return [front, back]
     }
 
     private func progressText(for page: NativeDocumentPage) -> String {
@@ -769,11 +798,16 @@ final class NativeDocumentReaderViewController: UIViewController {
             $0.removeFromSuperview()
         }
         let height = max(continuousScrollView.bounds.height, 1)
+        let textInsets = NativeDocumentTypography.continuousInsets(
+            size: CGSize(width: continuousScrollView.bounds.width, height: height),
+            settings: settings
+        )
         for page in pages {
             let canvas = NativeCoreTextView()
             canvas.page = page
             canvas.settings = settings
-            canvas.readingSafeAreaInsets = view.safeAreaInsets
+            canvas.readingSafeAreaInsets = .zero
+            canvas.textInsets = textInsets
             canvas.heightAnchor.constraint(equalToConstant: height).isActive = true
             continuousStack.addArrangedSubview(canvas)
         }
@@ -785,6 +819,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func refreshVisiblePages() {
+        guard !isPageTransitioning else { return }
         if navigationMode == .continuousVertical {
             let height = max(continuousScrollView.bounds.height, 1)
             let intraPageOffset = continuousScrollView.contentOffset.y - CGFloat(currentIndex) * height
@@ -803,9 +838,11 @@ final class NativeDocumentReaderViewController: UIViewController {
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryView.level = max(0, UIDevice.current.batteryLevel)
         updateBookmarkButton()
+        WebSyncServer.shared.updateCurrentPage(bookId: book.id, page: webSyncSnapshot(for: page))
         saveProgress()
+        let reloadMargin = min(3, max(1, pages.count / 3))
         if !suppressWindowRefresh,
-           currentIndex <= 1 || currentIndex >= pages.count - 2 {
+           currentIndex < reloadMargin || currentIndex >= pages.count - reloadMargin {
             loadWindow(
                 chapterIndex: page.chapterIndex,
                 pageIndex: page.pageIndex,
@@ -849,11 +886,25 @@ final class NativeDocumentReaderViewController: UIViewController {
         continuousScrollView.isScrollEnabled = enabled
     }
 
-    private func turnPage(forward: Bool, animated: Bool) {
-        guard !menuVisible, presentedViewController == nil, !isProgrammaticPageTurn else { return }
+    private func turnPage(
+        forward: Bool,
+        animated: Bool,
+        allowWhileSyncPresented: Bool = false
+    ) {
+        let canTurnWithPresentedController = presentedViewController == nil
+            || (allowWhileSyncPresented && presentedViewController is WebSyncViewController)
+        guard !menuVisible,
+              canTurnWithPresentedController,
+              !isProgrammaticPageTurn,
+              !isPageTransitioning else { return }
         let target = currentIndex + (forward ? 1 : -1)
-        guard let controllers = pageControllers(at: target) else { return }
+        guard let controllers = pageControllers(
+            at: target,
+            previouslyDisplayedIndex: currentIndex,
+            animated: animated
+        ) else { return }
         isProgrammaticPageTurn = true
+        isPageTransitioning = animated
         pageViewController.setViewControllers(
             controllers,
             direction: forward ? .forward : .reverse,
@@ -861,9 +912,11 @@ final class NativeDocumentReaderViewController: UIViewController {
         ) { [weak self] completed in
             guard let self else { return }
             self.isProgrammaticPageTurn = false
-            guard completed, animated else { return }
-            self.currentIndex = target
-            self.settleOnCurrentPage()
+            self.isPageTransitioning = false
+            if completed, animated {
+                self.currentIndex = target
+            }
+            self.finishPageTransition(settle: completed && animated)
         }
         if !animated {
             currentIndex = target
@@ -872,28 +925,51 @@ final class NativeDocumentReaderViewController: UIViewController {
         }
     }
 
-    @discardableResult
-    private func syncWithAppDarkMode() -> Bool {
-        let shouldUseDarkTheme = DarkModeManager.shared.isDarkMode
-        if shouldUseDarkTheme, settings.readingTheme != .oled {
-            themeBeforeNight = settings.readingTheme
-            settings.readingTheme = .oled
-        } else if !shouldUseDarkTheme, settings.readingTheme == .oled {
-            settings.readingTheme = themeBeforeNight ?? .warmYellow
-            themeBeforeNight = nil
+    @objc private func webSyncPageTurnRequested(_ notification: Notification) {
+        guard let forward = notification.userInfo?["forward"] as? Bool,
+              let requestedBookId = notification.userInfo?["bookId"] as? String,
+              requestedBookId == book.id else { return }
+        if navigationMode == .continuousVertical {
+            let target = currentIndex + (forward ? 1 : -1)
+            guard pages.indices.contains(target) else { return }
+            continuousScrollView.setContentOffset(
+                CGPoint(x: 0, y: CGFloat(target) * max(continuousScrollView.bounds.height, 1)),
+                animated: true
+            )
         } else {
-            return false
+            turnPage(
+                forward: forward,
+                animated: navigationMode != .none,
+                allowWhileSyncPresented: true
+            )
         }
-        settings.nightMode = shouldUseDarkTheme
-        settings.backgroundColor = settings.readingTheme.backgroundColor
+    }
+
+    private func finishPageTransition(settle: Bool) {
+        if let pendingWindow {
+            self.pendingWindow = nil
+            apply(window: pendingWindow.pages, target: pendingWindow.target)
+        } else if settle {
+            settleOnCurrentPage()
+        }
+    }
+
+    @discardableResult
+    private func syncWithAppTheme() -> Bool {
+        let theme = DarkModeManager.shared.currentTheme
+        guard settings.readingTheme != theme else { return false }
+        settings.readingTheme = theme
+        settings.nightMode = theme.isDarkAppearance
+        settings.backgroundColor = theme.backgroundColor
         ReadingSettingsRepository.shared.save(settings)
         return true
     }
 
     @objc private func appDarkModeChanged() {
-        guard syncWithAppDarkMode() else { return }
+        guard syncWithAppTheme() else { return }
         applyAppearance()
         refreshVisiblePages()
+        WebSyncServer.shared.notifySettingsChanged(settings)
         guard let page = currentPage else { return }
         loadWindow(
             chapterIndex: page.chapterIndex,
@@ -995,6 +1071,9 @@ final class NativeDocumentReaderViewController: UIViewController {
         sheet.onChange = { [weak self] settings, mode in
             guard let self, let page = self.currentPage else { return }
             let previousSettings = self.settings
+            if previousSettings.readingTheme != settings.readingTheme {
+                DarkModeManager.shared.selectReadingTheme(settings.readingTheme)
+            }
             let modeChanged = self.navigationMode != mode
             let brightnessOnly = !modeChanged
                 && self.differsOnlyInBrightness(previousSettings, settings)
@@ -1059,18 +1138,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     @objc private func nightTapped() {
-        guard let page = currentPage else { return }
-        if settings.readingTheme == .oled {
-            settings.readingTheme = themeBeforeNight ?? .warmYellow
-            themeBeforeNight = nil
-        } else {
-            themeBeforeNight = settings.readingTheme
-            settings.readingTheme = .oled
-        }
-        settings.backgroundColor = settings.readingTheme.backgroundColor
-        ReadingSettingsRepository.shared.save(settings)
-        applyAppearance()
-        loadWindow(chapterIndex: page.chapterIndex, pageIndex: page.pageIndex, characterOffset: page.startOffset, showSkeleton: false)
+        DarkModeManager.shared.setNightMode(!DarkModeManager.shared.isDarkMode)
     }
 
     @objc private func themeTapped() { showSettings(section: .theme) }
@@ -1084,13 +1152,25 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     @objc private func shareTapped() {
         guard let page = currentPage else { return }
-        if let url = WebSyncServer.shared.start(with: book, pageIndex: page.pageIndex) {
-            present(WebSyncViewController(url: url.absoluteString), animated: true)
-        } else if !WebSyncServer.shared.serverURL.isEmpty {
-            present(WebSyncViewController(url: WebSyncServer.shared.serverURL), animated: true)
-        } else {
-            LVToast.show(message: "无法启动PC同步服务", style: .error)
+        WebSyncServer.shared.start(with: book, page: webSyncSnapshot(for: page)) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let session):
+                self.present(WebSyncViewController(session: session), animated: true)
+            case .failure(let error):
+                LVToast.show(message: error.localizedDescription, style: .error)
+            }
         }
+    }
+
+    private func webSyncSnapshot(for page: NativeDocumentPage) -> WebSyncServer.PageSnapshot {
+        WebSyncServer.PageSnapshot(
+            pageIndex: page.pageIndex,
+            content: page.text,
+            chapterTitle: page.chapterTitle,
+            chapterIndex: page.chapterIndex,
+            totalPages: max(chapterPageCounts[page.chapterIndex] ?? 1, 1)
+        )
     }
 
     @objc private func continuousTapped(_ gesture: UITapGestureRecognizer) {
@@ -1102,6 +1182,14 @@ final class NativeDocumentReaderViewController: UIViewController {
 }
 
 extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        willTransitionTo pendingViewControllers: [UIViewController]
+    ) {
+        guard !isProgrammaticPageTurn else { return }
+        isPageTransitioning = true
+    }
+
     func pageViewController(
         _ pageViewController: UIPageViewController,
         viewControllerBefore viewController: UIViewController
@@ -1142,11 +1230,18 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
         previousViewControllers: [UIViewController],
         transitionCompleted completed: Bool
     ) {
-        guard completed,
-              let visible = pageViewController.viewControllers?.first as? NativeDocumentPageViewController,
-              let index = pages.firstIndex(where: { $0.id == visible.page.id }) else { return }
-        currentIndex = index
-        settleOnCurrentPage()
+        guard !isProgrammaticPageTurn else { return }
+        isPageTransitioning = false
+        let visible = pageViewController.viewControllers?
+            .compactMap { $0 as? NativeDocumentPageViewController }
+            .first
+        let index = visible.flatMap { visible in
+            pages.firstIndex(where: { $0.id == visible.page.id })
+        }
+        if completed, let index {
+            currentIndex = index
+        }
+        finishPageTransition(settle: completed && index != nil)
     }
 }
 
@@ -1187,17 +1282,20 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
     func documentPage(_ controller: NativeDocumentPageViewController, didUpdatePull distance: CGFloat) {
         guard allowsPullBookmark, !menuVisible, presentedViewController == nil else { return }
         let translation = min(max(distance, 0), 96)
-        pageViewController.view.transform = CGAffineTransform(translationX: 0, y: translation)
+        controller.view.transform = CGAffineTransform(translationX: 0, y: translation)
         pullBookmarkReveal.alpha = min(1, translation / 56)
-        pullBookmarkLabel.text = translation >= 72 ? "松开设置书签" : "下拉设置书签"
+        let reachedThreshold = translation >= 72
+        pullBookmarkLabel.text = reachedThreshold ? "松开设置书签" : "下拉设置书签"
+        controller.setPullBookmarkPreviewVisible(reachedThreshold)
     }
 
     func documentPage(_ controller: NativeDocumentPageViewController, didFinishPull shouldToggleBookmark: Bool) {
-        guard !menuVisible, presentedViewController == nil else { return }
-        if shouldToggleBookmark {
+        let canToggle = !menuVisible && presentedViewController == nil
+        if shouldToggleBookmark && canToggle {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             toggleBookmark(controller)
         }
+        controller.setPullBookmarkPreviewVisible(false)
         UIView.animate(
             withDuration: 0.42,
             delay: 0,
@@ -1205,7 +1303,7 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
             initialSpringVelocity: 0.5,
             options: [.curveEaseOut, .allowUserInteraction]
         ) {
-            self.pageViewController.view.transform = .identity
+            controller.view.transform = .identity
             self.pullBookmarkReveal.alpha = 0
         }
     }
