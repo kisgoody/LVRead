@@ -157,6 +157,115 @@ enum NativeDocumentPaginator {
     }
 }
 
+/// Loads and paginates chapters with the same cleanup rules for both the native
+/// reader and the web-sync service. Instances are intentionally short-lived and
+/// keep only the chapters touched by the current navigation request.
+final class NativeDocumentChapterPaginator {
+    private let book: Book
+    private let chapters: [Chapter]
+    private let size: CGSize
+    private let safeAreaInsets: UIEdgeInsets
+    private let textInsets: UIEdgeInsets?
+    private let settings: ReadingSettings
+    private let parser: FileParserProtocol
+    private var contentCache: [Int: String] = [:]
+    private var pageCache: [Int: [NativeDocumentPage]] = [:]
+
+    init(
+        book: Book,
+        chapters: [Chapter],
+        size: CGSize,
+        safeAreaInsets: UIEdgeInsets,
+        textInsets: UIEdgeInsets? = nil,
+        settings: ReadingSettings
+    ) {
+        self.book = book
+        self.chapters = chapters
+        self.size = size
+        self.safeAreaInsets = safeAreaInsets
+        self.textInsets = textInsets
+        self.settings = settings
+        parser = BookImportManager.shared.parserFor(format: book.fileFormat)
+    }
+
+    func pages(at chapterIndex: Int) throws -> [NativeDocumentPage] {
+        guard chapters.indices.contains(chapterIndex) else {
+            throw ChapterError.indexOutOfRange
+        }
+        if let cached = pageCache[chapterIndex] { return cached }
+        let chapter = chapters[chapterIndex]
+        let text = try resolvedContent(at: chapterIndex)
+        guard !text.isEmpty else {
+            pageCache[chapterIndex] = []
+            return []
+        }
+        let pages = try NativeDocumentPaginator.pages(
+            text: text,
+            chapter: chapter,
+            chapterIndex: chapterIndex,
+            size: size,
+            safeAreaInsets: safeAreaInsets,
+            textInsets: textInsets,
+            settings: settings
+        )
+        pageCache[chapterIndex] = pages
+        return pages
+    }
+
+    private func cleanedContent(at chapterIndex: Int) throws -> String {
+        if let cached = contentCache[chapterIndex] { return cached }
+        let chapter = chapters[chapterIndex]
+        var text = try parser.parseChapterContent(
+            filePath: book.resolvedFilePath(),
+            chapter: chapter,
+            encoding: book.encoding ?? "UTF-8"
+        )
+        text = NativeDocumentSanitizer.removeDuplicateHeading(from: text, title: chapter.title)
+        text = ReaderTextContentSanitizer.collapsingExcessiveLineBreaks(in: text)
+        contentCache[chapterIndex] = text
+        return text
+    }
+
+    private func resolvedContent(at chapterIndex: Int) throws -> String {
+        let chapter = chapters[chapterIndex]
+        let content = try cleanedContent(at: chapterIndex)
+        guard !ReaderChapterContentPolicy.isTitleOnly(
+            content: content,
+            chapterTitle: chapter.title
+        ) else { return "" }
+
+        var pendingTitles: [String] = []
+        var followingTitle = chapter.title
+        var previousIndex = chapterIndex - 1
+        while previousIndex >= 0 {
+            let previousChapter = chapters[previousIndex]
+            let previousContent = try cleanedContent(at: previousIndex)
+            guard ReaderChapterContentPolicy.isTitleOnly(
+                content: previousContent,
+                chapterTitle: previousChapter.title
+            ) else { break }
+            if !ReaderChapterContentPolicy.titlesMatch(previousChapter.title, followingTitle) {
+                pendingTitles.insert(previousChapter.title, at: 0)
+            }
+            followingTitle = previousChapter.title
+            previousIndex -= 1
+        }
+
+        return ReaderTextContentSanitizer.collapsingExcessiveLineBreaks(
+            in: ReaderChapterContentPolicy.merging(
+                pendingTitles: pendingTitles,
+                with: content
+            )
+        )
+    }
+
+    private enum ChapterError: LocalizedError {
+        case indexOutOfRange
+
+        var errorDescription: String? { "章节索引超出范围" }
+    }
+}
+
 enum NativeDocumentSanitizer {
     static func key(_ value: String) -> String {
         value

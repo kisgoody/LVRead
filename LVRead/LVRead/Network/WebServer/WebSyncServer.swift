@@ -47,12 +47,59 @@ final class WebSyncServer {
         let hostName: String
     }
 
+    struct PageLayoutSnapshot: Codable, Equatable {
+        let width: Double
+        let height: Double
+        let safeAreaTop: Double
+        let safeAreaLeft: Double
+        let safeAreaBottom: Double
+        let safeAreaRight: Double
+        let usesContinuousInsets: Bool
+
+        init(size: CGSize, safeAreaInsets: UIEdgeInsets, usesContinuousInsets: Bool) {
+            width = size.width
+            height = size.height
+            safeAreaTop = safeAreaInsets.top
+            safeAreaLeft = safeAreaInsets.left
+            safeAreaBottom = safeAreaInsets.bottom
+            safeAreaRight = safeAreaInsets.right
+            self.usesContinuousInsets = usesContinuousInsets
+        }
+
+        var size: CGSize { CGSize(width: width, height: height) }
+        var safeAreaInsets: UIEdgeInsets {
+            UIEdgeInsets(
+                top: safeAreaTop,
+                left: safeAreaLeft,
+                bottom: safeAreaBottom,
+                right: safeAreaRight
+            )
+        }
+    }
+
     struct PageSnapshot: Codable, Equatable {
         let pageIndex: Int
         let content: String
         let chapterTitle: String
         let chapterIndex: Int
         let totalPages: Int
+        let layout: PageLayoutSnapshot?
+
+        init(
+            pageIndex: Int,
+            content: String,
+            chapterTitle: String,
+            chapterIndex: Int,
+            totalPages: Int,
+            layout: PageLayoutSnapshot? = nil
+        ) {
+            self.pageIndex = pageIndex
+            self.content = content
+            self.chapterTitle = chapterTitle
+            self.chapterIndex = chapterIndex
+            self.totalPages = totalPages
+            self.layout = layout
+        }
     }
 
     private struct StoredSnapshot: Codable {
@@ -160,7 +207,8 @@ final class WebSyncServer {
                     chapterIndex: cached.chapterIndex
                 ).count,
                 cached.pageIndex + 1
-            )
+            ),
+            layout: nil
         )
     }
 
@@ -984,81 +1032,174 @@ final class WebSyncServer {
         }
 
         let forward = direction == "next"
-        let cachedPage = cachedSnapshot(from: page, forward: forward, bookId: bookId)
-        if let cachedPage {
-            currentPageSnapshot = cachedPage
-            currentPageIndex = cachedPage.pageIndex
-            storeSnapshot(cachedPage, for: bookId)
-            let percent = progressPercent(bookId: bookId, page: cachedPage)
-            BookRepository.shared.updateProgress(
-                bookId: bookId,
-                progress: ReadingProgress(
-                    currentChapterIndex: cachedPage.chapterIndex,
-                    currentPageOffset: cachedPage.pageIndex,
-                    totalPages: cachedPage.totalPages,
-                    progressPercent: percent,
-                    lastReadTimestamp: Date()
-                )
-            )
-            notifyPageChanged(
-                pageIndex: cachedPage.pageIndex,
-                chapterTitle: cachedPage.chapterTitle,
-                progressPercent: percent,
-                bookId: bookId
-            )
+        let target: PageSnapshot
+        do {
+            target = try resolvedTurnSnapshot(from: page, forward: forward, bookId: bookId)
+        } catch let error as RemoteTurnError {
+            sendJSONResponse(["success": false, "error": error.rawValue], to: connection)
+            return
+        } catch {
+            print("[WebSyncServer] Failed to resolve remote page turn: \(error)")
+            sendJSONResponse(["success": false, "error": RemoteTurnError.pageLoadFailed.rawValue], to: connection)
+            return
         }
+
+        currentPageSnapshot = target
+        currentPageIndex = target.pageIndex
+        storeSnapshot(target, for: bookId)
+        let percent = progressPercent(bookId: bookId, page: target)
+        BookRepository.shared.updateProgress(
+            bookId: bookId,
+            progress: ReadingProgress(
+                currentChapterIndex: target.chapterIndex,
+                currentPageOffset: target.pageIndex,
+                totalPages: target.totalPages,
+                progressPercent: percent,
+                lastReadTimestamp: Date()
+            )
+        )
+        notifyPageChanged(
+            pageIndex: target.pageIndex,
+            chapterTitle: target.chapterTitle,
+            progressPercent: percent,
+            bookId: bookId
+        )
 
         DispatchQueue.main.async {
             NotificationCenter.default.post(
                 name: .webSyncPageTurnRequested,
                 object: nil,
-                userInfo: ["forward": forward, "bookId": bookId]
+                userInfo: [
+                    "forward": forward,
+                    "bookId": bookId,
+                    "chapterIndex": target.chapterIndex,
+                    "pageIndex": target.pageIndex
+                ]
             )
         }
         sendJSONResponse(
-            ["success": true, "direction": direction, "updated": cachedPage != nil],
+            ["success": true, "direction": direction, "updated": true],
             to: connection
         )
     }
 
-    private func cachedSnapshot(
+    private func resolvedTurnSnapshot(
         from page: PageSnapshot,
         forward: Bool,
         bookId: String
-    ) -> PageSnapshot? {
+    ) throws -> PageSnapshot {
+        guard let book = currentBook, book.id == bookId else {
+            throw RemoteTurnError.pageLoadFailed
+        }
         let cache = PageCacheManager.shared
-        var chapterIndex = page.chapterIndex
-        var pageIndex = page.pageIndex + (forward ? 1 : -1)
-
-        if forward,
-           cache.getPage(bookId: bookId, chapterIndex: chapterIndex, pageIndex: pageIndex) == nil {
-            chapterIndex += 1
-            pageIndex = 0
-        } else if !forward, pageIndex < 0 {
-            chapterIndex -= 1
-            guard chapterIndex >= 0,
-                  let last = cache.getCachedPageIndices(bookId: bookId, chapterIndex: chapterIndex).last else {
-                return nil
-            }
-            pageIndex = last
+        let sameChapterPageIndex = page.pageIndex + (forward ? 1 : -1)
+        if sameChapterPageIndex >= 0,
+           sameChapterPageIndex < page.totalPages,
+           let cached = cache.getPage(
+               bookId: bookId,
+               chapterIndex: page.chapterIndex,
+               pageIndex: sameChapterPageIndex
+           ) {
+            return snapshot(from: cached, totalPages: page.totalPages, layout: page.layout)
         }
 
-        guard let cached = cache.getPage(
-            bookId: bookId,
-            chapterIndex: chapterIndex,
-            pageIndex: pageIndex
-        ) else { return nil }
-        let totalPages = max(
-            cache.getCachedPageIndices(bookId: bookId, chapterIndex: chapterIndex).count,
-            cached.pageIndex + 1
+        guard book.fileFormat != .pdf else {
+            throw RemoteTurnError.pageLoadFailed
+        }
+        var chapters = BookRepository.shared.getChapters(for: bookId)
+        if chapters.isEmpty {
+            chapters = [Chapter(bookId: bookId, title: "正文", orderIndex: 0)]
+        }
+        guard chapters.indices.contains(page.chapterIndex) else {
+            throw RemoteTurnError.pageLoadFailed
+        }
+        let layout = page.layout ?? PageLayoutSnapshot(
+            size: UIScreen.main.bounds.size,
+            safeAreaInsets: .zero,
+            usesContinuousInsets: false
         )
+        let settings = ReadingSettingsRepository.shared.load()
+        let paginator = NativeDocumentChapterPaginator(
+            book: book,
+            chapters: chapters,
+            size: layout.size,
+            safeAreaInsets: layout.usesContinuousInsets ? .zero : layout.safeAreaInsets,
+            textInsets: layout.usesContinuousInsets
+                ? NativeDocumentTypography.continuousInsets(size: layout.size, settings: settings)
+                : nil,
+            settings: settings
+        )
+
+        func materializedPages(at chapterIndex: Int) throws -> [NativeDocumentPage] {
+            let pages = try paginator.pages(at: chapterIndex)
+            let cachedPages = pages.map {
+                PageData(
+                    pageIndex: $0.pageIndex,
+                    startCharOffset: $0.startOffset,
+                    endCharOffset: $0.endOffset,
+                    content: $0.text,
+                    chapterTitle: $0.chapterTitle,
+                    chapterIndex: $0.chapterIndex
+                )
+            }
+            cache.cachePages(cachedPages, bookId: bookId, centerPage: page.pageIndex)
+            return pages
+        }
+
+        let currentPages = try materializedPages(at: page.chapterIndex)
+        if currentPages.indices.contains(sameChapterPageIndex) {
+            return snapshot(
+                from: currentPages[sameChapterPageIndex],
+                totalPages: currentPages.count,
+                layout: layout
+            )
+        }
+
+        var chapterIndex = page.chapterIndex + (forward ? 1 : -1)
+        while chapters.indices.contains(chapterIndex) {
+            let pages = try materializedPages(at: chapterIndex)
+            if let target = forward ? pages.first : pages.last {
+                return snapshot(from: target, totalPages: pages.count, layout: layout)
+            }
+            chapterIndex += forward ? 1 : -1
+        }
+        throw forward ? RemoteTurnError.endOfBook : RemoteTurnError.beginningOfBook
+    }
+
+    private func snapshot(
+        from page: PageData,
+        totalPages: Int,
+        layout: PageLayoutSnapshot?
+    ) -> PageSnapshot {
         return PageSnapshot(
-            pageIndex: cached.pageIndex,
-            content: cached.content,
-            chapterTitle: cached.chapterTitle,
-            chapterIndex: cached.chapterIndex,
-            totalPages: totalPages
+            pageIndex: page.pageIndex,
+            content: page.content,
+            chapterTitle: page.chapterTitle,
+            chapterIndex: page.chapterIndex,
+            totalPages: max(totalPages, 1),
+            layout: layout
         )
+    }
+
+    private func snapshot(
+        from page: NativeDocumentPage,
+        totalPages: Int,
+        layout: PageLayoutSnapshot
+    ) -> PageSnapshot {
+        PageSnapshot(
+            pageIndex: page.pageIndex,
+            content: page.text,
+            chapterTitle: page.chapterTitle,
+            chapterIndex: page.chapterIndex,
+            totalPages: max(totalPages, 1),
+            layout: layout
+        )
+    }
+
+    private enum RemoteTurnError: String, Error {
+        case beginningOfBook = "beginning_of_book"
+        case endOfBook = "end_of_book"
+        case pageLoadFailed = "page_load_failed"
     }
 
     private func serveProgress(to connection: NWConnection) {
@@ -1214,10 +1355,10 @@ final class WebSyncServer {
         var statusText=document.getElementById('statusText');
         function applyPage(d){if(d.error){throw new Error(d.error);}var title=d.chapterTitle||'';contentEl.textContent=d.content||'当前页面暂无可同步文字';bookTitle=d.bookTitle||bookTitle;bookTitleEl.textContent=bookTitle||'LVRead';totalPages=d.totalPages||1;currentPage=d.pageIndex||0;chapterTitleEl.textContent=title;pageInfoEl.textContent=(currentPage+1)+' / '+totalPages;}
         function offlineMessage(){return '无法连接到 LVRead。\\n\\n情况一：手机端未打开同步开关。请打开 LVRead，在书架或阅读页点击电脑图标，再点击“打开同步”。\\n\\n情况二：同步已打开，但 App 进入了后台。iOS 会暂停局域网服务，请将 LVRead 切回前台，本页面会自动重新连接。';}
-        function loadPage(){fetch('/api/page/current?t='+token()).then(r=>r.json()).then(applyPage).catch(e=>{contentEl.textContent=offlineMessage();console.error(e);});}
+        function loadPage(){fetch('/api/page/current?t='+token()).then(r=>r.json()).then(d=>{applyPage(d);setStatus(true);}).catch(e=>{contentEl.textContent=offlineMessage();console.error(e);});}
         function loadBookInfo(){fetch('/api/book/info?t='+token()).then(r=>r.json()).then(d=>{if(d.title){bookTitle=d.title;bookTitleEl.textContent=d.title;}}).catch(e=>{});}
         function token(){return new URLSearchParams(window.location.search).get('t')||'';}
-        function turnPage(direction){fetch('/api/page/turn?t='+encodeURIComponent(token())+'&direction='+direction,{method:'POST'}).then(r=>r.json()).then(d=>{if(!d.success){throw new Error(d.error||'翻页失败');}if(d.updated){loadPage();}else{setTimeout(loadPage,700);}}).catch(e=>{contentEl.textContent='翻页失败：'+e.message;});}
+        function turnPage(direction){fetch('/api/page/turn?t='+encodeURIComponent(token())+'&direction='+direction,{method:'POST'}).then(r=>r.json()).then(d=>{if(d.error==='end_of_book'){statusText.textContent='已到全书末尾';return;}if(d.error==='beginning_of_book'){statusText.textContent='已到全书开头';return;}if(!d.success){throw new Error(d.error||'翻页失败');}loadPage();}).catch(e=>{statusText.textContent='翻页失败';console.error(e);});}
         function prevPage(){turnPage('prev');}
         function nextPage(){turnPage('next');}
         function readerFontFamily(name){if(!name||name.indexOf('系统')>=0){return '-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';}if(name.indexOf('仿宋')>=0){return '"FangSong","STFangsong",serif';}if(name.indexOf('楷体')>=0){return '"Kaiti SC","STKaiti","KaiTi",serif';}if(name.indexOf('宋体')>=0){return '"Songti SC","STSong","SimSun",serif';}return name+',serif';}

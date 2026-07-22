@@ -196,6 +196,21 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("情况二：同步已打开，但 App 进入了后台"))
         XCTAssertTrue(html.contains("serviceWorker.register"))
         XCTAssertFalse(html.contains("disconnect-notice"))
+        XCTAssertTrue(html.contains("d.error==='end_of_book'"))
+        XCTAssertTrue(html.contains("d.error==='beginning_of_book'"))
+        XCTAssertFalse(html.contains("setTimeout(loadPage,700)"))
+        XCTAssertFalse(html.contains("contentEl.textContent='翻页失败：'"))
+    }
+
+    func testWebSyncPageSnapshotDecodesLegacyValueWithoutLayout() throws {
+        let data = try XCTUnwrap(
+            "{\"pageIndex\":2,\"content\":\"正文\",\"chapterTitle\":\"第一章\",\"chapterIndex\":0,\"totalPages\":8}"
+                .data(using: .utf8)
+        )
+        let snapshot = try JSONDecoder().decode(WebSyncServer.PageSnapshot.self, from: data)
+
+        XCTAssertEqual(snapshot.pageIndex, 2)
+        XCTAssertNil(snapshot.layout)
     }
 
     func testWebSyncConnectionStateTitlesMatchSwitchLifecycle() {

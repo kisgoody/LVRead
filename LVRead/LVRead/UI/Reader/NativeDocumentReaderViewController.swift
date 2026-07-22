@@ -45,7 +45,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     private var isTextSelectionActive = false
     private var isProgrammaticPageTurn = false
     private var isPageTransitioning = false
-    private var pendingWindow: (pages: [NativeDocumentPage], target: Int)?
+    private var pendingWindow: (pages: [NativeDocumentPage], target: Int, preserveCurrentPage: Bool)?
     private var activeReadingStartedAt: Date?
     private var visited: Set<String> = []
 
@@ -692,7 +692,8 @@ final class NativeDocumentReaderViewController: UIViewController {
         chapterIndex: Int,
         pageIndex: Int,
         characterOffset: Int?,
-        showSkeleton: Bool
+        showSkeleton: Bool,
+        preserveCurrentPage: Bool = true
     ) {
         guard chapters.indices.contains(chapterIndex), readingSize.width > 0 else { return }
         loadVersion += 1
@@ -744,7 +745,11 @@ final class NativeDocumentReaderViewController: UIViewController {
                     DispatchQueue.main.async {
                         guard version == self.loadVersion else { return }
                         self.chapterPageCounts[0] = document.pageCount
-                        self.apply(window: pdfPages, target: center - lower)
+                        self.apply(
+                            window: pdfPages,
+                            target: center - lower,
+                            preserveCurrentPage: preserveCurrentPage
+                        )
                     }
                 } catch {
                     DispatchQueue.main.async {
@@ -754,87 +759,21 @@ final class NativeDocumentReaderViewController: UIViewController {
                 }
                 return
             }
-            let parser = BookImportManager.shared.parserFor(format: self.book.fileFormat)
             do {
-                var cache: [Int: [NativeDocumentPage]] = [:]
-                var contentCache: [Int: String] = [:]
-
-                func cleanedContent(_ index: Int) throws -> String {
-                    if let cached = contentCache[index] { return cached }
-                    let chapter = snapshotChapters[index]
-                    var text = try parser.parseChapterContent(
-                        filePath: self.book.resolvedFilePath(),
-                        chapter: chapter,
-                        encoding: self.book.encoding ?? "UTF-8"
-                    )
-                    text = NativeDocumentSanitizer.removeDuplicateHeading(
-                        from: text,
-                        title: chapter.title
-                    )
-                    text = ReaderTextContentSanitizer.collapsingExcessiveLineBreaks(in: text)
-                    contentCache[index] = text
-                    return text
-                }
-
-                func resolvedContent(_ index: Int) throws -> String {
-                    let chapter = snapshotChapters[index]
-                    let content = try cleanedContent(index)
-                    guard !ReaderChapterContentPolicy.isTitleOnly(
-                        content: content,
-                        chapterTitle: chapter.title
-                    ) else {
-                        return ""
-                    }
-
-                    var pendingTitles: [String] = []
-                    var followingTitle = chapter.title
-                    var previousIndex = index - 1
-                    while previousIndex >= 0 {
-                        let previousChapter = snapshotChapters[previousIndex]
-                        let previousContent = try cleanedContent(previousIndex)
-                        guard ReaderChapterContentPolicy.isTitleOnly(
-                            content: previousContent,
-                            chapterTitle: previousChapter.title
-                        ) else {
-                            break
-                        }
-                        if !ReaderChapterContentPolicy.titlesMatch(
-                            previousChapter.title,
-                            followingTitle
-                        ) {
-                            pendingTitles.insert(previousChapter.title, at: 0)
-                        }
-                        followingTitle = previousChapter.title
-                        previousIndex -= 1
-                    }
-
-                    return ReaderTextContentSanitizer.collapsingExcessiveLineBreaks(
-                        in: ReaderChapterContentPolicy.merging(
-                            pendingTitles: pendingTitles,
-                            with: content
-                        )
-                    )
-                }
+                let paginator = NativeDocumentChapterPaginator(
+                    book: self.book,
+                    chapters: snapshotChapters,
+                    size: size,
+                    safeAreaInsets: isContinuous ? .zero : readingSafeAreaInsets,
+                    textInsets: continuousTextInsets,
+                    settings: snapshotSettings
+                )
+                var pageCounts: [Int: Int] = [:]
 
                 func parse(_ index: Int) throws -> [NativeDocumentPage] {
-                    if let value = cache[index] { return value }
-                    let chapter = snapshotChapters[index]
-                    let text = try resolvedContent(index)
-                    guard !text.isEmpty else {
-                        cache[index] = []
-                        return []
-                    }
-                    let value = try NativeDocumentPaginator.pages(
-                        text: text,
-                        chapter: chapter,
-                        chapterIndex: index,
-                        size: size,
-                        safeAreaInsets: isContinuous ? .zero : readingSafeAreaInsets,
-                        textInsets: continuousTextInsets,
-                        settings: snapshotSettings
-                    )
-                    cache[index] = value
-                    return value
+                    let pages = try paginator.pages(at: index)
+                    pageCounts[index] = pages.count
+                    return pages
                 }
 
                 var resolvedChapter = chapterIndex
@@ -866,11 +805,14 @@ final class NativeDocumentReaderViewController: UIViewController {
                     combined += try parse(next)
                     next += 1
                 }
-                let pageCounts = cache.mapValues(\.count)
                 DispatchQueue.main.async {
                     guard version == self.loadVersion else { return }
                     self.chapterPageCounts.merge(pageCounts) { _, new in new }
-                    self.apply(window: combined, target: target)
+                    self.apply(
+                        window: combined,
+                        target: target,
+                        preserveCurrentPage: preserveCurrentPage
+                    )
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -881,9 +823,13 @@ final class NativeDocumentReaderViewController: UIViewController {
         }
     }
 
-    private func apply(window: [NativeDocumentPage], target: Int) {
+    private func apply(
+        window: [NativeDocumentPage],
+        target: Int,
+        preserveCurrentPage: Bool = true
+    ) {
         guard !isPageTransitioning else {
-            pendingWindow = (window, target)
+            pendingWindow = (window, target, preserveCurrentPage)
             return
         }
         suppressWindowRefresh = true
@@ -904,7 +850,9 @@ final class NativeDocumentReaderViewController: UIViewController {
         }
         PageCacheManager.shared.cachePages(cachedPages, bookId: book.id, centerPage: target)
         pages = window
-        currentIndex = previousPageID.flatMap { id in window.firstIndex(where: { $0.id == id }) } ?? target
+        currentIndex = preserveCurrentPage
+            ? previousPageID.flatMap { id in window.firstIndex(where: { $0.id == id }) } ?? target
+            : target
         if navigationMode == .continuousVertical {
             renderContinuousWindow(target: currentIndex, intraPageOffset: previousIntraPageOffset)
         } else if let controllers = pageControllers(at: currentIndex) {
@@ -1132,27 +1080,55 @@ final class NativeDocumentReaderViewController: UIViewController {
     @objc private func webSyncPageTurnRequested(_ notification: Notification) {
         guard let forward = notification.userInfo?["forward"] as? Bool,
               let requestedBookId = notification.userInfo?["bookId"] as? String,
+              let chapterIndex = notification.userInfo?["chapterIndex"] as? Int,
+              let pageIndex = notification.userInfo?["pageIndex"] as? Int,
               requestedBookId == book.id else { return }
+        guard let target = pages.firstIndex(where: {
+            $0.chapterIndex == chapterIndex && $0.pageIndex == pageIndex
+        }) else {
+            loadWindow(
+                chapterIndex: chapterIndex,
+                pageIndex: pageIndex,
+                characterOffset: nil,
+                showSkeleton: false,
+                preserveCurrentPage: false
+            )
+            return
+        }
+        guard target != currentIndex else { return }
         if navigationMode == .continuousVertical {
-            let target = currentIndex + (forward ? 1 : -1)
-            guard pages.indices.contains(target) else { return }
             continuousScrollView.setContentOffset(
                 CGPoint(x: 0, y: CGFloat(target) * max(continuousScrollView.bounds.height, 1)),
                 animated: true
             )
-        } else {
+        } else if abs(target - currentIndex) == 1 {
             turnPage(
                 forward: forward,
                 animated: navigationMode != .none,
                 allowWhileSyncPresented: true
             )
+        } else {
+            guard let controllers = pageControllers(at: target) else { return }
+            pageViewController.setViewControllers(
+                controllers,
+                direction: forward ? .forward : .reverse,
+                animated: false
+            ) { [weak self] completed in
+                guard let self, completed else { return }
+                self.currentIndex = target
+                self.settleOnCurrentPage()
+            }
         }
     }
 
     private func finishPageTransition(settle: Bool) {
         if let pendingWindow {
             self.pendingWindow = nil
-            apply(window: pendingWindow.pages, target: pendingWindow.target)
+            apply(
+                window: pendingWindow.pages,
+                target: pendingWindow.target,
+                preserveCurrentPage: pendingWindow.preserveCurrentPage
+            )
         } else if settle {
             settleOnCurrentPage()
         }
@@ -1684,12 +1660,18 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func webSyncSnapshot(for page: NativeDocumentPage) -> WebSyncServer.PageSnapshot {
-        WebSyncServer.PageSnapshot(
+        let continuous = navigationMode == .continuousVertical
+        return WebSyncServer.PageSnapshot(
             pageIndex: page.pageIndex,
             content: page.text,
             chapterTitle: page.chapterTitle,
             chapterIndex: page.chapterIndex,
-            totalPages: max(chapterPageCounts[page.chapterIndex] ?? 1, 1)
+            totalPages: max(chapterPageCounts[page.chapterIndex] ?? 1, 1),
+            layout: WebSyncServer.PageLayoutSnapshot(
+                size: readingSize,
+                safeAreaInsets: continuous ? .zero : view.safeAreaInsets,
+                usesContinuousInsets: continuous
+            )
         )
     }
 
