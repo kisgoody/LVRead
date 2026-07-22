@@ -24,6 +24,8 @@ final class BookListCell: UITableViewCell {
     private let bookActionButton = UIButton(type: .system)
     private let zodiacBadge = UIImageView()
     private var representedBookId: String?
+    private var syncConnected = false
+    var onSyncTapped: (() -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -88,13 +90,15 @@ final class BookListCell: UITableViewCell {
         detailLabel.font = .systemFont(ofSize: 12)
         detailLabel.textColor = UIColor(hex: "#7C746B")
 
-        bookActionButton.setImage(UIImage(systemName: "chevron.right"), for: .normal)
+        bookActionButton.setImage(UIImage(systemName: "desktopcomputer"), for: .normal)
+        bookActionButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 17, weight: .medium),
+            forImageIn: .normal
+        )
         bookActionButton.tintColor = UIColor(hex: "#24211D")
-        bookActionButton.backgroundColor = UIColor(hex: "#FFFDF8")
-        bookActionButton.layer.cornerRadius = 18
-        bookActionButton.layer.borderWidth = 1
-        bookActionButton.layer.borderColor = UIColor(hex: "#E3DBCF").cgColor
-        bookActionButton.isUserInteractionEnabled = false
+        bookActionButton.backgroundColor = .clear
+        bookActionButton.accessibilityHint = "打开电脑端同步阅读"
+        bookActionButton.addTarget(self, action: #selector(syncTapped), for: .touchUpInside)
 
         coverImageView.addSubviews(coverSpineView, coverTitleLabel, coverMarkView)
         cardView.addSubviews(coverImageView, titleLabel, authorLabel, progressLabel, progressBar, sourceBadge, detailLabel, bookActionButton)
@@ -152,8 +156,8 @@ final class BookListCell: UITableViewCell {
 
             bookActionButton.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
             bookActionButton.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -11),
-            bookActionButton.widthAnchor.constraint(equalToConstant: 36),
-            bookActionButton.heightAnchor.constraint(equalToConstant: 36),
+            bookActionButton.widthAnchor.constraint(equalToConstant: 44),
+            bookActionButton.heightAnchor.constraint(equalToConstant: 44),
 
         ])
 
@@ -182,9 +186,8 @@ final class BookListCell: UITableViewCell {
         sourceBadge.textColor = LVBookshelfModuleStyle.accent
         progressBar.trackTintColor = divider
         progressBar.progressTintColor = LVBookshelfModuleStyle.accent
-        bookActionButton.backgroundColor = surface
-        bookActionButton.tintColor = text
-        bookActionButton.layer.borderColor = divider.cgColor
+        bookActionButton.tintColor = syncConnected ? LVBookshelfModuleStyle.accent : secondary.withAlphaComponent(0.62)
+        bookActionButton.backgroundColor = .clear
     }
 
     override func layoutSubviews() {
@@ -250,9 +253,9 @@ final class BookListCell: UITableViewCell {
         }
     }
 
-    func configure(with book: Book) {
-        applyAppearance()
+    func configure(with book: Book, syncConnected: Bool = false) {
         representedBookId = book.id
+        self.syncConnected = syncConnected
         titleLabel.text = book.title
         coverTitleLabel.text = book.title
         let percent = book.readingProgress.progressPercent
@@ -272,11 +275,17 @@ final class BookListCell: UITableViewCell {
         zodiacBadge.isHidden = true
         coverImageView.image = makeCoverBackground(for: book)
         coverImageView.backgroundColor = .clear
+        bookActionButton.accessibilityLabel = "《\(book.title)》电脑同步，\(syncConnected ? "已连接" : "未连接")"
+        applyAppearance()
     }
+
+    @objc private func syncTapped() { onSyncTapped?() }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         representedBookId = nil
+        syncConnected = false
+        onSyncTapped = nil
         coverImageView.image = nil
         coverTitleLabel.text = nil
         coverImageView.backgroundColor = UIColor(white: 0.95, alpha: 1)

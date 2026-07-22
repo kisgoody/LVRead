@@ -23,7 +23,10 @@ final class BookCell: UICollectionViewCell {
     private let formatBadge = PaddedLabel()
     private let shadowView = UIView()
     private let zodiacBadge = UIImageView()
+    private let syncButton = UIButton(type: .system)
     private var representedBookId: String?
+    private var syncConnected = false
+    var onSyncTapped: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -100,9 +103,18 @@ final class BookCell: UICollectionViewCell {
         formatBadge.textAlignment = .center
         formatBadge.backgroundColor = .clear
 
+        syncButton.setImage(UIImage(systemName: "desktopcomputer"), for: .normal)
+        syncButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 14, weight: .medium),
+            forImageIn: .normal
+        )
+        syncButton.backgroundColor = .clear
+        syncButton.accessibilityHint = "打开电脑端同步阅读"
+        syncButton.addTarget(self, action: #selector(syncTapped), for: .touchUpInside)
+
         // Add subviews
         coverImageView.addSubviews(coverSpineView, coverTitleLabel, titleLabel, authorLabel, coverMarkView)
-        containerView.addSubviews(coverImageView, progressBar, progressLabel, sourceBadge, formatBadge)
+        containerView.addSubviews(coverImageView, progressBar, progressLabel, sourceBadge, formatBadge, syncButton)
 
         // Zodiac watermark over the whole cover (positioned in layoutSubviews)
         zodiacBadge.tag = 999
@@ -115,7 +127,7 @@ final class BookCell: UICollectionViewCell {
     }
 
     private func setupConstraints() {
-        [shadowView, containerView, coverImageView, coverSpineView, coverTitleLabel, coverMarkView, titleLabel, authorLabel, progressBar, progressLabel, sourceBadge, formatBadge].forEach {
+        [shadowView, containerView, coverImageView, coverSpineView, coverTitleLabel, coverMarkView, titleLabel, authorLabel, progressBar, progressLabel, sourceBadge, formatBadge, syncButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
 
@@ -174,13 +186,18 @@ final class BookCell: UICollectionViewCell {
             formatBadge.centerYAnchor.constraint(equalTo: sourceBadge.centerYAnchor),
             formatBadge.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -12),
             formatBadge.heightAnchor.constraint(equalToConstant: 18),
-            formatBadge.leadingAnchor.constraint(greaterThanOrEqualTo: sourceBadge.trailingAnchor, constant: 6)
+            formatBadge.leadingAnchor.constraint(greaterThanOrEqualTo: sourceBadge.trailingAnchor, constant: 6),
+
+            syncButton.centerYAnchor.constraint(equalTo: coverTitleLabel.centerYAnchor),
+            syncButton.trailingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: -8),
+            syncButton.widthAnchor.constraint(equalToConstant: 44),
+            syncButton.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
 
-    func configure(with book: Book) {
-        applyAppearance()
+    func configure(with book: Book, syncConnected: Bool = false) {
         representedBookId = book.id
+        self.syncConnected = syncConnected
         titleLabel.text = book.title
         coverTitleLabel.text = book.fileFormat.displayName
         authorLabel.text = book.author
@@ -195,6 +212,8 @@ final class BookCell: UICollectionViewCell {
         zodiacBadge.image = nil
         zodiacBadge.isHidden = true
         coverImageView.image = generatePlaceholderCover(for: book)
+        syncButton.accessibilityLabel = "《\(book.title)》电脑同步，\(syncConnected ? "已连接" : "未连接")"
+        applyAppearance()
     }
 
     func applyAppearance() {
@@ -211,7 +230,11 @@ final class BookCell: UICollectionViewCell {
         progressLabel.textColor = secondary
         sourceBadge.textColor = secondary
         formatBadge.textColor = secondary
+        syncButton.tintColor = syncConnected ? LVBookshelfModuleStyle.accent : secondary.withAlphaComponent(0.62)
+        syncButton.backgroundColor = .clear
     }
+
+    @objc private func syncTapped() { onSyncTapped?() }
 
     private func coverPalette(for book: Book) -> (UIColor, UIColor, UIColor) {
         let palettes: [(String, String, String)] = [
@@ -259,6 +282,8 @@ final class BookCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         representedBookId = nil
+        syncConnected = false
+        onSyncTapped = nil
         coverImageView.image = nil
         coverTitleLabel.text = nil
         progressBar.progress = 0

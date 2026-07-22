@@ -1,5 +1,30 @@
 import UIKit
 import PDFKit
+import AVFoundation
+
+enum NativeListeningPillLayout {
+    static let buttonSize: CGFloat = 56
+    static let collapsedWidth = buttonSize
+    static let expandedWidth = buttonSize * 3
+}
+
+struct NativeListeningControlsVisibility: Equatable {
+    let pillVisible: Bool
+    let footerVisible: Bool
+
+    static func resolve(menuVisible: Bool, isListening: Bool) -> Self {
+        Self(
+            pillVisible: menuVisible,
+            footerVisible: isListening && !menuVisible
+        )
+    }
+}
+
+enum NativeListeningInterruptionPolicy {
+    static func shouldResume(isListening: Bool, isPaused: Bool) -> Bool {
+        isListening && !isPaused
+    }
+}
 
 final class NativeDocumentReaderViewController: UIViewController {
     private let book: Book
@@ -17,6 +42,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     private var initialLoadStarted = false
     private var suppressWindowRefresh = false
     private var menuVisible = false
+    private var isTextSelectionActive = false
     private var isProgrammaticPageTurn = false
     private var isPageTransitioning = false
     private var pendingWindow: (pages: [NativeDocumentPage], target: Int)?
@@ -36,11 +62,31 @@ final class NativeDocumentReaderViewController: UIViewController {
     private let batteryView = LVBatteryView()
     private let menuTitle = UILabel()
     private let menuBookmarkButton = UIButton(type: .system)
+    private let menuSyncButton = UIButton(type: .system)
+    private let listeningPill = UIView()
+    private let listenButton = UIButton(type: .system)
+    private let listeningControls = UIStackView()
+    private let pauseListeningButton = UIButton(type: .system)
+    private let stopListeningButton = UIButton(type: .system)
+    private let footerListeningButton = UIButton(type: .system)
     private let eyeCareOverlay = UIView()
     private let brightnessOverlay = UIView()
     private let skeleton = NativeDocumentSkeletonView()
     private let pullBookmarkReveal = UIView()
     private let pullBookmarkLabel = UILabel()
+    private let speechSynthesizer = AVSpeechSynthesizer()
+    private var isListening = false
+    private var isListeningPaused = false
+    private var shouldResumeListeningAfterInterruption = false
+    private var activeSpeechUtterance: AVSpeechUtterance?
+    private var activeSpeechBuffer: NativeSpeechBuffer?
+    private var speechContinuation: (pageID: String, offset: Int)?
+    private var speakingPageID: String?
+    private var spokenSentenceRange: NSRange?
+    private var isListeningPillExpanded = false
+    private var listeningPillWidthConstraint: NSLayoutConstraint!
+    private var continuousSelection: (page: NativeDocumentPage, selection: NativeTextSelection, canvas: NativeCoreTextView)?
+    private var continuousActionBubble: NativeTextActionBubbleView?
 
     init(
         book: Book,
@@ -63,6 +109,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         super.viewDidLoad()
         syncWithAppTheme()
         buildInterface()
+        speechSynthesizer.delegate = self
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appDarkModeChanged),
@@ -83,11 +130,25 @@ final class NativeDocumentReaderViewController: UIViewController {
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(audioSessionInterrupted(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(webSyncPageTurnRequested(_:)),
             name: .webSyncPageTurnRequested,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(webSyncConnectionStateChanged),
+            name: .webSyncConnectionStateChanged,
+            object: nil
+        )
     }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -115,6 +176,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         super.viewWillDisappear(animated)
         saveProgress()
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+        stopListening()
         flushActiveReadingInterval(recordPages: true)
         loadVersion += 1
         pages.removeAll()
@@ -150,6 +212,42 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     @objc private func appDidBecomeActive() {
         resumeReadingTimerIfNeeded()
+    }
+
+    @objc private func audioSessionInterrupted(_ notification: Notification) {
+        guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+
+        switch type {
+        case .began:
+            shouldResumeListeningAfterInterruption = NativeListeningInterruptionPolicy.shouldResume(
+                isListening: isListening,
+                isPaused: isListeningPaused
+            )
+            guard shouldResumeListeningAfterInterruption else { return }
+            _ = speechSynthesizer.pauseSpeaking(at: .word)
+            isListeningPaused = true
+            updateListeningButton(animated: false)
+
+        case .ended:
+            let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+            defer { shouldResumeListeningAfterInterruption = false }
+            guard shouldResumeListeningAfterInterruption,
+                  options.contains(.shouldResume),
+                  isListening else { return }
+            do {
+                try AVAudioSession.sharedInstance().setActive(true)
+                guard speechSynthesizer.continueSpeaking() else { return }
+                isListeningPaused = false
+                updateListeningButton(animated: false)
+            } catch {
+                print("[NativeReader] Failed to resume speech after interruption: \(error)")
+            }
+
+        @unknown default:
+            shouldResumeListeningAfterInterruption = false
+        }
     }
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
@@ -373,7 +471,14 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     private func buildMenus() {
         let menuBack = iconButton("chevron.left", label: "返回", action: #selector(backTapped))
-        let share = iconButton("desktopcomputer", label: "分享到PC端", action: #selector(shareTapped))
+        menuSyncButton.setImage(UIImage(systemName: "desktopcomputer"), for: .normal)
+        menuSyncButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 18, weight: .medium),
+            forImageIn: .normal
+        )
+        menuSyncButton.accessibilityLabel = "电脑端同步阅读"
+        menuSyncButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
+        menuSyncButton.backgroundColor = .clear
         menuBookmarkButton.setImage(UIImage(systemName: "bookmark"), for: .normal)
         menuBookmarkButton.accessibilityLabel = "添加或取消书签"
         menuBookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
@@ -384,7 +489,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         topMenu.addSubview(menuBack)
         topMenu.addSubview(menuTitle)
         topMenu.addSubview(menuBookmarkButton)
-        topMenu.addSubview(share)
+        topMenu.addSubview(menuSyncButton)
         let stack = UIStackView(arrangedSubviews: [
             menuButton("目录", "list.bullet", #selector(catalogTapped)),
             menuButton("夜间", "moon", #selector(nightTapped)),
@@ -393,12 +498,42 @@ final class NativeDocumentReaderViewController: UIViewController {
         ])
         stack.axis = .horizontal
         stack.distribution = .fillEqually
+        listeningPill.layer.cornerRadius = NativeListeningPillLayout.buttonSize / 2
+        listeningPill.clipsToBounds = true
+        listeningPill.isOpaque = true
+        listenButton.setTitle("听", for: .normal)
+        listenButton.titleLabel?.font = .systemFont(ofSize: 22, weight: .bold)
+        listenButton.accessibilityLabel = "开始听书"
+        listenButton.addTarget(self, action: #selector(listenTapped), for: .touchUpInside)
+        pauseListeningButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
+        pauseListeningButton.accessibilityLabel = "暂停听书"
+        pauseListeningButton.addTarget(self, action: #selector(pauseListeningTapped), for: .touchUpInside)
+        stopListeningButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        stopListeningButton.accessibilityLabel = "结束听书"
+        stopListeningButton.addTarget(self, action: #selector(stopListeningTapped), for: .touchUpInside)
+        footerListeningButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
+        footerListeningButton.accessibilityLabel = "暂停听书"
+        footerListeningButton.layer.cornerRadius = 22
+        footerListeningButton.addTarget(self, action: #selector(pauseListeningTapped), for: .touchUpInside)
+        listeningControls.addArrangedSubview(pauseListeningButton)
+        listeningControls.addArrangedSubview(stopListeningButton)
+        listeningControls.axis = .horizontal
+        listeningControls.distribution = .fillEqually
+        listeningControls.spacing = 0
         bottomMenu.addSubview(stack)
         view.addSubview(topMenu)
         view.addSubview(bottomMenu)
-        [topMenu, bottomMenu, menuBack, menuTitle, menuBookmarkButton, share, stack].forEach {
+        view.addSubview(listeningPill)
+        view.addSubview(footerListeningButton)
+        listeningPill.addSubview(listenButton)
+        listeningPill.addSubview(listeningControls)
+        [topMenu, bottomMenu, menuBack, menuTitle, menuBookmarkButton, menuSyncButton, stack,
+         listeningPill, listenButton, listeningControls, footerListeningButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
+        listeningPillWidthConstraint = listeningPill.widthAnchor.constraint(
+            equalToConstant: NativeListeningPillLayout.collapsedWidth
+        )
         NSLayoutConstraint.activate([
             topMenu.topAnchor.constraint(equalTo: view.topAnchor),
             topMenu.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -408,12 +543,12 @@ final class NativeDocumentReaderViewController: UIViewController {
             menuBack.bottomAnchor.constraint(equalTo: topMenu.bottomAnchor, constant: -8),
             menuBack.widthAnchor.constraint(equalToConstant: 44),
             menuBack.heightAnchor.constraint(equalToConstant: 44),
-            share.trailingAnchor.constraint(equalTo: topMenu.trailingAnchor, constant: -16),
-            share.bottomAnchor.constraint(equalTo: menuBack.bottomAnchor),
-            share.widthAnchor.constraint(equalToConstant: 44),
-            share.heightAnchor.constraint(equalToConstant: 44),
-            menuBookmarkButton.trailingAnchor.constraint(equalTo: share.leadingAnchor, constant: -8),
-            menuBookmarkButton.centerYAnchor.constraint(equalTo: share.centerYAnchor),
+            menuSyncButton.trailingAnchor.constraint(equalTo: topMenu.trailingAnchor, constant: -16),
+            menuSyncButton.bottomAnchor.constraint(equalTo: menuBack.bottomAnchor),
+            menuSyncButton.widthAnchor.constraint(equalToConstant: 44),
+            menuSyncButton.heightAnchor.constraint(equalToConstant: 44),
+            menuBookmarkButton.trailingAnchor.constraint(equalTo: menuSyncButton.leadingAnchor, constant: -8),
+            menuBookmarkButton.centerYAnchor.constraint(equalTo: menuSyncButton.centerYAnchor),
             menuBookmarkButton.widthAnchor.constraint(equalToConstant: 44),
             menuBookmarkButton.heightAnchor.constraint(equalToConstant: 44),
             menuTitle.leadingAnchor.constraint(equalTo: menuBack.trailingAnchor, constant: 8),
@@ -426,10 +561,29 @@ final class NativeDocumentReaderViewController: UIViewController {
             stack.topAnchor.constraint(equalTo: bottomMenu.topAnchor, constant: 8),
             stack.leadingAnchor.constraint(equalTo: bottomMenu.leadingAnchor, constant: 8),
             stack.trailingAnchor.constraint(equalTo: bottomMenu.trailingAnchor, constant: -8),
-            stack.heightAnchor.constraint(equalToConstant: 64)
+            stack.heightAnchor.constraint(equalToConstant: 64),
+            listeningPill.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            listeningPill.bottomAnchor.constraint(equalTo: bottomMenu.topAnchor, constant: -8),
+            listeningPill.heightAnchor.constraint(equalToConstant: NativeListeningPillLayout.buttonSize),
+            listeningPillWidthConstraint,
+            listenButton.topAnchor.constraint(equalTo: listeningPill.topAnchor),
+            listenButton.bottomAnchor.constraint(equalTo: listeningPill.bottomAnchor),
+            listenButton.leadingAnchor.constraint(equalTo: listeningPill.leadingAnchor),
+            listenButton.widthAnchor.constraint(equalToConstant: NativeListeningPillLayout.buttonSize),
+            listeningControls.topAnchor.constraint(equalTo: listeningPill.topAnchor),
+            listeningControls.bottomAnchor.constraint(equalTo: listeningPill.bottomAnchor),
+            listeningControls.leadingAnchor.constraint(equalTo: listenButton.trailingAnchor),
+            listeningControls.widthAnchor.constraint(equalToConstant: NativeListeningPillLayout.buttonSize * 2),
+            footerListeningButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            footerListeningButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            footerListeningButton.widthAnchor.constraint(equalToConstant: 44),
+            footerListeningButton.heightAnchor.constraint(equalToConstant: 44)
         ])
         topMenu.alpha = 0
         bottomMenu.alpha = 0
+        listeningPill.alpha = 0
+        listeningControls.alpha = 0
+        footerListeningButton.alpha = 0
     }
 
     private func iconButton(_ symbol: String, label: String, action: Selector) -> UIButton {
@@ -457,7 +611,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     private func applyAppearance() {
         let background = UIColor(hex: settings.readingTheme.backgroundColor)
         let foreground = UIColor(hex: settings.readingTheme.textColor)
-        let panel = UIColor(hex: settings.readingTheme.panelColor).withAlphaComponent(0.98)
+        let panel = NativeReaderChromeStyle.surface(for: settings)
         view.backgroundColor = background
         pageViewController.view.backgroundColor = background
         pageViewController.view.subviews.forEach { $0.backgroundColor = background }
@@ -465,6 +619,14 @@ final class NativeDocumentReaderViewController: UIViewController {
         bottomStatus.backgroundColor = background
         topMenu.backgroundColor = panel
         bottomMenu.backgroundColor = panel
+        topMenu.layer.shadowColor = UIColor.black.cgColor
+        topMenu.layer.shadowOpacity = settings.readingTheme.isDarkAppearance ? 0.40 : 0.22
+        topMenu.layer.shadowRadius = 14
+        topMenu.layer.shadowOffset = CGSize(width: 0, height: 4)
+        bottomMenu.layer.shadowColor = UIColor.black.cgColor
+        bottomMenu.layer.shadowOpacity = settings.readingTheme.isDarkAppearance ? 0.40 : 0.22
+        bottomMenu.layer.shadowRadius = 14
+        bottomMenu.layer.shadowOffset = CGSize(width: 0, height: -4)
         pullBookmarkReveal.backgroundColor = panel
         pullBookmarkLabel.textColor = foreground
         [chapterLabel, progressLabel, timeLabel, menuTitle].forEach { $0.textColor = foreground }
@@ -479,6 +641,20 @@ final class NativeDocumentReaderViewController: UIViewController {
         view.tintColor = UIColor(hex: settings.readingTheme.accentColor)
         applyTint(UIColor(hex: settings.readingTheme.textColor), in: topMenu)
         applyTint(UIColor(hex: settings.readingTheme.textColor), in: bottomMenu)
+        updateReaderSyncButton()
+        listenButton.setTitleColor(foreground, for: .normal)
+        pauseListeningButton.setTitleColor(foreground, for: .normal)
+        stopListeningButton.setTitleColor(foreground, for: .normal)
+        pauseListeningButton.tintColor = foreground
+        stopListeningButton.tintColor = foreground
+        footerListeningButton.tintColor = foreground
+        listeningPill.backgroundColor = panel
+        listenButton.backgroundColor = .clear
+        pauseListeningButton.backgroundColor = .clear
+        stopListeningButton.backgroundColor = .clear
+        footerListeningButton.backgroundColor = panel
+        listeningControls.backgroundColor = .clear
+        updateListeningButton(animated: false)
         updateBookmarkButton()
         setNeedsStatusBarAppearanceUpdate()
     }
@@ -749,13 +925,13 @@ final class NativeDocumentReaderViewController: UIViewController {
             chapterIndex: page.chapterIndex,
             pageOffset: page.pageIndex
         ) != nil
-        let hasComment = highlight(for: page) != nil
+        let pageHighlights = highlights(for: page)
         UIDevice.current.isBatteryMonitoringEnabled = true
         let controller = NativeDocumentPageViewController(
             page: page,
             settings: settings,
             bookmarked: bookmark,
-            hasComment: hasComment,
+            highlights: pageHighlights,
             allowsPullBookmark: allowsPullBookmark,
             progressText: progressText(for: page),
             timeText: DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short),
@@ -763,6 +939,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             readingSafeAreaInsets: view.safeAreaInsets
         )
         controller.delegate = self
+        controller.setSpokenRange(spokenRange(for: page))
         return controller
     }
 
@@ -808,6 +985,23 @@ final class NativeDocumentReaderViewController: UIViewController {
             canvas.settings = settings
             canvas.readingSafeAreaInsets = .zero
             canvas.textInsets = textInsets
+            canvas.highlights = highlights(for: page)
+            canvas.spokenRange = spokenRange(for: page)
+            canvas.addGestureRecognizer(
+                UILongPressGestureRecognizer(target: self, action: #selector(continuousLongPressed(_:)))
+            )
+            canvas.onSelectionAdjustmentBegan = { [weak self] in
+                self?.continuousActionBubble?.removeFromSuperview()
+            }
+            canvas.onSelectionChanged = { [weak self, weak canvas] selection in
+                guard let self, let canvas else { return }
+                self.continuousSelection = (page, selection, canvas)
+            }
+            canvas.onSelectionAdjustmentEnded = { [weak self, weak canvas] selection in
+                guard let self, let canvas else { return }
+                self.continuousSelection = (page, selection, canvas)
+                self.showContinuousSelectionMenu()
+            }
             canvas.heightAnchor.constraint(equalToConstant: height).isActive = true
             continuousStack.addArrangedSubview(canvas)
         }
@@ -874,14 +1068,20 @@ final class NativeDocumentReaderViewController: UIViewController {
         menuVisible.toggle()
         updatePagingInteraction()
         setNeedsStatusBarAppearanceUpdate()
+        let visibility = NativeListeningControlsVisibility.resolve(
+            menuVisible: menuVisible,
+            isListening: isListening
+        )
         UIView.animate(withDuration: 0.2) {
             self.topMenu.alpha = self.menuVisible ? 1 : 0
             self.bottomMenu.alpha = self.menuVisible ? 1 : 0
+            self.listeningPill.alpha = visibility.pillVisible ? 1 : 0
+            self.footerListeningButton.alpha = visibility.footerVisible ? 1 : 0
         }
     }
 
     private func updatePagingInteraction() {
-        let enabled = !menuVisible && presentedViewController == nil
+        let enabled = !menuVisible && !isTextSelectionActive && presentedViewController == nil
         setNativePagingEnabled(enabled && navigationMode != .none)
         continuousScrollView.isScrollEnabled = enabled
     }
@@ -889,11 +1089,14 @@ final class NativeDocumentReaderViewController: UIViewController {
     private func turnPage(
         forward: Bool,
         animated: Bool,
-        allowWhileSyncPresented: Bool = false
+        allowWhileSyncPresented: Bool = false,
+        allowWhileListening: Bool = false,
+        completion: ((Bool) -> Void)? = nil
     ) {
         let canTurnWithPresentedController = presentedViewController == nil
             || (allowWhileSyncPresented && presentedViewController is WebSyncViewController)
-        guard !menuVisible,
+        guard (!menuVisible || allowWhileListening),
+              !isTextSelectionActive,
               canTurnWithPresentedController,
               !isProgrammaticPageTurn,
               !isPageTransitioning else { return }
@@ -917,6 +1120,7 @@ final class NativeDocumentReaderViewController: UIViewController {
                 self.currentIndex = target
             }
             self.finishPageTransition(settle: completed && animated)
+            completion?(completed)
         }
         if !animated {
             currentIndex = target
@@ -979,16 +1183,21 @@ final class NativeDocumentReaderViewController: UIViewController {
         )
     }
 
-    private func highlight(for page: NativeDocumentPage) -> Highlight? {
-        BookRepository.shared.getHighlights(for: book.id).first {
+    private func highlights(for page: NativeDocumentPage) -> [Highlight] {
+        BookRepository.shared.getHighlights(for: book.id).filter {
             $0.chapterIndex == page.chapterIndex && $0.pageOffset == page.pageIndex
         }
     }
 
-    private func editComment(pageController: NativeDocumentPageViewController, selectedText: String?) {
-        let page = pageController.page
-        let existing = highlight(for: page)
-        let selected = String((selectedText ?? existing?.text ?? page.text).prefix(500))
+    private func editComment(
+        page: NativeDocumentPage,
+        pageController: NativeDocumentPageViewController? = nil,
+        selection: NativeTextSelection?
+    ) {
+        let existing = highlights(for: page).first {
+            $0.isComment && (selection == nil || $0.text == selection?.text)
+        }
+        let selected = selection?.text ?? existing?.text ?? page.text
         let alert = UIAlertController(title: existing == nil ? "添加评论" : "修改评论", message: selected, preferredStyle: .alert)
         alert.addTextField {
             $0.placeholder = "评论不能为空，最多1000字"
@@ -1007,18 +1216,60 @@ final class NativeDocumentReaderViewController: UIViewController {
                     bookId: self.book.id,
                     chapterIndex: page.chapterIndex,
                     pageOffset: page.pageIndex,
-                    startCharOffset: page.startOffset,
-                    endCharOffset: min(page.endOffset, page.startOffset + selected.utf16.count),
+                    startCharOffset: page.startOffset + (selection?.range.location ?? 0),
+                    endCharOffset: min(
+                        page.endOffset,
+                        page.startOffset + (selection.map { NSMaxRange($0.range) } ?? selected.utf16.count)
+                    ),
                     text: selected,
-                    color: "#E8784A",
+                    color: self.settings.readingTheme.accentColor,
                     note: String(note.prefix(1000))
                 )
             )
-            pageController.setCommentVisible(true)
+            if let pageController {
+                pageController.reloadHighlights(self.highlights(for: page))
+            } else {
+                self.refreshVisiblePages()
+            }
+            NotificationCenter.default.post(name: NSNotification.Name("LVReadSettingsChanged"), object: nil)
             LVToast.show(message: "评论已保存", style: .success)
         })
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         present(alert, animated: true)
+    }
+
+    private func saveExcerpt(
+        page: NativeDocumentPage,
+        pageController: NativeDocumentPageViewController? = nil,
+        selection: NativeTextSelection
+    ) {
+        let start = page.startOffset + selection.range.location
+        let end = min(page.endOffset, page.startOffset + NSMaxRange(selection.range))
+        let existing = highlights(for: page).contains {
+            $0.isExcerpt && $0.startCharOffset == start && $0.endCharOffset == end
+        }
+        guard !existing else {
+            LVToast.show(message: "该段已摘录", style: .info)
+            return
+        }
+        BookRepository.shared.insertHighlight(
+            Highlight(
+                bookId: book.id,
+                chapterIndex: page.chapterIndex,
+                pageOffset: page.pageIndex,
+                startCharOffset: start,
+                endCharOffset: end,
+                text: selection.text,
+                color: settings.readingTheme.accentColor
+            )
+        )
+        if let pageController {
+            pageController.reloadHighlights(highlights(for: page))
+        } else {
+            refreshVisiblePages()
+        }
+        NotificationCenter.default.post(name: NSNotification.Name("LVReadSettingsChanged"), object: nil)
+        LVToast.show(message: "已添加到摘录", style: .success)
     }
 
     private func toggleBookmark(_ controller: NativeDocumentPageViewController) {
@@ -1080,6 +1331,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             self.settings = settings
             self.navigationMode = mode
             self.applyAppearance()
+            WebSyncServer.shared.notifySettingsChanged(settings)
             guard !brightnessOnly else { return }
             if modeChanged {
                 self.replacePageViewController()
@@ -1144,6 +1396,267 @@ final class NativeDocumentReaderViewController: UIViewController {
     @objc private func themeTapped() { showSettings(section: .theme) }
     @objc private func layoutTapped() { showSettings(section: .layout) }
 
+    @objc private func listenTapped() {
+        guard let page = currentPage else { return }
+        startListening(page: page, from: 0)
+    }
+
+    @objc private func pauseListeningTapped() {
+        if isListeningPaused {
+            guard speechSynthesizer.continueSpeaking() else { return }
+            isListeningPaused = false
+        } else {
+            guard speechSynthesizer.pauseSpeaking(at: .word) else { return }
+            isListeningPaused = true
+        }
+        updateListeningButton()
+    }
+
+    @objc private func stopListeningTapped() { stopListening() }
+
+    private func startListening(page: NativeDocumentPage, from offset: Int) {
+        guard page.image == nil else {
+            LVToast.show(message: "PDF 图片页暂不支持听书", style: .info)
+            return
+        }
+        guard let pageIndex = pages.firstIndex(where: { $0.id == page.id }),
+              let buffer = NativeSpeechBuffer.make(
+                pages: pages,
+                startIndex: pageIndex,
+                offset: offset
+              ) else {
+            continueListening()
+            return
+        }
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playback, mode: .spokenAudio)
+            try audioSession.setActive(true)
+        } catch {
+            LVToast.show(message: "无法启动听书：\(error.localizedDescription)", style: .error)
+            return
+        }
+        isListening = true
+        isListeningPaused = false
+        let utterance = AVSpeechUtterance(string: buffer.text)
+        utterance.voice = preferredChineseVoice()
+        utterance.rate = 0.48
+        activeSpeechUtterance = utterance
+        activeSpeechBuffer = buffer
+        speechContinuation = (buffer.continuationPageID, buffer.continuationOffset)
+        speakingPageID = page.id
+        spokenSentenceRange = nil
+        applySpokenRangeToVisiblePages()
+        updateListeningButton()
+        speechSynthesizer.speak(utterance)
+    }
+
+    private func preferredChineseVoice() -> AVSpeechSynthesisVoice? {
+        AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.hasPrefix("zh") }
+            .sorted {
+                if $0.language == $1.language { return $0.quality.rawValue > $1.quality.rawValue }
+                return $0.language == "zh-CN"
+            }
+            .first ?? AVSpeechSynthesisVoice(language: "zh-CN")
+    }
+
+    private func continueListening(
+        from continuation: (pageID: String, offset: Int)? = nil
+    ) {
+        guard isListening else { return }
+        guard !isPageTransitioning else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.continueListening(from: continuation)
+            }
+            return
+        }
+        var target = currentIndex + 1
+        var offset = 0
+        if let continuation,
+           let continuationIndex = pages.firstIndex(where: { $0.id == continuation.pageID }) {
+            if continuation.offset < (pages[continuationIndex].text as NSString).length {
+                target = continuationIndex
+                offset = continuation.offset
+            } else {
+                target = continuationIndex + 1
+            }
+        }
+        guard pages.indices.contains(target) else {
+            stopListening()
+            return
+        }
+        if target == currentIndex {
+            startListening(page: pages[target], from: offset)
+            return
+        }
+        if navigationMode == .continuousVertical {
+            currentIndex = target
+            continuousScrollView.setContentOffset(
+                CGPoint(x: 0, y: CGFloat(target) * max(continuousScrollView.bounds.height, 1)),
+                animated: true
+            )
+            settleOnCurrentPage()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self, self.pages.indices.contains(target), self.isListening else { return }
+                self.startListening(page: self.pages[target], from: offset)
+            }
+            return
+        }
+        turnPage(
+            forward: true,
+            animated: navigationMode != .none,
+            allowWhileListening: true
+        ) { [weak self] completed in
+            guard let self, completed, self.isListening else {
+                self?.stopListening()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self, let page = self.currentPage, self.isListening else { return }
+                self.startListening(page: page, from: offset)
+            }
+        }
+    }
+
+    private func stopListening() {
+        isListening = false
+        isListeningPaused = false
+        shouldResumeListeningAfterInterruption = false
+        activeSpeechUtterance = nil
+        activeSpeechBuffer = nil
+        speechContinuation = nil
+        clearSpokenSentence()
+        if speechSynthesizer.isSpeaking || speechSynthesizer.isPaused {
+            speechSynthesizer.stopSpeaking(at: .immediate)
+        }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        updateListeningButton()
+    }
+
+    private func spokenRange(for page: NativeDocumentPage) -> NSRange? {
+        guard page.id == speakingPageID else { return nil }
+        return spokenSentenceRange
+    }
+
+    private func applySpokenRangeToVisiblePages() {
+        for case let controller as NativeDocumentPageViewController in pageViewController.viewControllers ?? [] {
+            controller.setSpokenRange(spokenRange(for: controller.page))
+        }
+        for case let canvas as NativeCoreTextView in continuousStack.arrangedSubviews {
+            guard let page = canvas.page else { continue }
+            canvas.spokenRange = spokenRange(for: page)
+        }
+    }
+
+    private func clearSpokenSentence() {
+        speakingPageID = nil
+        spokenSentenceRange = nil
+        applySpokenRangeToVisiblePages()
+    }
+
+    private func showListeningPage(_ pageID: String) {
+        guard let target = pages.firstIndex(where: { $0.id == pageID }),
+              target != currentIndex else { return }
+        if navigationMode == .continuousVertical {
+            currentIndex = target
+            continuousScrollView.setContentOffset(
+                CGPoint(x: 0, y: CGFloat(target) * max(continuousScrollView.bounds.height, 1)),
+                animated: true
+            )
+            settleOnCurrentPage()
+        } else if target == currentIndex + 1 {
+            turnPage(
+                forward: true,
+                animated: navigationMode != .none,
+                allowWhileListening: true
+            )
+        }
+    }
+
+    private func updateListeningButton(animated: Bool = true) {
+        let accent = UIColor(hex: settings.readingTheme.accentColor)
+        let foreground = UIColor(hex: settings.readingTheme.textColor)
+        pauseListeningButton.setImage(
+            UIImage(systemName: isListeningPaused ? "play.fill" : "pause.fill"),
+            for: .normal
+        )
+        footerListeningButton.setImage(
+            UIImage(systemName: isListeningPaused ? "play.fill" : "pause.fill"),
+            for: .normal
+        )
+        pauseListeningButton.accessibilityLabel = isListeningPaused ? "继续听书" : "暂停听书"
+        footerListeningButton.accessibilityLabel = isListeningPaused ? "继续听书" : "暂停听书"
+        listenButton.setTitleColor(isListening ? accent : foreground, for: .normal)
+        listenButton.isUserInteractionEnabled = !isListening
+        listenButton.accessibilityLabel = isListening ? "正在听书" : "开始听书"
+        listenButton.accessibilityValue = isListening ? "正在播放" : "已停止"
+
+        let shouldExpand = isListening
+        let targetWidth = shouldExpand
+            ? NativeListeningPillLayout.expandedWidth
+            : NativeListeningPillLayout.collapsedWidth
+        let visibility = NativeListeningControlsVisibility.resolve(
+            menuVisible: menuVisible,
+            isListening: shouldExpand
+        )
+        let targetPillAlpha: CGFloat = visibility.pillVisible ? 1 : 0
+        let targetFooterAlpha: CGFloat = visibility.footerVisible ? 1 : 0
+        footerListeningButton.alpha = targetFooterAlpha
+        guard shouldExpand != isListeningPillExpanded else {
+            listeningPillWidthConstraint.constant = targetWidth
+            listeningPill.alpha = targetPillAlpha
+            listeningControls.alpha = shouldExpand ? 1 : 0
+            return
+        }
+
+        isListeningPillExpanded = shouldExpand
+        view.layoutIfNeeded()
+        guard menuVisible else {
+            listeningPillWidthConstraint.constant = targetWidth
+            listeningPill.alpha = 0
+            listeningControls.alpha = shouldExpand ? 1 : 0
+            view.layoutIfNeeded()
+            return
+        }
+        listeningPill.alpha = 1
+        if shouldExpand {
+            listeningControls.alpha = 0
+        }
+        listeningPillWidthConstraint.constant = targetWidth
+
+        let changes = {
+            if !shouldExpand { self.listeningControls.alpha = 0 }
+            self.view.layoutIfNeeded()
+        }
+        let completion: (Bool) -> Void = { [weak self] _ in
+            guard let self, self.isListening == shouldExpand else { return }
+            if shouldExpand {
+                UIView.animate(withDuration: 0.16) {
+                    self.listeningControls.alpha = 1
+                }
+            } else {
+                self.listeningPill.alpha = self.menuVisible ? 1 : 0
+            }
+        }
+
+        guard animated else {
+            changes()
+            listeningControls.alpha = shouldExpand ? 1 : 0
+            listeningPill.alpha = targetPillAlpha
+            return
+        }
+        UIView.animate(
+            withDuration: 0.30,
+            delay: 0,
+            usingSpringWithDamping: 0.86,
+            initialSpringVelocity: 0.4,
+            options: [.beginFromCurrentState, .curveEaseInOut],
+            animations: changes,
+            completion: completion
+        )
+    }
+
     @objc private func bookmarkTapped() {
         guard let page = currentPage else { return }
         toggleBookmark(page: page)
@@ -1152,15 +1665,22 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     @objc private func shareTapped() {
         guard let page = currentPage else { return }
-        WebSyncServer.shared.start(with: book, page: webSyncSnapshot(for: page)) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(let session):
-                self.present(WebSyncViewController(session: session), animated: true)
-            case .failure(let error):
-                LVToast.show(message: error.localizedDescription, style: .error)
-            }
-        }
+        present(
+            WebSyncViewController(book: book, page: webSyncSnapshot(for: page)),
+            animated: true
+        )
+    }
+
+    @objc private func webSyncConnectionStateChanged() { updateReaderSyncButton() }
+
+    private func updateReaderSyncButton() {
+        guard isViewLoaded else { return }
+        let connected = WebSyncServer.shared.isConnected(to: book.id)
+        let accent = UIColor(hex: settings.readingTheme.accentColor)
+        let foreground = UIColor(hex: settings.readingTheme.textColor)
+        menuSyncButton.tintColor = connected ? accent : foreground.withAlphaComponent(0.55)
+        menuSyncButton.backgroundColor = .clear
+        menuSyncButton.accessibilityValue = connected ? "已连接" : "未连接"
     }
 
     private func webSyncSnapshot(for page: NativeDocumentPage) -> WebSyncServer.PageSnapshot {
@@ -1174,9 +1694,95 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     @objc private func continuousTapped(_ gesture: UITapGestureRecognizer) {
+        if continuousSelection != nil {
+            clearContinuousSelection()
+            return
+        }
         let x = gesture.location(in: continuousScrollView).x
         if x >= view.bounds.width * 0.3, x <= view.bounds.width * 0.7 {
             toggleMenu()
+        }
+    }
+
+    @objc private func continuousLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began,
+              let canvas = gesture.view as? NativeCoreTextView,
+              let page = canvas.page,
+              let selection = canvas.paragraphSelection(at: gesture.location(in: canvas)) else { return }
+        continuousSelection = (page, selection, canvas)
+        canvas.selectionRange = selection.range
+        canvas.selectionHandlesVisible = true
+        showContinuousSelectionMenu()
+    }
+
+    private func showContinuousSelectionMenu() {
+        guard let value = continuousSelection else { return }
+        isTextSelectionActive = true
+        updatePagingInteraction()
+        let bubble = NativeTextActionBubbleView(settings: settings)
+        bubble.onAction = { [weak self] action in self?.performContinuousSelectionAction(action) }
+        continuousActionBubble = bubble
+        bubble.show(
+            in: view,
+            avoiding: value.canvas.convert(value.selection.anchorRect, to: view)
+        )
+    }
+
+    private func performContinuousSelectionAction(_ action: NativeTextAction) {
+        guard let value = continuousSelection else { return }
+        handleTextAction(
+            action,
+            page: value.page,
+            selection: value.selection,
+            sourceView: value.canvas,
+            sourceRect: value.selection.anchorRect,
+            pageController: nil
+        )
+        if action == .lookup {
+            continuousActionBubble?.removeFromSuperview()
+            continuousActionBubble = nil
+        } else {
+            clearContinuousSelection()
+        }
+    }
+
+    private func clearContinuousSelection() {
+        continuousActionBubble?.removeFromSuperview()
+        continuousActionBubble = nil
+        continuousSelection?.canvas.selectionRange = nil
+        continuousSelection?.canvas.selectionHandlesVisible = false
+        continuousSelection = nil
+        isTextSelectionActive = false
+        updatePagingInteraction()
+    }
+
+    private func handleTextAction(
+        _ action: NativeTextAction,
+        page: NativeDocumentPage,
+        selection: NativeTextSelection,
+        sourceView: UIView,
+        sourceRect: CGRect,
+        pageController: NativeDocumentPageViewController?
+    ) {
+        switch action {
+        case .lookup:
+            let lookup = NativeReaderLookupViewController(text: selection.text, settings: settings)
+            lookup.modalPresentationStyle = .popover
+            lookup.popoverPresentationController?.sourceView = sourceView
+            lookup.popoverPresentationController?.sourceRect = sourceRect
+            lookup.popoverPresentationController?.permittedArrowDirections = [.up, .down]
+            lookup.popoverPresentationController?.delegate = self
+            present(lookup, animated: true)
+        case .excerpt:
+            saveExcerpt(page: page, pageController: pageController, selection: selection)
+        case .comment:
+            editComment(page: page, pageController: pageController, selection: selection)
+        case .copy:
+            UIPasteboard.general.string = selection.text
+            LVToast.show(message: "已复制", style: .success)
+        case .listen:
+            if isListening { stopListening() }
+            startListening(page: page, from: selection.range.location)
         }
     }
 }
@@ -1194,7 +1800,7 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
         _ pageViewController: UIPageViewController,
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
-        guard !menuVisible, presentedViewController == nil else { return nil }
+        guard !menuVisible, !isTextSelectionActive, presentedViewController == nil else { return nil }
         if navigationMode == .simulation,
            let back = viewController as? NativeDocumentPageBackViewController,
            let index = pages.firstIndex(where: { $0.id == back.page.id }) {
@@ -1211,7 +1817,7 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
         _ pageViewController: UIPageViewController,
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
-        guard !menuVisible, presentedViewController == nil else { return nil }
+        guard !menuVisible, !isTextSelectionActive, presentedViewController == nil else { return nil }
         if navigationMode == .simulation,
            let back = viewController as? NativeDocumentPageBackViewController,
            let index = pages.firstIndex(where: { $0.id == back.page.id }) {
@@ -1280,7 +1886,10 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
     }
 
     func documentPage(_ controller: NativeDocumentPageViewController, didUpdatePull distance: CGFloat) {
-        guard allowsPullBookmark, !menuVisible, presentedViewController == nil else { return }
+        guard allowsPullBookmark,
+              !menuVisible,
+              !isTextSelectionActive,
+              presentedViewController == nil else { return }
         let translation = min(max(distance, 0), 96)
         controller.view.transform = CGAffineTransform(translationX: 0, y: translation)
         pullBookmarkReveal.alpha = min(1, translation / 56)
@@ -1308,12 +1917,81 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
         }
     }
 
-    func documentPage(_ controller: NativeDocumentPageViewController, didLongPress text: String) {
-        editComment(pageController: controller, selectedText: text)
+    func documentPage(
+        _ controller: NativeDocumentPageViewController,
+        didSelect action: NativeTextAction,
+        selection: NativeTextSelection
+    ) {
+        handleTextAction(
+            action,
+            page: controller.page,
+            selection: selection,
+            sourceView: controller.view,
+            sourceRect: selection.anchorRect,
+            pageController: controller
+        )
+    }
+
+    func documentPage(
+        _ controller: NativeDocumentPageViewController,
+        selectionInteractionChanged active: Bool
+    ) {
+        isTextSelectionActive = active
+        updatePagingInteraction()
     }
 
     func documentPageDidTapComment(_ controller: NativeDocumentPageViewController) {
-        editComment(pageController: controller, selectedText: nil)
+        editComment(page: controller.page, pageController: controller, selection: nil)
+    }
+}
+
+extension NativeDocumentReaderViewController: AVSpeechSynthesizerDelegate {
+    func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        willSpeakRangeOfSpeechString characterRange: NSRange,
+        utterance: AVSpeechUtterance
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.isListening,
+                  utterance === self.activeSpeechUtterance,
+                  let buffer = self.activeSpeechBuffer,
+                  let segment = buffer.segment(containing: characterRange.location),
+                  let sentence = NativeSpeechTextRange.sentence(
+                    in: utterance.speechString,
+                    containing: characterRange
+                  ) else { return }
+            let intersection = NSIntersectionRange(sentence, segment.utteranceRange)
+            guard intersection.length > 0 else { return }
+            self.speakingPageID = segment.pageID
+            self.spokenSentenceRange = NSRange(
+                location: segment.pageRange.location
+                    + intersection.location - segment.utteranceRange.location,
+                length: intersection.length
+            )
+            self.showListeningPage(segment.pageID)
+            self.applySpokenRangeToVisiblePages()
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, utterance === self.activeSpeechUtterance else { return }
+            let continuation = self.speechContinuation
+            self.activeSpeechUtterance = nil
+            self.activeSpeechBuffer = nil
+            self.speechContinuation = nil
+            self.clearSpokenSentence()
+            self.continueListening(from: continuation)
+        }
+    }
+}
+
+extension NativeDocumentReaderViewController: UIPopoverPresentationControllerDelegate {
+    func adaptivePresentationStyle(
+        for controller: UIPresentationController
+    ) -> UIModalPresentationStyle {
+        .none
     }
 }
 

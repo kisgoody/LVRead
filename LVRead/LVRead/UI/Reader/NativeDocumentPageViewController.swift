@@ -1,12 +1,120 @@
 import UIKit
 
+enum NativeReaderChromeStyle {
+    static func surface(for settings: ReadingSettings) -> UIColor {
+        UIColor(hex: settings.readingTheme.panelColor)
+    }
+}
+
+enum NativeTextAction: Int, CaseIterable {
+    case lookup
+    case excerpt
+    case comment
+    case copy
+    case listen
+
+    var title: String {
+        switch self {
+        case .lookup: return "查询"
+        case .excerpt: return "摘录"
+        case .comment: return "评论"
+        case .copy: return "复制"
+        case .listen: return "从本段听"
+        }
+    }
+}
+
+private final class NativeTextActionButton: UIButton {
+    var pressedColor: UIColor = .clear
+
+    override var isHighlighted: Bool {
+        didSet { backgroundColor = isHighlighted ? pressedColor : .clear }
+    }
+}
+
+final class NativeTextActionBubbleView: UIView {
+    var onAction: ((NativeTextAction) -> Void)?
+
+    init(settings: ReadingSettings) {
+        super.init(frame: .zero)
+        let foreground = UIColor(hex: settings.readingTheme.textColor)
+        let accent = UIColor(hex: settings.readingTheme.accentColor)
+        backgroundColor = NativeReaderChromeStyle.surface(for: settings)
+        layer.cornerRadius = 12
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = settings.readingTheme.isDarkAppearance ? 0.48 : 0.30
+        layer.shadowRadius = 16
+        layer.shadowOffset = CGSize(width: 0, height: 4)
+
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        for action in NativeTextAction.allCases {
+            let button = NativeTextActionButton(type: .system)
+            button.tag = action.rawValue
+            button.setTitle(action.title, for: .normal)
+            button.setTitleColor(foreground, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+            button.layer.cornerRadius = 8
+            button.pressedColor = accent.withAlphaComponent(0.18)
+            button.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
+            stack.addArrangedSubview(button)
+        }
+        addSubview(stack)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func show(in host: UIView, avoiding anchorRect: CGRect) {
+        removeFromSuperview()
+        host.addSubview(self)
+        translatesAutoresizingMaskIntoConstraints = false
+        let width = min(360, max(280, host.bounds.width - 32))
+        let height: CGFloat = 52
+        let safeTop = host.safeAreaInsets.top + 8
+        let safeBottom = host.bounds.height - host.safeAreaInsets.bottom - 8
+        let x = min(max(anchorRect.midX - width / 2, 16), max(16, host.bounds.width - width - 16))
+        let above = anchorRect.minY - height - 8
+        let y = above >= safeTop
+            ? above
+            : min(anchorRect.maxY + 8, safeBottom - height)
+        NSLayoutConstraint.activate([
+            leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: x),
+            topAnchor.constraint(equalTo: host.topAnchor, constant: max(safeTop, y)),
+            widthAnchor.constraint(equalToConstant: width),
+            heightAnchor.constraint(equalToConstant: height)
+        ])
+    }
+
+    @objc private func actionTapped(_ sender: UIButton) {
+        guard let action = NativeTextAction(rawValue: sender.tag) else { return }
+        onAction?(action)
+    }
+}
+
 protocol NativeDocumentPageDelegate: AnyObject {
     func documentPageDidTapBack()
     func documentPageDidTapCenter()
     func documentPageDidTapEdge(forward: Bool)
     func documentPage(_ controller: NativeDocumentPageViewController, didUpdatePull distance: CGFloat)
     func documentPage(_ controller: NativeDocumentPageViewController, didFinishPull shouldToggleBookmark: Bool)
-    func documentPage(_ controller: NativeDocumentPageViewController, didLongPress text: String)
+    func documentPage(
+        _ controller: NativeDocumentPageViewController,
+        didSelect action: NativeTextAction,
+        selection: NativeTextSelection
+    )
+    func documentPage(
+        _ controller: NativeDocumentPageViewController,
+        selectionInteractionChanged active: Bool
+    )
     func documentPageDidTapComment(_ controller: NativeDocumentPageViewController)
 }
 
@@ -19,6 +127,7 @@ final class NativeDocumentPageViewController: UIViewController {
     private let timeText: String
     private let batteryLevel: Float
     private let readingSafeAreaInsets: UIEdgeInsets
+    private var highlights: [Highlight]
     private let canvas = NativeCoreTextView()
     private let backButton = UIButton(type: .system)
     private let chapterLabel = UILabel()
@@ -29,12 +138,14 @@ final class NativeDocumentPageViewController: UIViewController {
     private let comment = UIButton(type: .system)
     private var pullDistance: CGFloat = 0
     private var isBookmarked: Bool
+    private var activeSelection: NativeTextSelection?
+    private var actionBubble: NativeTextActionBubbleView?
 
     init(
         page: NativeDocumentPage,
         settings: ReadingSettings,
         bookmarked: Bool,
-        hasComment: Bool,
+        highlights: [Highlight],
         allowsPullBookmark: Bool,
         progressText: String,
         timeText: String,
@@ -48,10 +159,11 @@ final class NativeDocumentPageViewController: UIViewController {
         self.timeText = timeText
         self.batteryLevel = batteryLevel
         self.readingSafeAreaInsets = readingSafeAreaInsets
+        self.highlights = highlights
         self.isBookmarked = bookmarked
         super.init(nibName: nil, bundle: nil)
         bookmark.isHidden = !bookmarked
-        comment.isHidden = !hasComment
+        comment.isHidden = !highlights.contains(where: \.isComment)
     }
 
     @available(*, unavailable)
@@ -62,6 +174,7 @@ final class NativeDocumentPageViewController: UIViewController {
         canvas.page = page
         canvas.settings = settings
         canvas.readingSafeAreaInsets = readingSafeAreaInsets
+        canvas.highlights = highlights
         let pageBackground = UIColor(hex: settings.readingTheme.backgroundColor)
         view.backgroundColor = pageBackground
         canvas.backgroundColor = pageBackground
@@ -139,6 +252,17 @@ final class NativeDocumentPageViewController: UIViewController {
             comment.heightAnchor.constraint(equalToConstant: 44)
         ])
         configureGestures()
+        canvas.onSelectionAdjustmentBegan = { [weak self] in
+            self?.actionBubble?.removeFromSuperview()
+        }
+        canvas.onSelectionChanged = { [weak self] selection in
+            self?.activeSelection = selection
+        }
+        canvas.onSelectionAdjustmentEnded = { [weak self] selection in
+            guard let self else { return }
+            self.activeSelection = selection
+            self.showSelectionMenu()
+        }
     }
 
     func setBookmarked(_ value: Bool) {
@@ -151,6 +275,17 @@ final class NativeDocumentPageViewController: UIViewController {
     }
     func setCommentVisible(_ value: Bool) { comment.isHidden = !value }
 
+    func setSpokenRange(_ range: NSRange?) {
+        canvas.spokenRange = range
+    }
+
+    func reloadHighlights(_ values: [Highlight]) {
+        highlights = values
+        canvas.highlights = values
+        comment.isHidden = !values.contains(where: \.isComment)
+        canvas.setNeedsDisplay()
+    }
+
     private func configureGestures() {
         view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
         view.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:))))
@@ -160,6 +295,10 @@ final class NativeDocumentPageViewController: UIViewController {
     }
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
+        if activeSelection != nil {
+            clearSelection()
+            return
+        }
         let ratio = gesture.location(in: view).x / max(view.bounds.width, 1)
         if ratio < 0.3 {
             delegate?.documentPageDidTapEdge(forward: false)
@@ -172,8 +311,43 @@ final class NativeDocumentPageViewController: UIViewController {
 
     @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began,
-              let text = canvas.paragraph(at: gesture.location(in: canvas)) else { return }
-        delegate?.documentPage(self, didLongPress: String(text.prefix(500)))
+              let selection = canvas.paragraphSelection(at: gesture.location(in: canvas)) else { return }
+        activeSelection = selection
+        canvas.selectionRange = selection.range
+        canvas.selectionHandlesVisible = true
+        showSelectionMenu()
+    }
+
+    private func showSelectionMenu() {
+        guard let activeSelection else { return }
+        delegate?.documentPage(self, selectionInteractionChanged: true)
+        let bubble = NativeTextActionBubbleView(settings: settings)
+        bubble.onAction = { [weak self] action in self?.performSelectionAction(action) }
+        actionBubble = bubble
+        bubble.show(in: view, avoiding: canvas.convert(activeSelection.anchorRect, to: view))
+    }
+
+    private func performSelectionAction(_ action: NativeTextAction) {
+        guard let activeSelection else { return }
+        delegate?.documentPage(self, didSelect: action, selection: activeSelection)
+        if action == .lookup {
+            actionBubble?.removeFromSuperview()
+            actionBubble = nil
+        } else {
+            clearSelection()
+        }
+    }
+
+    private func clearSelection() {
+        let wasActive = activeSelection != nil
+        actionBubble?.removeFromSuperview()
+        actionBubble = nil
+        activeSelection = nil
+        canvas.selectionRange = nil
+        canvas.selectionHandlesVisible = false
+        if wasActive {
+            delegate?.documentPage(self, selectionInteractionChanged: false)
+        }
     }
 
     @objc private func pulled(_ gesture: UIPanGestureRecognizer) {
@@ -243,6 +417,7 @@ final class NativeDocumentPageBackViewController: UIViewController {
 extension NativeDocumentPageViewController: UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        guard activeSelection == nil else { return false }
         guard allowsPullBookmark else { return false }
         let velocity = pan.velocity(in: view)
         return velocity.y > 0 && abs(velocity.y) > abs(velocity.x)

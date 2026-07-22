@@ -5,6 +5,33 @@ import UIKit
 
 extension Notification.Name {
     static let webSyncPageTurnRequested = Notification.Name("webSyncPageTurnRequested")
+    static let webSyncConnectionStateChanged = Notification.Name("webSyncConnectionStateChanged")
+}
+
+enum WebSyncConnectionState: String, Equatable {
+    case disconnected
+    case connecting
+    case connected
+
+    var title: String {
+        switch self {
+        case .disconnected: return "同步已关闭"
+        case .connecting: return "等待连接"
+        case .connected: return "连接成功"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .disconnected: return "wifi.slash"
+        case .connecting: return "wifi"
+        case .connected: return "wifi.circle.fill"
+        }
+    }
+
+    func isActive(for bookID: String, activeBookID: String?) -> Bool {
+        self == .connected && activeBookID == bookID
+    }
 }
 
 // MARK: - Web Sync Server
@@ -46,6 +73,7 @@ final class WebSyncServer {
         case certificate(String)
         case listener(String)
         case cancelled
+        case noSavedSession
 
         var errorDescription: String? {
             switch self {
@@ -56,6 +84,7 @@ final class WebSyncServer {
             case .certificate(let message): return "无法加载 HTTPS 证书：\(message)"
             case .listener(let message): return "同步服务启动失败：\(message)"
             case .cancelled: return "同步服务已停止"
+            case .noSavedSession: return "请先打开一本书并开启电脑同步"
             }
         }
     }
@@ -65,12 +94,16 @@ final class WebSyncServer {
     private enum StorageKey {
         static let bookTokens = "web_sync_book_tokens_v1"
         static let snapshots = "web_sync_snapshots_v1"
+        static let autoResumeEnabled = "web_sync_auto_resume_enabled_v1"
         static let fixedPort: UInt16 = 8989
     }
 
     private var listener: NWListener?
     private var serverPort: UInt16 = 0
     private var isRunning = false
+    private var _connectionState = WebSyncConnectionState.disconnected
+    private var _activeBookID: String?
+    private let stateLock = NSLock()
     private var startCompletion: ((Result<Session, Error>) -> Void)?
     private let hostPublisher = BonjourHostPublisher()
 
@@ -88,6 +121,49 @@ final class WebSyncServer {
 
     private let serverQueue = DispatchQueue(label: "com.lvread.webSyncServer", qos: .utility)
 
+    var connectionState: WebSyncConnectionState {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _connectionState
+    }
+
+    var activeBookID: String? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _activeBookID
+    }
+
+    func isConnected(to bookID: String) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _connectionState.isActive(for: bookID, activeBookID: _activeBookID)
+    }
+
+    func savedPageSnapshot(for bookID: String) -> PageSnapshot? {
+        if let saved = storedSnapshots()[bookID]?.page { return saved }
+        guard let book = BookRepository.shared.getById(bookID) else { return nil }
+        let chapterIndex = book.readingProgress.currentChapterIndex
+        let pageIndex = book.readingProgress.currentPageOffset
+        guard let cached = PageCacheManager.shared.getPage(
+            bookId: bookID,
+            chapterIndex: chapterIndex,
+            pageIndex: pageIndex
+        ) else { return nil }
+        return PageSnapshot(
+            pageIndex: cached.pageIndex,
+            content: cached.content,
+            chapterTitle: cached.chapterTitle,
+            chapterIndex: cached.chapterIndex,
+            totalPages: max(
+                PageCacheManager.shared.getCachedPageIndices(
+                    bookId: bookID,
+                    chapterIndex: cached.chapterIndex
+                ).count,
+                cached.pageIndex + 1
+            )
+        )
+    }
+
     /// Notification observers.
     private var pageObserver: NSObjectProtocol?
     private var chapterObserver: NSObjectProtocol?
@@ -101,6 +177,7 @@ final class WebSyncServer {
         page: PageSnapshot,
         completion: @escaping (Result<Session, Error>) -> Void
     ) {
+        UserDefaults.standard.set(true, forKey: StorageKey.autoResumeEnabled)
         serverQueue.async { [weak self] in
             self?.startOnQueue(with: book, page: page, completion: completion)
         }
@@ -114,6 +191,7 @@ final class WebSyncServer {
         storeSnapshot(page, for: book.id)
         let token = stableToken(for: book.id)
         currentBook = book
+        setActiveBookID(book.id)
         currentPageIndex = page.pageIndex
         currentPageSnapshot = page
 
@@ -135,6 +213,7 @@ final class WebSyncServer {
         }
 
         isRunning = true
+        setConnectionState(.connecting)
         serverURL = ""
         startCompletion = completion
 
@@ -176,6 +255,9 @@ final class WebSyncServer {
                         return
                     }
                     self.serverURL = url.absoluteString
+                    // Listener ready only means the service is available. The browser is
+                    // considered connected after its SSE channel is established.
+                    self.setConnectionState(.connecting)
                     self.setupObservers()
                     self.completeStart(with: .success(Session(
                         readingURL: url,
@@ -186,7 +268,9 @@ final class WebSyncServer {
                     print("[WebSyncServer] Ready at \(self.serverURL)")
                 case .waiting(let error):
                     print("[WebSyncServer] Listener waiting: \(error)")
-                    self.stopOnQueue(startError: .listener(error.localizedDescription))
+                    // `.waiting` is recoverable and is commonly reported while iOS moves
+                    // the app to the background. Keep the listener alive for auto-recovery.
+                    self.setConnectionState(.connecting)
                 case .failed(let error):
                     print("[WebSyncServer] Listener failed: \(error)")
                     self.stopOnQueue(startError: .listener(error.localizedDescription))
@@ -219,6 +303,7 @@ final class WebSyncServer {
 
     /// Stops the server and closes all connections.
     public func stop() {
+        UserDefaults.standard.set(false, forKey: StorageKey.autoResumeEnabled)
         serverQueue.async { [weak self] in
             self?.stopOnQueue()
         }
@@ -226,16 +311,16 @@ final class WebSyncServer {
 
     private func stopOnQueue(startError: StartError = .cancelled) {
         isRunning = false
+        setConnectionState(.disconnected)
         let activeListener = listener
         listener = nil
         activeListener?.cancel()
 
         sseLock.lock()
-        for (_, client) in sseConnections {
-            client.connection.cancel()
-        }
+        let activeConnections = sseConnections.values.map(\.connection)
         sseConnections.removeAll()
         sseLock.unlock()
+        activeConnections.forEach { $0.cancel() }
 
         removeObservers()
         hostPublisher.stop()
@@ -243,6 +328,7 @@ final class WebSyncServer {
         serverURL = ""
         serverPort = 0
         currentBook = nil
+        setActiveBookID(nil)
         currentPageSnapshot = nil
     }
 
@@ -253,6 +339,7 @@ final class WebSyncServer {
             guard self.isRunning else { return }
             if self.currentBook?.id != bookId {
                 self.currentBook = BookRepository.shared.getById(bookId)
+                self.setActiveBookID(bookId)
             }
             self.currentPageIndex = page.pageIndex
             self.currentPageSnapshot = page
@@ -266,14 +353,47 @@ final class WebSyncServer {
         }
     }
 
-    /// Restarts the fixed listener when the app becomes active, using the latest linked book.
-    func resumeSavedSessionIfNeeded() {
-        serverQueue.async { [weak self] in
-            guard let self, !self.isRunning,
-                  let saved = self.storedSnapshots().max(by: { $0.value.updatedAt < $1.value.updatedAt }),
-                  let book = BookRepository.shared.getById(saved.key) else { return }
-            self.startOnQueue(with: book, page: saved.value.page) { _ in }
+    /// Restarts the fixed listener using the latest linked book when the user left sync enabled.
+    func resumeSavedSessionIfNeeded(restartListener: Bool = false) {
+        guard UserDefaults.standard.bool(forKey: StorageKey.autoResumeEnabled) else { return }
+        if restartListener {
+            serverQueue.async { [weak self] in
+                guard let self else { return }
+                if self.isRunning {
+                    // iOS may leave the listener marked running after suspending its socket.
+                    // Recreate it on foreground without changing the user's saved switch.
+                    self.stopOnQueue()
+                }
+                self.startSavedSessionOnQueue { _ in }
+            }
+            return
         }
+        startSavedSession { _ in }
+    }
+
+    func startSavedSession(completion: @escaping (Result<Session, Error>) -> Void) {
+        UserDefaults.standard.set(true, forKey: StorageKey.autoResumeEnabled)
+        serverQueue.async { [weak self] in
+            self?.startSavedSessionOnQueue(completion: completion)
+        }
+    }
+
+    private func startSavedSessionOnQueue(
+        completion: @escaping (Result<Session, Error>) -> Void
+    ) {
+        if isRunning, let book = currentBook, let page = currentPageSnapshot {
+            startOnQueue(with: book, page: page, completion: completion)
+            return
+        }
+        guard
+            let saved = storedSnapshots().max(by: { $0.value.updatedAt < $1.value.updatedAt }),
+            let book = BookRepository.shared.getById(saved.key)
+        else {
+            UserDefaults.standard.set(false, forKey: StorageKey.autoResumeEnabled)
+            DispatchQueue.main.async { completion(.failure(StartError.noSavedSession)) }
+            return
+        }
+        startOnQueue(with: book, page: saved.value.page, completion: completion)
     }
 
     /// Stops the server only if it is running (for app backgrounding).
@@ -285,6 +405,34 @@ final class WebSyncServer {
         guard let completion = startCompletion else { return }
         startCompletion = nil
         DispatchQueue.main.async { completion(result) }
+    }
+
+    private func setConnectionState(_ state: WebSyncConnectionState) {
+        stateLock.lock()
+        let changed = _connectionState != state
+        _connectionState = state
+        stateLock.unlock()
+        guard changed else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .webSyncConnectionStateChanged,
+                object: state
+            )
+        }
+    }
+
+    private func setActiveBookID(_ bookID: String?) {
+        stateLock.lock()
+        let changed = _activeBookID != bookID
+        _activeBookID = bookID
+        stateLock.unlock()
+        guard changed else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .webSyncConnectionStateChanged,
+                object: self.connectionState
+            )
+        }
     }
 
     private func readingURL(hostName: String, token: String) -> URL? {
@@ -332,6 +480,7 @@ final class WebSyncServer {
         guard let bookId = storedTokens().first(where: { $0.value == token })?.key,
               let book = BookRepository.shared.getById(bookId) else { return nil }
         currentBook = book
+        setActiveBookID(bookId)
         if let page = storedSnapshots()[bookId]?.page {
             currentPageSnapshot = page
             currentPageIndex = page.pageIndex
@@ -389,14 +538,15 @@ final class WebSyncServer {
 
     /// Notify connected SSE clients of settings changes.
     public func notifySettingsChanged(_ settings: ReadingSettings) {
-        let fontSize = settings.fontSize
-        let theme = settings.readingTheme.rawValue
+        guard let data = try? JSONSerialization.data(withJSONObject: settingsResponse(settings)),
+              let json = String(data: data, encoding: .utf8) else { return }
         let eventData = """
         event: settingschange
-        data: {"fontSize":\(fontSize),"theme":"\(theme)"}
+        data: \(json)
 
         """
-        broadcastSSE(eventData, bookId: currentBook?.id)
+        // Reading appearance is global, so every connected browser must receive it.
+        broadcastSSE(eventData)
     }
 
     // MARK: - Private: Connection Handling
@@ -432,6 +582,9 @@ final class WebSyncServer {
             switch (method, path) {
             case ("GET", "/"):
                 self.serveWebReader(to: connection)
+
+            case ("GET", "/sw.js"):
+                self.serveServiceWorker(token: token, to: connection)
 
             case ("GET", "/api/book/info"):
                 self.serveBookInfo(to: connection)
@@ -540,6 +693,15 @@ final class WebSyncServer {
         sendHTTPResponse(statusCode: 200, contentType: "text/html; charset=utf-8", body: html, to: connection)
     }
 
+    private func serveServiceWorker(token: String, to connection: NWConnection) {
+        sendHTTPResponse(
+            statusCode: 200,
+            contentType: "application/javascript; charset=utf-8",
+            body: webReaderServiceWorker(token: token),
+            to: connection
+        )
+    }
+
     private func serveBookInfo(to connection: NWConnection) {
         guard let book = currentBook else {
             sendJSONResponse(["error": "No current book"], to: connection)
@@ -597,8 +759,12 @@ final class WebSyncServer {
 
     private func serveSettings(to connection: NWConnection) {
         let settings = ReadingSettingsRepository.shared.load()
+        sendJSONResponse(settingsResponse(settings), to: connection)
+    }
+
+    private func settingsResponse(_ settings: ReadingSettings) -> [String: Any] {
         let theme = settings.readingTheme
-        let response: [String: Any] = [
+        return [
             "fontSize": settings.fontSize,
             "theme": theme.rawValue,
             "lineSpacing": settings.lineSpacing,
@@ -609,7 +775,6 @@ final class WebSyncServer {
             "panelColor": theme.panelColor,
             "controlSurfaceColor": theme.controlSurfaceColor
         ]
-        sendJSONResponse(response, to: connection)
     }
 
     // MARK: - SSE Handling
@@ -620,6 +785,7 @@ final class WebSyncServer {
         sseLock.lock()
         sseConnections[connectionId] = SSEClient(connection: connection, bookId: bookId)
         sseLock.unlock()
+        setConnectionState(.connected)
 
         // Send SSE headers
         let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n"
@@ -629,12 +795,19 @@ final class WebSyncServer {
         let connectedEvent = "event: connected\ndata: {\"status\":\"ok\"}\n\n"
         connection.send(content: connectedEvent.data(using: .utf8)!, completion: .contentProcessed { _ in })
 
-        // Start keep-alive pings every 30 seconds
+        // A pending receive completes when the browser closes the EventSource.
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { [weak self] _, _, isComplete, error in
+            if isComplete || error != nil {
+                self?.removeSSEConnection(connectionId)
+            }
+        }
+
+        // Keep-alive also detects half-open Wi-Fi/browser connections promptly.
         sendKeepAlivePings(to: connection, connectionId: connectionId)
     }
 
     private func sendKeepAlivePings(to connection: NWConnection, connectionId: UUID) {
-        serverQueue.asyncAfter(deadline: .now() + 30) { [weak self] in
+        serverQueue.asyncAfter(deadline: .now() + 5) { [weak self] in
             guard let self = self else { return }
 
             self.sseLock.lock()
@@ -668,9 +841,13 @@ final class WebSyncServer {
 
     private func removeSSEConnection(_ id: UUID) {
         sseLock.lock()
-        sseConnections[id]?.connection.cancel()
-        sseConnections.removeValue(forKey: id)
+        let connection = sseConnections.removeValue(forKey: id)?.connection
+        let hasClients = !sseConnections.isEmpty
         sseLock.unlock()
+        connection?.cancel()
+        if isRunning && !hasClients {
+            setConnectionState(.connecting)
+        }
     }
 
     // MARK: - HTTP Response Helpers
@@ -942,6 +1119,26 @@ final class WebSyncServer {
 
     // MARK: - Web Reader HTML (inline SPA)
 
+    private func webReaderServiceWorker(token: String) -> String {
+        let escapedToken = token.replacingOccurrences(of: "'", with: "")
+        return """
+        const cacheName='lvread-reader-v1';
+        const readerURL='/?t=\(escapedToken)';
+        self.addEventListener('install',event=>event.waitUntil(
+          caches.open(cacheName).then(cache=>cache.add(readerURL)).then(()=>self.skipWaiting())
+        ));
+        self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
+        self.addEventListener('fetch',event=>{
+          if(event.request.mode!=='navigate')return;
+          event.respondWith(fetch(event.request).then(response=>{
+            const copy=response.clone();
+            caches.open(cacheName).then(cache=>cache.put(event.request,copy));
+            return response;
+          }).catch(()=>caches.match(event.request).then(cached=>cached||caches.match(readerURL))));
+        });
+        """
+    }
+
     func webReaderHTML() -> String {
         return """
         <!DOCTYPE html>
@@ -1016,7 +1213,8 @@ final class WebSyncServer {
         var statusDot=document.getElementById('statusDot');
         var statusText=document.getElementById('statusText');
         function applyPage(d){if(d.error){throw new Error(d.error);}var title=d.chapterTitle||'';contentEl.textContent=d.content||'当前页面暂无可同步文字';bookTitle=d.bookTitle||bookTitle;bookTitleEl.textContent=bookTitle||'LVRead';totalPages=d.totalPages||1;currentPage=d.pageIndex||0;chapterTitleEl.textContent=title;pageInfoEl.textContent=(currentPage+1)+' / '+totalPages;}
-        function loadPage(){fetch('/api/page/current?t='+token()).then(r=>r.json()).then(applyPage).catch(e=>{contentEl.textContent='正文加载失败：'+e.message;console.error(e);});}
+        function offlineMessage(){return '无法连接到 LVRead。\\n\\n情况一：手机端未打开同步开关。请打开 LVRead，在书架或阅读页点击电脑图标，再点击“打开同步”。\\n\\n情况二：同步已打开，但 App 进入了后台。iOS 会暂停局域网服务，请将 LVRead 切回前台，本页面会自动重新连接。';}
+        function loadPage(){fetch('/api/page/current?t='+token()).then(r=>r.json()).then(applyPage).catch(e=>{contentEl.textContent=offlineMessage();console.error(e);});}
         function loadBookInfo(){fetch('/api/book/info?t='+token()).then(r=>r.json()).then(d=>{if(d.title){bookTitle=d.title;bookTitleEl.textContent=d.title;}}).catch(e=>{});}
         function token(){return new URLSearchParams(window.location.search).get('t')||'';}
         function turnPage(direction){fetch('/api/page/turn?t='+encodeURIComponent(token())+'&direction='+direction,{method:'POST'}).then(r=>r.json()).then(d=>{if(!d.success){throw new Error(d.error||'翻页失败');}if(d.updated){loadPage();}else{setTimeout(loadPage,700);}}).catch(e=>{contentEl.textContent='翻页失败：'+e.message;});}
@@ -1024,16 +1222,17 @@ final class WebSyncServer {
         function nextPage(){turnPage('next');}
         function readerFontFamily(name){if(!name||name.indexOf('系统')>=0){return '-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';}if(name.indexOf('仿宋')>=0){return '"FangSong","STFangsong",serif';}if(name.indexOf('楷体')>=0){return '"Kaiti SC","STKaiti","KaiTi",serif';}if(name.indexOf('宋体')>=0){return '"Songti SC","STSong","SimSun",serif';}return name+',serif';}
         function applySettings(d){var root=document.documentElement.style;var fontSize=Math.max(18,Math.min(30,(Number(d.fontSize)||23)*1.12));var lineHeight=Math.max(1.45,Math.min(2.2,(Number(d.lineSpacing)||1.3)+.2));root.setProperty('--reader-bg',d.backgroundColor||'#F5F2EC');root.setProperty('--reader-text',d.textColor||'#24211D');root.setProperty('--reader-accent',d.accentColor||'#236D67');root.setProperty('--reader-panel',d.panelColor||'#F3F4F2');root.setProperty('--reader-control',d.controlSurfaceColor||'#FFFDF8');root.setProperty('--reader-font-size',fontSize+'px');root.setProperty('--reader-line-height',lineHeight);root.setProperty('--reader-font-family',readerFontFamily(d.fontFamily));}
-        function loadSettings(){fetch('/api/settings?t='+token()).then(r=>r.json()).then(applySettings).catch(e=>console.error(e));}
+        function loadSettings(){fetch('/api/settings?t='+token()+'&v='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(applySettings).catch(e=>console.error(e));}
         function setStatus(ok){statusDot.style.background=ok?'var(--reader-accent)':'#C94A45';statusText.textContent=ok?'已连接':'连接已断开';}
         document.addEventListener('keydown',function(e){if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key==='j'){e.preventDefault();nextPage();}else if(e.key==='ArrowLeft'||e.key==='ArrowUp'||e.key==='k'){e.preventDefault();prevPage();}});
         var es=null,reconnectTimer=null;
-        function connectSSE(){if(es){es.close();}es=new EventSource('/api/stream?t='+token());es.addEventListener('connected',function(){setStatus(true);});es.addEventListener('pagechange',loadPage);es.addEventListener('chapterchange',function(e){var d=JSON.parse(e.data);chapterTitleEl.textContent=d.chapterTitle;});es.addEventListener('settingschange',loadSettings);es.onerror=function(){setStatus(false);es.close();clearTimeout(reconnectTimer);reconnectTimer=setTimeout(connectSSE,3000);};}
+        function connectSSE(){if(es){es.close();}es=new EventSource('/api/stream?t='+token());es.addEventListener('connected',function(){setStatus(true);});es.addEventListener('pagechange',loadPage);es.addEventListener('chapterchange',function(e){var d=JSON.parse(e.data);chapterTitleEl.textContent=d.chapterTitle;});es.addEventListener('settingschange',function(e){applySettings(JSON.parse(e.data));});es.onerror=function(){setStatus(false);es.close();clearTimeout(reconnectTimer);reconnectTimer=setTimeout(connectSSE,3000);};}
+        if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js?t='+encodeURIComponent(token())).catch(console.error);}
         loadPage();
         loadBookInfo();
         loadSettings();
         connectSSE();
-        setInterval(loadPage,2000);
+        setInterval(function(){loadPage();loadSettings();},2000);
         </script>
         </body>
         </html>

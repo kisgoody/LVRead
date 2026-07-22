@@ -12,6 +12,15 @@ struct Highlight: Codable, Identifiable, Equatable {
     let note: String?
     let createdAt: Date
 
+    /// 无评论内容的高亮表示摘录；带评论内容的高亮表示评论。
+    var isExcerpt: Bool {
+        note?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+    }
+
+    var isComment: Bool {
+        !isExcerpt
+    }
+
     init(id: String = UUID().uuidString,
          bookId: String,
          chapterIndex: Int,

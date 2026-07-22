@@ -1,8 +1,8 @@
 import UIKit
 
 final class NotesViewController: UIViewController {
-    private enum Filter: Int { case all, annotations, bookmarks }
-    private enum AssetKind { case bookmark(Bookmark), annotation(Highlight) }
+    private enum Filter: Int { case all, excerpts, comments, bookmarks }
+    private enum AssetKind { case bookmark(Bookmark), excerpt(Highlight), comment(Highlight) }
 
     private struct Asset {
         let id: String
@@ -20,15 +20,15 @@ final class NotesViewController: UIViewController {
     private let subtitleLabel = UILabel()
     private let searchBar = UISearchBar()
     private let metricsStack = UIStackView()
-    private let annotationMetric = UILabel()
+    private let excerptMetric = UILabel()
+    private let commentMetric = UILabel()
     private let bookmarkMetric = UILabel()
-    private let recentMetric = UILabel()
-    private let filterControl = UISegmentedControl(items: ["全部", "评论", "书签"])
+    private let filterControl = UISegmentedControl(items: ["全部", "摘录", "评论", "书签"])
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let emptyView = LVEmptyStateView(
         icon: "bookmark",
         title: "还没有笔记",
-        subtitle: "阅读时可以添加评论或书签，保存的内容会集中显示在这里。"
+        subtitle: "阅读时可以添加摘录、评论或书签，保存的内容会集中显示在这里。"
     )
     private let moduleNavigation = LVModuleNavigationView(selectedModule: .notes)
 
@@ -81,9 +81,9 @@ final class NotesViewController: UIViewController {
         metricsStack.axis = .horizontal
         metricsStack.spacing = 8
         metricsStack.distribution = .fillEqually
-        metricsStack.addArrangedSubview(makeMetricCard(valueLabel: annotationMetric, title: "评论"))
+        metricsStack.addArrangedSubview(makeMetricCard(valueLabel: excerptMetric, title: "摘录"))
+        metricsStack.addArrangedSubview(makeMetricCard(valueLabel: commentMetric, title: "评论"))
         metricsStack.addArrangedSubview(makeMetricCard(valueLabel: bookmarkMetric, title: "书签"))
-        metricsStack.addArrangedSubview(makeMetricCard(valueLabel: recentMetric, title: "最近"))
 
         filterControl.selectedSegmentIndex = 0
         filterControl.addTarget(self, action: #selector(filterChanged), for: .valueChanged)
@@ -176,7 +176,7 @@ final class NotesViewController: UIViewController {
                       pageOffset: value.pageOffset,
                       chapterTitle: BookRepository.shared.getChapters(for: book.id)[safe: value.chapterIndex]?.title ?? "第 \(value.chapterIndex + 1) 章",
                       excerpt: value.text, note: value.note, createdAt: value.createdAt,
-                      kind: .annotation(value))
+                      kind: value.isComment ? .comment(value) : .excerpt(value))
             }
             return bookmarks + annotations
         }.sorted { $0.createdAt > $1.createdAt }
@@ -187,7 +187,8 @@ final class NotesViewController: UIViewController {
         visibleAssets = assets.filter { asset in
             let matchesKind: Bool
             switch (filter, asset.kind) {
-            case (.all, _), (.annotations, .annotation), (.bookmarks, .bookmark): matchesKind = true
+            case (.all, _), (.excerpts, .excerpt), (.comments, .comment), (.bookmarks, .bookmark):
+                matchesKind = true
             default: matchesKind = false
             }
             guard matchesKind else { return false }
@@ -197,10 +198,11 @@ final class NotesViewController: UIViewController {
                 .contains { $0.localizedCaseInsensitiveContains(query) }
         }
         let bookmarkCount = assets.filter { if case .bookmark = $0.kind { return true }; return false }.count
-        let annotationCount = assets.count - bookmarkCount
-        annotationMetric.text = "\(annotationCount)"
+        let excerptCount = assets.filter { if case .excerpt = $0.kind { return true }; return false }.count
+        let commentCount = assets.filter { if case .comment = $0.kind { return true }; return false }.count
+        excerptMetric.text = "\(excerptCount)"
+        commentMetric.text = "\(commentCount)"
         bookmarkMetric.text = "\(bookmarkCount)"
-        recentMetric.text = assets.first.map { Calendar.current.isDateInToday($0.createdAt) ? "今日" : "近期" } ?? "—"
         emptyView.isHidden = !visibleAssets.isEmpty
         tableView.reloadData()
     }
@@ -265,7 +267,11 @@ extension NotesViewController: UITableViewDataSource, UITableViewDelegate {
         let asset = visibleAssets[indexPath.row]
         let cell = tableView.dequeueReusableCell(withIdentifier: LVNoteCardCell.reuseIdentifier, for: indexPath) as! LVNoteCardCell
         let kind: String
-        switch asset.kind { case .bookmark: kind = "书签标识"; case .annotation: kind = "评论标记" }
+        switch asset.kind {
+        case .bookmark: kind = "书签标识"
+        case .excerpt: kind = "摘录"
+        case .comment: kind = "评论标记"
+        }
         let body = [asset.excerpt, asset.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         cell.configure(kind: kind, title: "\(asset.book.title) · \(asset.chapterTitle)",
                        body: body.isEmpty ? "未保存摘录" : body,
@@ -283,7 +289,7 @@ extension NotesViewController: UITableViewDataSource, UITableViewDelegate {
         let delete = UIContextualAction(style: .destructive, title: "删除") { [weak self] _, _, completion in
             switch asset.kind {
             case let .bookmark(value): BookRepository.shared.deleteBookmark(value.id)
-            case let .annotation(value): BookRepository.shared.deleteHighlight(value.id)
+            case let .excerpt(value), let .comment(value): BookRepository.shared.deleteHighlight(value.id)
             }
             self?.loadAssets()
             completion(true)

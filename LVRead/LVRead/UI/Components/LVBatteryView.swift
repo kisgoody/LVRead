@@ -10,7 +10,11 @@ final class LVBatteryView: UIView {
     }
 
     var strokeColor: UIColor = .white {
-        didSet { outlineLayer.strokeColor = strokeColor.cgColor }
+        didSet {
+            outlineLayer.strokeColor = strokeColor.cgColor
+            nubLayer.strokeColor = strokeColor.cgColor
+            capLayer.strokeColor = strokeColor.cgColor
+        }
     }
 
     var fillColor: UIColor = .white {

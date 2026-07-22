@@ -1,5 +1,144 @@
 import UIKit
 
+final class NativeReaderLookupViewController: UIViewController {
+    private let text: String
+    private let settings: ReadingSettings
+    private let hasDefinition: Bool
+    private weak var dictionaryController: UIReferenceLibraryViewController?
+
+    init(text: String, settings: ReadingSettings) {
+        self.text = text
+        self.settings = settings
+        hasDefinition = UIReferenceLibraryViewController.dictionaryHasDefinition(forTerm: text)
+        super.init(nibName: nil, bundle: nil)
+        preferredContentSize = CGSize(width: 360, height: hasDefinition ? 400 : 200)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        let foreground = UIColor(hex: settings.readingTheme.textColor)
+        let panel = UIColor(hex: settings.readingTheme.panelColor)
+        let accent = UIColor(hex: settings.readingTheme.accentColor)
+        view.backgroundColor = panel
+        view.layer.cornerRadius = 12
+        view.clipsToBounds = true
+
+        if hasDefinition {
+            let source = UILabel()
+            source.text = "内容来源：Apple 系统词典"
+            source.font = .systemFont(ofSize: 12)
+            source.textColor = foreground.withAlphaComponent(0.64)
+            source.textAlignment = .right
+            let dictionary = UIReferenceLibraryViewController(term: text)
+            dictionary.loadViewIfNeeded()
+            dictionary.navigationItem.rightBarButtonItems = []
+            dictionaryController = dictionary
+            addChild(dictionary)
+            view.addSubview(dictionary.view)
+            view.addSubview(source)
+            dictionary.view.translatesAutoresizingMaskIntoConstraints = false
+            source.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                dictionary.view.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+                dictionary.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                dictionary.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                dictionary.view.bottomAnchor.constraint(equalTo: source.topAnchor, constant: -8),
+                source.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+                source.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -24)
+            ])
+            dictionary.didMove(toParent: self)
+        } else {
+            let scrollView = UIScrollView()
+            let original = UILabel()
+            original.text = "原文：\(text)"
+            original.font = .systemFont(ofSize: 14, weight: .medium)
+            original.textColor = foreground
+            original.numberOfLines = 0
+            original.lineBreakMode = .byWordWrapping
+
+            let pinyin = UILabel()
+            pinyin.text = "拼音：\(Self.pinyin(for: text))"
+            pinyin.font = .systemFont(ofSize: 14)
+            pinyin.textColor = accent
+            pinyin.numberOfLines = 0
+            pinyin.lineBreakMode = .byWordWrapping
+
+            let content = UIStackView(arrangedSubviews: [original, pinyin])
+            content.axis = .vertical
+            content.spacing = 16
+            view.addSubview(scrollView)
+            scrollView.addSubview(content)
+            scrollView.translatesAutoresizingMaskIntoConstraints = false
+            content.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                scrollView.topAnchor.constraint(equalTo: view.topAnchor, constant: 24),
+                scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+                scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+                scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -24),
+                content.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+                content.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+                content.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+                content.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+                content.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
+            ])
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        removeDictionaryCloseControl()
+        DispatchQueue.main.async { [weak self] in
+            self?.removeDictionaryCloseControl()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.removeDictionaryCloseControl()
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        removeDictionaryCloseControl()
+    }
+
+    private func removeDictionaryCloseControl() {
+        guard let dictionary = dictionaryController else { return }
+        dictionary.navigationItem.rightBarButtonItems = []
+        removeCloseControl(in: dictionary.view, root: dictionary.view)
+    }
+
+    private func removeCloseControl(in view: UIView, root: UIView) {
+        if let navigationBar = view as? UINavigationBar {
+            navigationBar.items?.forEach { $0.rightBarButtonItems = [] }
+        }
+        for subview in view.subviews {
+            let label = (subview.accessibilityLabel ?? "").lowercased()
+            let frame = subview.convert(subview.bounds, to: root)
+            let typeName = String(describing: type(of: subview)).lowercased()
+            let isCloseLabel = ["关闭", "完成", "close", "done"].contains {
+                label.contains($0)
+            }
+            let isTopTrailingButton = (subview is UIControl || typeName.contains("button"))
+                && frame.maxX > root.bounds.width - 80
+                && frame.minY < 96
+                && frame.width <= 80
+                && frame.height <= 80
+            if isCloseLabel || isTopTrailingButton {
+                subview.isHidden = true
+                subview.isUserInteractionEnabled = false
+            } else {
+                removeCloseControl(in: subview, root: root)
+            }
+        }
+    }
+
+    private static func pinyin(for text: String) -> String {
+        text.applyingTransform(.mandarinToLatin, reverse: false) ?? "暂无拼音"
+    }
+}
+
 enum ReaderNavigationMode: String, CaseIterable {
     case simulation
     case horizontal
@@ -292,17 +431,17 @@ final class NativeReaderSettingsSheet: UIViewController {
     private func buildTheme() {
         stack.addArrangedSubview(brightnessSection())
         stack.addArrangedSubview(themeSection())
-        stack.addArrangedSubview(segmentedSection(
+        stack.addArrangedSubview(choiceSection(
             title: "护眼滤镜",
             items: ["关闭", "暖黄", "薄荷"],
             selectedIndex: EyeCareFilter.allCases.firstIndex(of: settings.eyeCareFilter) ?? 0,
-            action: #selector(eyeChanged(_:))
+            action: #selector(eyeChoiceTapped(_:))
         ))
-        stack.addArrangedSubview(segmentedSection(
+        stack.addArrangedSubview(choiceSection(
             title: "翻页方式",
             items: ReaderNavigationMode.allCases.map(\.title),
             selectedIndex: ReaderNavigationMode.allCases.firstIndex(of: mode) ?? 1,
-            action: #selector(modeChanged(_:))
+            action: #selector(modeChoiceTapped(_:))
         ))
     }
 
@@ -428,17 +567,38 @@ final class NativeReaderSettingsSheet: UIViewController {
         return divided(row)
     }
 
-    private func segmentedSection(title: String, items: [String], selectedIndex: Int, action: Selector) -> UIView {
+    private func choiceSection(title: String, items: [String], selectedIndex: Int, action: Selector) -> UIView {
         let container = sectionStack(title: title)
-        let control = UISegmentedControl(items: items)
-        control.selectedSegmentIndex = selectedIndex
-        control.selectedSegmentTintColor = panelColor
-        control.backgroundColor = dividerColor.withAlphaComponent(0.35)
-        control.setTitleTextAttributes([.foregroundColor: accent, .font: UIFont.systemFont(ofSize: 14, weight: .medium)], for: .selected)
-        control.setTitleTextAttributes([.foregroundColor: textColor, .font: UIFont.systemFont(ofSize: 14)], for: .normal)
-        control.addTarget(self, action: action, for: .valueChanged)
-        control.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        container.addArrangedSubview(control)
+        let rows = UIStackView()
+        rows.axis = .vertical
+        rows.spacing = 8
+        for start in stride(from: 0, to: items.count, by: 3) {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = 8
+            row.distribution = .fillEqually
+            for index in start..<min(start + 3, items.count) {
+                let selected = index == selectedIndex
+                let button = UIButton(type: .system)
+                button.tag = index
+                button.setTitle(items[index], for: .normal)
+                button.setImage(selected ? UIImage(systemName: "checkmark.circle.fill") : nil, for: .normal)
+                button.titleLabel?.font = .systemFont(ofSize: 14, weight: selected ? .semibold : .regular)
+                button.tintColor = selected ? accent : subtleTextColor
+                button.setTitleColor(selected ? accent : textColor, for: .normal)
+                button.backgroundColor = selected ? accent.withAlphaComponent(0.16) : panelColor
+                button.layer.cornerRadius = 12
+                button.layer.borderWidth = 1
+                button.layer.borderColor = (selected ? accent : dividerColor).cgColor
+                button.accessibilityTraits = selected ? [.button, .selected] : .button
+                button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+                button.addTarget(self, action: action, for: .touchUpInside)
+                button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                row.addArrangedSubview(button)
+            }
+            rows.addArrangedSubview(row)
+        }
+        container.addArrangedSubview(rows)
         return container
     }
 
@@ -641,14 +801,18 @@ final class NativeReaderSettingsSheet: UIViewController {
         value.text = "\(Int((settings.brightness * 100).rounded()))%"
     }
 
-    @objc private func modeChanged(_ sender: UISegmentedControl) {
-        mode = ReaderNavigationMode.allCases[sender.selectedSegmentIndex]
+    @objc private func modeChoiceTapped(_ sender: UIButton) {
+        guard ReaderNavigationMode.allCases.indices.contains(sender.tag) else { return }
+        mode = ReaderNavigationMode.allCases[sender.tag]
         notify()
+        rebuildContent()
     }
 
-    @objc private func eyeChanged(_ sender: UISegmentedControl) {
-        settings.eyeCareFilter = EyeCareFilter.allCases[sender.selectedSegmentIndex]
+    @objc private func eyeChoiceTapped(_ sender: UIButton) {
+        guard EyeCareFilter.allCases.indices.contains(sender.tag) else { return }
+        settings.eyeCareFilter = EyeCareFilter.allCases[sender.tag]
         notify()
+        rebuildContent()
     }
 }
 

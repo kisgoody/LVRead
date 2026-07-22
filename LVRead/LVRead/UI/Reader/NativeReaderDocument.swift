@@ -12,9 +12,37 @@ struct NativeDocumentPage {
     var id: String { "\(chapterIndex):\(pageIndex):\(startOffset):\(endOffset)" }
 }
 
+struct NativeTextSelection {
+    let text: String
+    /// UTF-16 range relative to the current page text.
+    let range: NSRange
+    let anchorRect: CGRect
+}
+
+private final class NativeSelectionHandleView: UIView {
+    let leading: Bool
+    var color: UIColor = .systemBlue { didSet { setNeedsDisplay() } }
+
+    init(leading: Bool) {
+        self.leading = leading
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isAccessibilityElement = true
+        accessibilityLabel = leading ? "选区起点" : "选区终点"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+}
+
 enum NativeDocumentTypography {
     static let topReadingStatusHeight: CGFloat = 44
     static let bottomReadingStatusHeight: CGFloat = 24
+
+    static func absoluteLineOrigin(_ origin: CGPoint, pathOrigin: CGPoint) -> CGPoint {
+        CGPoint(x: origin.x + pathOrigin.x, y: origin.y + pathOrigin.y)
+    }
 
     static func attributed(_ text: String, settings: ReadingSettings, color: UIColor) -> NSAttributedString {
         let font = FontManager.shared.font(
@@ -164,11 +192,183 @@ enum NativeDocumentSanitizer {
     }
 }
 
+enum NativeSpeechTextRange {
+    fileprivate static let sentenceSeparators = CharacterSet(charactersIn: "。！？!?；;.…\n")
+    private static let whitespace = CharacterSet.whitespacesAndNewlines
+
+    static func sentence(in text: String, containing spokenRange: NSRange) -> NSRange? {
+        let source = text as NSString
+        guard source.length > 0 else { return nil }
+        let location = min(max(spokenRange.location, 0), source.length - 1)
+
+        var start = 0
+        if location > 0 {
+            let separator = source.rangeOfCharacter(
+                from: sentenceSeparators,
+                options: .backwards,
+                range: NSRange(location: 0, length: location)
+            )
+            if separator.location != NSNotFound { start = NSMaxRange(separator) }
+        }
+        while start < source.length,
+              whitespace.contains(UnicodeScalar(source.character(at: start))!) {
+            start += 1
+        }
+
+        let searchStart = max(start, location)
+        let separator = source.rangeOfCharacter(
+            from: sentenceSeparators,
+            range: NSRange(location: searchStart, length: source.length - searchStart)
+        )
+        var end = separator.location == NSNotFound ? source.length : NSMaxRange(separator)
+        while end > start,
+              whitespace.contains(UnicodeScalar(source.character(at: end - 1))!) {
+            end -= 1
+        }
+        guard end > start else { return nil }
+        return NSRange(location: start, length: end - start)
+    }
+}
+
+struct NativeSpeechPageSegment {
+    let pageID: String
+    let utteranceRange: NSRange
+    let pageRange: NSRange
+}
+
+struct NativeSpeechBuffer {
+    let text: String
+    let segments: [NativeSpeechPageSegment]
+    let continuationPageID: String
+    let continuationOffset: Int
+
+    static func make(pages: [NativeDocumentPage], startIndex: Int, offset: Int) -> Self? {
+        guard pages.indices.contains(startIndex), pages[startIndex].image == nil else { return nil }
+        let firstPage = pages[startIndex]
+        let firstSource = firstPage.text as NSString
+        let start = min(max(offset, 0), firstSource.length)
+        let remaining = firstSource.substring(from: start) as NSString
+        let firstContent = remaining.rangeOfCharacter(from: .whitespacesAndNewlines.inverted)
+        guard firstContent.location != NSNotFound else { return nil }
+
+        let speechStart = start + firstContent.location
+        var text = firstSource.substring(from: speechStart)
+        var segments = [NativeSpeechPageSegment(
+            pageID: firstPage.id,
+            utteranceRange: NSRange(location: 0, length: (text as NSString).length),
+            pageRange: NSRange(location: speechStart, length: firstSource.length - speechStart)
+        )]
+        var continuationPageID = firstPage.id
+        var continuationOffset = firstSource.length
+
+        guard !endsAtSentenceBoundary(text) else {
+            return Self(
+                text: text,
+                segments: segments,
+                continuationPageID: continuationPageID,
+                continuationOffset: continuationOffset
+            )
+        }
+
+        var index = startIndex + 1
+        while pages.indices.contains(index) {
+            let page = pages[index]
+            guard page.chapterIndex == firstPage.chapterIndex, page.image == nil else { break }
+            let source = page.text as NSString
+            let separator = source.rangeOfCharacter(from: NativeSpeechTextRange.sentenceSeparators)
+            let length = separator.location == NSNotFound ? source.length : NSMaxRange(separator)
+            guard length > 0 else {
+                index += 1
+                continue
+            }
+            let utteranceStart = (text as NSString).length
+            text += source.substring(to: length)
+            segments.append(NativeSpeechPageSegment(
+                pageID: page.id,
+                utteranceRange: NSRange(location: utteranceStart, length: length),
+                pageRange: NSRange(location: 0, length: length)
+            ))
+            continuationPageID = page.id
+            continuationOffset = length
+            if separator.location != NSNotFound { break }
+            index += 1
+        }
+
+        return Self(
+            text: text,
+            segments: segments,
+            continuationPageID: continuationPageID,
+            continuationOffset: continuationOffset
+        )
+    }
+
+    func segment(containing location: Int) -> NativeSpeechPageSegment? {
+        segments.first {
+            location >= $0.utteranceRange.location && location < NSMaxRange($0.utteranceRange)
+        } ?? segments.last
+    }
+
+    private static func endsAtSentenceBoundary(_ text: String) -> Bool {
+        guard let last = text.unicodeScalars.last else { return true }
+        if last == "\n" { return true }
+        guard let scalar = text.unicodeScalars.reversed().first(where: {
+            !CharacterSet.whitespaces.contains($0)
+        }) else { return true }
+        return NativeSpeechTextRange.sentenceSeparators.contains(scalar)
+    }
+}
+
+enum NativeSpokenTextStyle {
+    static func backgroundColor(for settings: ReadingSettings) -> UIColor {
+        UIColor(hex: settings.readingTheme.accentColor).withAlphaComponent(
+            settings.readingTheme.isDarkAppearance ? 0.42 : 0.28
+        )
+    }
+}
+
 final class NativeCoreTextView: UIView {
     var page: NativeDocumentPage?
     var settings: ReadingSettings = .default
     var readingSafeAreaInsets: UIEdgeInsets = .zero
     var textInsets: UIEdgeInsets?
+    var highlights: [Highlight] = []
+    var spokenRange: NSRange? {
+        didSet { setNeedsDisplay() }
+    }
+    var selectionRange: NSRange? {
+        didSet {
+            setNeedsDisplay()
+            setNeedsLayout()
+        }
+    }
+    var selectionHandlesVisible = false {
+        didSet {
+            setNeedsDisplay()
+            setNeedsLayout()
+        }
+    }
+    var onSelectionAdjustmentBegan: (() -> Void)?
+    var onSelectionChanged: ((NativeTextSelection) -> Void)?
+    var onSelectionAdjustmentEnded: ((NativeTextSelection) -> Void)?
+    private let leadingHandle = NativeSelectionHandleView(leading: true)
+    private let trailingHandle = NativeSelectionHandleView(leading: false)
+    private var leadingX: NSLayoutConstraint!
+    private var leadingY: NSLayoutConstraint!
+    private var trailingX: NSLayoutConstraint!
+    private var trailingY: NSLayoutConstraint!
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configureSelectionHandles()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateSelectionHandles()
+    }
 
     override func draw(_ rect: CGRect) {
         guard let page, let context = UIGraphicsGetCurrentContext() else { return }
@@ -192,39 +392,355 @@ final class NativeCoreTextView: UIView {
             safeAreaInsets: readingSafeAreaInsets,
             settings: settings
         )
+        let attributed = NSMutableAttributedString(attributedString: NativeDocumentTypography.attributed(
+            page.text,
+            settings: settings,
+            color: UIColor(hex: settings.readingTheme.textColor)
+        ))
+        let textLength = attributed.length
+        if let spokenRange {
+            let lower = min(max(spokenRange.location, 0), textLength)
+            let upper = min(max(NSMaxRange(spokenRange), lower), textLength)
+            if upper > lower {
+                attributed.addAttribute(
+                    .backgroundColor,
+                    value: NativeSpokenTextStyle.backgroundColor(for: settings),
+                    range: NSRange(location: lower, length: upper - lower)
+                )
+            }
+        }
+        if let selectionRange {
+            let lower = min(max(selectionRange.location, 0), textLength)
+            let upper = min(max(NSMaxRange(selectionRange), lower), textLength)
+            if upper > lower {
+                attributed.addAttribute(
+                    .backgroundColor,
+                    value: UIColor(hex: settings.readingTheme.accentColor).withAlphaComponent(0.18),
+                    range: NSRange(location: lower, length: upper - lower)
+                )
+            }
+        }
+        context.saveGState()
+        context.textMatrix = .identity
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        let pathRect = NativeDocumentTypography.coreTextPathRect(
+            size: bounds.size,
+            insets: insets
+        )
+        let frame = CTFramesetterCreateFrame(
+            CTFramesetterCreateWithAttributedString(attributed),
+            CFRange(location: 0, length: 0),
+            CGPath(rect: pathRect, transform: nil),
+            nil
+        )
+        CTFrameDraw(frame, context)
+        drawExcerptUnderlines(in: context, frame: frame, pathOrigin: pathRect.origin, page: page)
+        drawSelectionHandles(in: context, frame: frame, pathOrigin: pathRect.origin)
+        context.restoreGState()
+    }
+
+    private func drawSelectionHandles(in context: CGContext, frame: CTFrame, pathOrigin: CGPoint) {
+        guard selectionHandlesVisible, let selectionRange else { return }
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        var origins = Array(repeating: CGPoint.zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
+        origins = origins.map { NativeDocumentTypography.absoluteLineOrigin($0, pathOrigin: pathOrigin) }
+
+        func metrics(at index: Int, preferPreviousLine: Bool) -> (x: CGFloat, top: CGFloat, bottom: CGFloat)? {
+            guard let lineIndex = lines.indices.first(where: { lineIndex in
+                let range = CTLineGetStringRange(lines[lineIndex])
+                let upper = range.location + range.length
+                return index >= range.location && (index < upper || (preferPreviousLine && index == upper))
+            }) else { return nil }
+            let line = lines[lineIndex]
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+            let origin = origins[lineIndex]
+            return (
+                origin.x + CTLineGetOffsetForStringIndex(line, index, nil),
+                origin.y + ascent,
+                origin.y - descent
+            )
+        }
+
+        guard let start = metrics(at: selectionRange.location, preferPreviousLine: false),
+              let end = metrics(at: NSMaxRange(selectionRange), preferPreviousLine: true) else { return }
+        let color = UIColor(hex: settings.readingTheme.accentColor)
+        context.setFillColor(color.cgColor)
+        context.fill(CGRect(x: start.x - 1, y: start.bottom, width: 2, height: start.top - start.bottom))
+        context.fillEllipse(in: CGRect(x: start.x - 5, y: start.top - 5, width: 10, height: 10))
+        context.fill(CGRect(x: end.x - 1, y: end.bottom, width: 2, height: end.top - end.bottom))
+        context.fillEllipse(in: CGRect(x: end.x - 5, y: end.bottom - 5, width: 10, height: 10))
+    }
+
+    private func drawExcerptUnderlines(
+        in context: CGContext,
+        frame: CTFrame,
+        pathOrigin: CGPoint,
+        page: NativeDocumentPage
+    ) {
+        let excerpts = highlights.filter(\.isExcerpt)
+        guard !excerpts.isEmpty else { return }
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        var origins = Array(repeating: CGPoint.zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
+        origins = origins.map { NativeDocumentTypography.absoluteLineOrigin($0, pathOrigin: pathOrigin) }
+        context.setStrokeColor(UIColor(hex: settings.readingTheme.accentColor).cgColor)
+        context.setLineWidth(1.2)
+
+        for (lineIndex, line) in lines.enumerated() {
+            let lineRange = CTLineGetStringRange(line)
+            let lineLower = lineRange.location
+            let lineUpper = lineRange.location + lineRange.length
+            for excerpt in excerpts {
+                guard let localRange = Self.localRange(for: excerpt, page: page) else { continue }
+                let lower = max(lineLower, localRange.location)
+                let upper = min(lineUpper, NSMaxRange(localRange))
+                guard upper > lower else { continue }
+                let startX = origins[lineIndex].x + CTLineGetOffsetForStringIndex(line, lower, nil)
+                let endX = origins[lineIndex].x + CTLineGetOffsetForStringIndex(line, upper, nil)
+                var descent: CGFloat = 0
+                CTLineGetTypographicBounds(line, nil, &descent, nil)
+                let underlineY = origins[lineIndex].y - descent - 2
+                context.beginPath()
+                context.move(to: CGPoint(x: startX, y: underlineY))
+                var x = startX
+                while x < endX {
+                    x = min(x + 2, endX)
+                    context.addLine(to: CGPoint(x: x, y: underlineY + sin((x - startX) * .pi / 4)))
+                }
+                context.strokePath()
+            }
+        }
+    }
+
+    func paragraphSelection(at point: CGPoint) -> NativeTextSelection? {
+        guard let page, page.image == nil, !page.text.isEmpty else { return nil }
+        let insets = textInsets ?? NativeDocumentTypography.insets(
+            size: bounds.size,
+            safeAreaInsets: readingSafeAreaInsets,
+            settings: settings
+        )
+        let pathRect = NativeDocumentTypography.coreTextPathRect(size: bounds.size, insets: insets)
+        let coreTextPoint = CGPoint(x: point.x, y: bounds.height - point.y)
+        guard pathRect.insetBy(dx: -8, dy: -8).contains(coreTextPoint) else { return nil }
+
         let attributed = NativeDocumentTypography.attributed(
             page.text,
             settings: settings,
             color: UIColor(hex: settings.readingTheme.textColor)
         )
-        context.saveGState()
-        context.textMatrix = .identity
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
         let frame = CTFramesetterCreateFrame(
             CTFramesetterCreateWithAttributedString(attributed),
             CFRange(location: 0, length: 0),
-            CGPath(
-                rect: NativeDocumentTypography.coreTextPathRect(
-                    size: bounds.size,
-                    insets: insets
-                ),
-                transform: nil
-            ),
+            CGPath(rect: pathRect, transform: nil),
             nil
         )
-        CTFrameDraw(frame, context)
-        context.restoreGState()
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        guard !lines.isEmpty else { return nil }
+        var origins = Array(repeating: CGPoint.zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
+        origins = origins.map { NativeDocumentTypography.absoluteLineOrigin($0, pathOrigin: pathRect.origin) }
+
+        let lineIndex = lines.indices.min { lhs, rhs in
+            abs(origins[lhs].y - coreTextPoint.y) < abs(origins[rhs].y - coreTextPoint.y)
+        } ?? 0
+        let line = lines[lineIndex]
+        let origin = origins[lineIndex]
+        let stringIndex = CTLineGetStringIndexForPosition(
+            line,
+            CGPoint(x: coreTextPoint.x - origin.x, y: 0)
+        )
+        guard stringIndex != kCFNotFound else { return nil }
+
+        let source = page.text as NSString
+        var range = source.paragraphRange(for: NSRange(location: min(stringIndex, source.length - 1), length: 0))
+        while range.length > 0,
+              CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(source.character(at: range.location))!) {
+            range.location += 1
+            range.length -= 1
+        }
+        while range.length > 0,
+              CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(source.character(at: NSMaxRange(range) - 1))!) {
+            range.length -= 1
+        }
+        guard range.length > 0 else { return nil }
+
+        return selection(for: range)
     }
 
-    func paragraph(at point: CGPoint) -> String? {
+    static func localRange(for highlight: Highlight, page: NativeDocumentPage) -> NSRange? {
+        let source = page.text as NSString
+        let proposed = NSRange(
+            location: highlight.startCharOffset - page.startOffset,
+            length: highlight.endCharOffset - highlight.startCharOffset
+        )
+        if proposed.location >= 0, NSMaxRange(proposed) <= source.length,
+           source.substring(with: proposed) == highlight.text {
+            return proposed
+        }
+        let recovered = source.range(of: highlight.text)
+        return recovered.location == NSNotFound ? nil : recovered
+    }
+
+    private func configureSelectionHandles() {
+        [leadingHandle, trailingHandle].forEach {
+            addSubview($0)
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                $0.widthAnchor.constraint(equalToConstant: 44),
+                $0.heightAnchor.constraint(equalToConstant: 44)
+            ])
+        }
+        leadingX = leadingHandle.centerXAnchor.constraint(equalTo: leadingAnchor)
+        leadingY = leadingHandle.centerYAnchor.constraint(equalTo: topAnchor)
+        trailingX = trailingHandle.centerXAnchor.constraint(equalTo: leadingAnchor)
+        trailingY = trailingHandle.centerYAnchor.constraint(equalTo: topAnchor)
+        NSLayoutConstraint.activate([leadingX, leadingY, trailingX, trailingY])
+        leadingHandle.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(selectionHandlePanned(_:))))
+        trailingHandle.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(selectionHandlePanned(_:))))
+    }
+
+    private func updateSelectionHandles() {
+        let visible = selectionHandlesVisible && selectionRange != nil
+        leadingHandle.isHidden = !visible
+        trailingHandle.isHidden = !visible
+        guard visible, let selectionRange, let points = handlePoints(for: selectionRange) else { return }
+        let accent = UIColor(hex: settings.readingTheme.accentColor)
+        leadingHandle.color = accent
+        trailingHandle.color = accent
+        leadingX.constant = points.start.x
+        // 起点圆点贴住首字形顶部，终点圆点贴住末字形底部。
+        leadingY.constant = points.start.y + 13
+        trailingX.constant = points.end.x
+        trailingY.constant = points.end.y - 7
+    }
+
+    @objc private func selectionHandlePanned(_ gesture: UIPanGestureRecognizer) {
+        guard let handle = gesture.view as? NativeSelectionHandleView,
+              let range = selectionRange else { return }
+        if gesture.state == .began { onSelectionAdjustmentBegan?() }
+        if gesture.state == .changed || gesture.state == .ended,
+           let index = characterIndex(at: gesture.location(in: self)) {
+            let sourceLength = (page?.text as NSString?)?.length ?? 0
+            let nextRange: NSRange
+            if handle.leading {
+                let start = min(max(index, 0), NSMaxRange(range) - 1)
+                nextRange = NSRange(location: start, length: NSMaxRange(range) - start)
+            } else {
+                let end = min(max(index, range.location + 1), sourceLength)
+                nextRange = NSRange(location: range.location, length: end - range.location)
+            }
+            if let selection = selection(for: nextRange) {
+                selectionRange = selection.range
+                onSelectionChanged?(selection)
+                if gesture.state == .ended { onSelectionAdjustmentEnded?(selection) }
+            }
+        }
+    }
+
+    private func selection(for range: NSRange) -> NativeTextSelection? {
         guard let page else { return nil }
-        let values = page.text
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !values.isEmpty else { return nil }
-        let ratio = min(max(point.y / max(bounds.height, 1), 0), 0.999)
-        return values[min(Int(ratio * CGFloat(values.count)), values.count - 1)]
+        let source = page.text as NSString
+        guard range.location >= 0, range.length > 0, NSMaxRange(range) <= source.length,
+              let anchorRect = selectionBounds(for: range) else { return nil }
+        return NativeTextSelection(
+            text: source.substring(with: range),
+            range: range,
+            anchorRect: anchorRect
+        )
+    }
+
+    private func selectionBounds(for range: NSRange) -> CGRect? {
+        guard let layout = textLayout() else { return nil }
+        var result: CGRect?
+        for lineIndex in layout.lines.indices {
+            let line = layout.lines[lineIndex]
+            let lineRange = CTLineGetStringRange(line)
+            let lower = max(range.location, lineRange.location)
+            let upper = min(NSMaxRange(range), lineRange.location + lineRange.length)
+            guard upper > lower else { continue }
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+            let origin = layout.origins[lineIndex]
+            let value = CGRect(
+                x: origin.x + CTLineGetOffsetForStringIndex(line, lower, nil),
+                y: bounds.height - origin.y - ascent,
+                width: max(
+                    CTLineGetOffsetForStringIndex(line, upper, nil)
+                        - CTLineGetOffsetForStringIndex(line, lower, nil),
+                    1
+                ),
+                height: ascent + descent
+            )
+            result = result.map { $0.union(value) } ?? value
+        }
+        return result
+    }
+
+    private func characterIndex(at point: CGPoint) -> Int? {
+        guard let layout = textLayout() else { return nil }
+        let converted = CGPoint(x: point.x, y: bounds.height - point.y)
+        let lineIndex = layout.lines.indices.min {
+            abs(layout.origins[$0].y - converted.y) < abs(layout.origins[$1].y - converted.y)
+        } ?? 0
+        let index = CTLineGetStringIndexForPosition(
+            layout.lines[lineIndex],
+            CGPoint(x: converted.x - layout.origins[lineIndex].x, y: 0)
+        )
+        return index == kCFNotFound ? nil : index
+    }
+
+    private func handlePoints(for range: NSRange) -> (start: CGPoint, end: CGPoint)? {
+        guard let layout = textLayout() else { return nil }
+        func point(at index: Int, preferPreviousLine: Bool, topEdge: Bool) -> CGPoint? {
+            let match = layout.lines.indices.first { lineIndex in
+                let value = CTLineGetStringRange(layout.lines[lineIndex])
+                let upper = value.location + value.length
+                return index >= value.location && (index < upper || (preferPreviousLine && index == upper))
+            }
+            guard let lineIndex = match else { return nil }
+            let line = layout.lines[lineIndex]
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+            return CGPoint(
+                x: layout.origins[lineIndex].x + CTLineGetOffsetForStringIndex(line, index, nil),
+                y: bounds.height - layout.origins[lineIndex].y + (topEdge ? -ascent : descent)
+            )
+        }
+        guard let start = point(at: range.location, preferPreviousLine: false, topEdge: true),
+              let end = point(at: NSMaxRange(range), preferPreviousLine: true, topEdge: false) else { return nil }
+        return (start, end)
+    }
+
+    private func textLayout() -> (lines: [CTLine], origins: [CGPoint])? {
+        guard let page, page.image == nil, !page.text.isEmpty else { return nil }
+        let insets = textInsets ?? NativeDocumentTypography.insets(
+            size: bounds.size,
+            safeAreaInsets: readingSafeAreaInsets,
+            settings: settings
+        )
+        let attributed = NativeDocumentTypography.attributed(
+            page.text,
+            settings: settings,
+            color: UIColor(hex: settings.readingTheme.textColor)
+        )
+        let pathRect = NativeDocumentTypography.coreTextPathRect(size: bounds.size, insets: insets)
+        let frame = CTFramesetterCreateFrame(
+            CTFramesetterCreateWithAttributedString(attributed),
+            CFRange(location: 0, length: 0),
+            CGPath(rect: pathRect, transform: nil),
+            nil
+        )
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        guard !lines.isEmpty else { return nil }
+        var origins = Array(repeating: CGPoint.zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
+        origins = origins.map { NativeDocumentTypography.absoluteLineOrigin($0, pathOrigin: pathRect.origin) }
+        return (lines, origins)
     }
 }

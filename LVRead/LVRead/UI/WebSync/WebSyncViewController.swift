@@ -24,20 +24,24 @@ fileprivate extension UIView {
 
 
 final class WebSyncViewController: UIViewController {
-    private let session: WebSyncServer.Session
+    private let book: Book
+    private let page: WebSyncServer.PageSnapshot
+    private var session: WebSyncServer.Session?
 
     private let containerView = UIView()
     private let titleLabel = UILabel()
+    private let statusLabel = UILabel()
     private let qrImageView = UIImageView()
     private let urlLabel = UILabel()
     private let installButton = LVButton(title: "首次使用：安装安全证书", style: .primary)
     private let copyButton = LVButton(title: "复制链接", style: .outline)
     private let shareButton = LVButton(title: "分享链接", style: .outline)
-    private let fingerprintLabel = UILabel()
     private let tipLabel = UILabel()
+    private let connectionButton = UIButton(type: .system)
 
-    init(session: WebSyncServer.Session) {
-        self.session = session
+    init(book: Book, page: WebSyncServer.PageSnapshot) {
+        self.book = book
+        self.page = page
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
         modalTransitionStyle = .crossDissolve
@@ -57,15 +61,18 @@ final class WebSyncViewController: UIViewController {
         titleLabel.textColor = .lvTextPrimary
         titleLabel.textAlignment = .center
 
-        // Generate QR code
-        qrImageView.image = generateQRCode(from: session.readingURL.absoluteString)
+        statusLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        statusLabel.textAlignment = .center
+        statusLabel.layer.cornerRadius = 12
+        statusLabel.clipsToBounds = true
+
         qrImageView.contentMode = .scaleAspectFit
         qrImageView.backgroundColor = .white
         qrImageView.layer.borderWidth = 1
         qrImageView.layer.borderColor = UIColor(white: 0.9, alpha: 1).cgColor
         qrImageView.layer.cornerRadius = 8
 
-        urlLabel.text = session.readingURL.absoluteString
+        urlLabel.text = "连接成功后显示访问地址"
         urlLabel.font = .systemFont(ofSize: 11)
         urlLabel.textColor = .lvTextSecondary
         urlLabel.textAlignment = .center
@@ -76,17 +83,16 @@ final class WebSyncViewController: UIViewController {
         copyButton.addTarget(self, action: #selector(copyLink), for: .touchUpInside)
         shareButton.addTarget(self, action: #selector(shareLink), for: .touchUpInside)
 
-        fingerprintLabel.text = "根证书指纹  \(session.rootFingerprint)"
-        fingerprintLabel.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        fingerprintLabel.textColor = .lvTextTertiary
-        fingerprintLabel.numberOfLines = 2
-        fingerprintLabel.textAlignment = .center
-
         tipLabel.text = "电脑与手机需连接同一 Wi-Fi，并保持 LVRead 在前台\n根证书在每台电脑上只需安装一次"
         tipLabel.font = .systemFont(ofSize: 12)
         tipLabel.textColor = .lvTextTertiary
         tipLabel.textAlignment = .center
         tipLabel.numberOfLines = 0
+
+        connectionButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        connectionButton.layer.cornerRadius = 12
+        connectionButton.addTarget(self, action: #selector(connectionTapped), for: .touchUpInside)
+        connectionButton.accessibilityHint = "打开或断开电脑同步服务"
 
         let buttonStack = UIStackView(arrangedSubviews: [copyButton, shareButton])
         buttonStack.axis = .horizontal
@@ -94,26 +100,31 @@ final class WebSyncViewController: UIViewController {
         buttonStack.distribution = .fillEqually
 
         containerView.addSubviews(
-            titleLabel, qrImageView, urlLabel, installButton,
-            buttonStack, fingerprintLabel, tipLabel
+            titleLabel, statusLabel, qrImageView, urlLabel, installButton,
+            buttonStack, tipLabel, connectionButton
         )
         view.addSubview(containerView)
 
-        [containerView, titleLabel, qrImageView, urlLabel, installButton,
-         buttonStack, fingerprintLabel, tipLabel].forEach {
+        [containerView, titleLabel, statusLabel, qrImageView, urlLabel, installButton,
+         buttonStack, tipLabel, connectionButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
 
-        containerView.centerInSuperview(size: CGSize(width: 320, height: 584))
+        containerView.centerInSuperview(size: CGSize(width: 320, height: 568))
         NSLayoutConstraint.activate([
 
             titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 24),
             titleLabel.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
 
-            qrImageView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 20),
+            statusLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+            statusLabel.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            statusLabel.widthAnchor.constraint(equalToConstant: 96),
+            statusLabel.heightAnchor.constraint(equalToConstant: 24),
+
+            qrImageView.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 16),
             qrImageView.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            qrImageView.widthAnchor.constraint(equalToConstant: 168),
-            qrImageView.heightAnchor.constraint(equalToConstant: 168),
+            qrImageView.widthAnchor.constraint(equalToConstant: 152),
+            qrImageView.heightAnchor.constraint(equalToConstant: 152),
 
             urlLabel.topAnchor.constraint(equalTo: qrImageView.bottomAnchor, constant: 12),
             urlLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
@@ -130,23 +141,38 @@ final class WebSyncViewController: UIViewController {
             copyButton.heightAnchor.constraint(equalToConstant: 44),
             shareButton.heightAnchor.constraint(equalToConstant: 44),
 
-            fingerprintLabel.topAnchor.constraint(equalTo: buttonStack.bottomAnchor, constant: 16),
-            fingerprintLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 24),
-            fingerprintLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -24),
-
-            tipLabel.topAnchor.constraint(equalTo: fingerprintLabel.bottomAnchor, constant: 16),
+            tipLabel.topAnchor.constraint(equalTo: buttonStack.bottomAnchor, constant: 16),
             tipLabel.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
             tipLabel.widthAnchor.constraint(equalToConstant: 260),
-            tipLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -24)
+            connectionButton.topAnchor.constraint(equalTo: tipLabel.bottomAnchor, constant: 16),
+            connectionButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 24),
+            connectionButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -24),
+            connectionButton.heightAnchor.constraint(equalToConstant: 44),
+            connectionButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20)
         ])
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(connectionStateChanged),
+            name: .webSyncConnectionStateChanged,
+            object: nil
+        )
+        updateConnectionState()
+        if WebSyncServer.shared.connectionState != .disconnected {
+            startConnection()
+        }
     }
 
+    deinit { NotificationCenter.default.removeObserver(self) }
+
     @objc private func copyLink() {
+        guard let session else { return }
         UIPasteboard.general.string = session.readingURL.absoluteString
         LVToast.show(message: "链接已复制!", style: .success)
     }
 
     @objc private func shareLink() {
+        guard let session else { return }
         let activityVC = UIActivityViewController(
             activityItems: [session.readingURL],
             applicationActivities: nil
@@ -155,12 +181,64 @@ final class WebSyncViewController: UIViewController {
     }
 
     @objc private func showCertificateGuide() {
+        guard let session else { return }
         let guide = CertificateSetupViewController(
             certificateURL: session.rootCertificateURL,
-            fingerprint: session.rootFingerprint,
             hostName: session.hostName
         )
         present(guide, animated: true)
+    }
+
+    @objc private func connectionTapped() {
+        switch WebSyncServer.shared.connectionState {
+        case .disconnected:
+            startConnection()
+        case .connecting, .connected:
+            WebSyncServer.shared.stop()
+        }
+    }
+
+    @objc private func connectionStateChanged() { updateConnectionState() }
+
+    private func startConnection() {
+        WebSyncServer.shared.start(with: book, page: page) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let session):
+                self.session = session
+                self.qrImageView.image = self.generateQRCode(from: session.readingURL.absoluteString)
+                self.urlLabel.text = session.readingURL.absoluteString
+                self.updateConnectionState()
+            case .failure(let error):
+                if let startError = error as? WebSyncServer.StartError,
+                   case .cancelled = startError { return }
+                LVToast.show(message: error.localizedDescription, style: .error)
+            }
+        }
+    }
+
+    private func updateConnectionState() {
+        let state = WebSyncServer.shared.connectionState
+        statusLabel.text = "●  \(state.title)"
+        connectionButton.setTitle(
+            state == .disconnected ? "打开同步" : "关闭同步",
+            for: .normal
+        )
+        let available = state != .disconnected && session != nil
+        [installButton, copyButton, shareButton].forEach { $0.isEnabled = available }
+        qrImageView.alpha = available ? 1 : 0.28
+        let color: UIColor
+        switch state {
+        case .disconnected: color = .secondaryLabel
+        case .connecting: color = .systemOrange
+        case .connected: color = .systemGreen
+        }
+        statusLabel.textColor = color
+        statusLabel.backgroundColor = color.withAlphaComponent(0.12)
+        connectionButton.setTitleColor(state == .connected ? .systemRed : .white, for: .normal)
+        connectionButton.backgroundColor = state == .connected
+            ? UIColor.systemRed.withAlphaComponent(0.12)
+            : UIColor.lvPrimary
     }
 
     private func generateQRCode(from string: String) -> UIImage? {
@@ -190,20 +268,16 @@ final class WebSyncViewController: UIViewController {
 /// First-use guide for installing the public LVRead root certificate on a PC.
 final class CertificateSetupViewController: UIViewController {
     private let certificateURL: URL
-    private let fingerprint: String
     private let hostName: String
 
     private let titleLabel = UILabel()
     private let systemControl = UISegmentedControl(items: ["macOS", "Windows"])
     private let instructionLabel = UILabel()
-    private let fingerprintLabel = UILabel()
     private let shareButton = LVButton(title: "发送根证书到电脑", style: .primary)
-    private let copyButton = LVButton(title: "复制证书指纹", style: .outline)
     private let closeButton = UIButton(type: .system)
 
-    init(certificateURL: URL, fingerprint: String, hostName: String) {
+    init(certificateURL: URL, hostName: String) {
         self.certificateURL = certificateURL
-        self.fingerprint = fingerprint
         self.hostName = hostName
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
@@ -231,21 +305,10 @@ final class CertificateSetupViewController: UIViewController {
         instructionLabel.textColor = .label
         instructionLabel.numberOfLines = 0
 
-        fingerprintLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        fingerprintLabel.textColor = .secondaryLabel
-        fingerprintLabel.numberOfLines = 0
-        fingerprintLabel.text = "SHA-256\n\(fingerprint)"
-
         shareButton.addTarget(self, action: #selector(shareCertificate), for: .touchUpInside)
-        copyButton.addTarget(self, action: #selector(copyFingerprint), for: .touchUpInside)
-
-        let buttonStack = UIStackView(arrangedSubviews: [shareButton, copyButton])
-        buttonStack.axis = .vertical
-        buttonStack.spacing = 16
 
         let contentStack = UIStackView(arrangedSubviews: [
-            titleLabel, systemControl, instructionLabel,
-            fingerprintLabel, buttonStack
+            titleLabel, systemControl, instructionLabel, shareButton
         ])
         contentStack.axis = .vertical
         contentStack.spacing = 24
@@ -272,8 +335,7 @@ final class CertificateSetupViewController: UIViewController {
             contentStack.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor, constant: 24),
             contentStack.trailingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.trailingAnchor, constant: -24),
             contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -24),
-            shareButton.heightAnchor.constraint(equalToConstant: 44),
-            copyButton.heightAnchor.constraint(equalToConstant: 44)
+            shareButton.heightAnchor.constraint(equalToConstant: 44)
         ])
         updateInstructions()
     }
@@ -285,6 +347,8 @@ final class CertificateSetupViewController: UIViewController {
     private func updateInstructions() {
         if systemControl.selectedSegmentIndex == 0 {
             instructionLabel.text = """
+            为什么需要安装：LVRead 使用 HTTPS 保护电脑与手机之间的阅读内容。本地证书用于让浏览器确认 lvread.local 确实由你的手机提供，避免每次访问都出现“不安全”警告。证书只需在这台电脑安装一次。
+
             只需安装一次：
 
             1. 点击下方“发送根证书到电脑”，通过 AirDrop 或文件保存到 Mac。
@@ -297,6 +361,8 @@ final class CertificateSetupViewController: UIViewController {
             """
         } else {
             instructionLabel.text = """
+            为什么需要安装：LVRead 使用 HTTPS 保护电脑与手机之间的阅读内容。本地证书用于让浏览器确认 lvread.local 确实由你的手机提供，避免每次访问都出现“不安全”警告。证书只需在这台电脑安装一次。
+
             只需安装一次：
 
             1. 点击下方“发送根证书到电脑”，将 LVRead-Root-CA.cer 保存到 Windows。
@@ -316,11 +382,6 @@ final class CertificateSetupViewController: UIViewController {
             applicationActivities: nil
         )
         present(controller, animated: true)
-    }
-
-    @objc private func copyFingerprint() {
-        UIPasteboard.general.string = fingerprint
-        LVToast.show(message: "证书指纹已复制", style: .success)
     }
 
     @objc private func close() {

@@ -1,5 +1,6 @@
 import XCTest
 import os.log
+import UIKit
 @testable import LVRead
 
 // MARK: - ReadingStats Model Tests
@@ -301,6 +302,164 @@ final class HighlightModelTests: XCTestCase {
             note: nil
         )
         XCTAssertNil(h.note)
+        XCTAssertTrue(h.isExcerpt)
+        XCTAssertFalse(h.isComment)
+    }
+
+    func testHighlightWithNoteIsComment() throws {
+        let h = Highlight(
+            bookId: "b1",
+            chapterIndex: 0,
+            pageOffset: 0,
+            startCharOffset: 0,
+            endCharOffset: 5,
+            text: "hello",
+            color: "#FF0000",
+            note: "读后想法"
+        )
+        XCTAssertFalse(h.isExcerpt)
+        XCTAssertTrue(h.isComment)
+    }
+
+    func testExcerptRangeRecoversAfterRepagination() throws {
+        let text = "第一行\n第二行\n目标段落"
+        let target = (text as NSString).range(of: "目标段落")
+        let page = NativeDocumentPage(
+            chapterIndex: 0,
+            pageIndex: 0,
+            chapterTitle: "测试",
+            startOffset: 0,
+            endOffset: (text as NSString).length,
+            text: text,
+            image: nil
+        )
+        let excerpt = Highlight(
+            bookId: "b1",
+            chapterIndex: 0,
+            pageOffset: 0,
+            startCharOffset: 0,
+            endCharOffset: 4,
+            text: "目标段落"
+        )
+        XCTAssertEqual(NativeCoreTextView.localRange(for: excerpt, page: page), target)
+    }
+
+    func testCoreTextLineOriginIncludesTextPathInsets() throws {
+        let value = NativeDocumentTypography.absoluteLineOrigin(
+            CGPoint(x: 12, y: 30),
+            pathOrigin: CGPoint(x: 20, y: 80)
+        )
+        XCTAssertEqual(value, CGPoint(x: 32, y: 110))
+    }
+
+}
+
+final class NativeReaderChromeStyleTests: XCTestCase {
+    func testChromeSurfaceMatchesSettingsSheetInEveryVisibleTheme() {
+        for theme in ReadingTheme.visibleThemes {
+            var settings = ReadingSettings.default
+            settings.readingTheme = theme
+            let surface = NativeReaderChromeStyle.surface(for: settings)
+            XCTAssertTrue(surface.isEqual(UIColor(hex: theme.panelColor)), theme.displayName)
+        }
+    }
+}
+
+final class NativeListeningPillLayoutTests: XCTestCase {
+    func testExpandedPillFitsThreeEqualButtons() {
+        XCTAssertEqual(
+            NativeListeningPillLayout.expandedWidth,
+            NativeListeningPillLayout.buttonSize * 3
+        )
+        XCTAssertEqual(
+            NativeListeningPillLayout.collapsedWidth,
+            NativeListeningPillLayout.buttonSize
+        )
+    }
+
+    func testListeningControlsFollowMenuVisibility() {
+        XCTAssertEqual(
+            NativeListeningControlsVisibility.resolve(menuVisible: true, isListening: true),
+            NativeListeningControlsVisibility(pillVisible: true, footerVisible: false)
+        )
+        XCTAssertEqual(
+            NativeListeningControlsVisibility.resolve(menuVisible: false, isListening: true),
+            NativeListeningControlsVisibility(pillVisible: false, footerVisible: true)
+        )
+        XCTAssertEqual(
+            NativeListeningControlsVisibility.resolve(menuVisible: false, isListening: false),
+            NativeListeningControlsVisibility(pillVisible: false, footerVisible: false)
+        )
+    }
+}
+
+final class NativeListeningInterruptionPolicyTests: XCTestCase {
+    func testOnlyActivePlaybackResumesAfterInterruption() {
+        XCTAssertTrue(
+            NativeListeningInterruptionPolicy.shouldResume(isListening: true, isPaused: false)
+        )
+        XCTAssertFalse(
+            NativeListeningInterruptionPolicy.shouldResume(isListening: true, isPaused: true)
+        )
+        XCTAssertFalse(
+            NativeListeningInterruptionPolicy.shouldResume(isListening: false, isPaused: false)
+        )
+    }
+}
+
+final class WebSyncConnectionStateTests: XCTestCase {
+    func testConnectionStatesHaveDistinctUserFacingTitles() {
+        XCTAssertEqual(WebSyncConnectionState.disconnected.title, "断开连接")
+        XCTAssertEqual(WebSyncConnectionState.connecting.title, "连接中")
+        XCTAssertEqual(WebSyncConnectionState.connected.title, "已连接")
+    }
+
+    func testOnlyConnectedBookUsesActiveAppearance() {
+        XCTAssertTrue(WebSyncConnectionState.connected.isActive(for: "book-1", activeBookID: "book-1"))
+        XCTAssertFalse(WebSyncConnectionState.connected.isActive(for: "book-2", activeBookID: "book-1"))
+        XCTAssertFalse(WebSyncConnectionState.connecting.isActive(for: "book-1", activeBookID: "book-1"))
+    }
+}
+
+final class NativeSpeechTextRangeTests: XCTestCase {
+    func testSpokenWordExpandsToItsChineseSentence() throws {
+        let text = "第一句。正在朗读这一句！第三句。"
+        let spoken = (text as NSString).range(of: "朗读")
+        let range = try XCTUnwrap(NativeSpeechTextRange.sentence(in: text, containing: spoken))
+        XCTAssertEqual((text as NSString).substring(with: range), "正在朗读这一句！")
+    }
+
+    func testLastSentenceWithoutPunctuationIsHighlighted() throws {
+        let text = "第一句。最后一句"
+        let spoken = (text as NSString).range(of: "最后")
+        let range = try XCTUnwrap(NativeSpeechTextRange.sentence(in: text, containing: spoken))
+        XCTAssertEqual((text as NSString).substring(with: range), "最后一句")
+    }
+
+    func testSpeechBufferKeepsCrossPageSentenceInOneUtterance() throws {
+        let first = NativeDocumentPage(
+            chapterIndex: 0,
+            pageIndex: 0,
+            chapterTitle: "测试",
+            startOffset: 0,
+            endOffset: 6,
+            text: "这是一个跨页",
+            image: nil
+        )
+        let second = NativeDocumentPage(
+            chapterIndex: 0,
+            pageIndex: 1,
+            chapterTitle: "测试",
+            startOffset: 6,
+            endOffset: 14,
+            text: "的完整句子。下一句",
+            image: nil
+        )
+        let buffer = try XCTUnwrap(NativeSpeechBuffer.make(pages: [first, second], startIndex: 0, offset: 0))
+        XCTAssertEqual(buffer.text, "这是一个跨页的完整句子。")
+        XCTAssertEqual(buffer.segments.count, 2)
+        XCTAssertEqual(buffer.continuationPageID, second.id)
+        XCTAssertEqual(buffer.continuationOffset, 6)
     }
 }
 

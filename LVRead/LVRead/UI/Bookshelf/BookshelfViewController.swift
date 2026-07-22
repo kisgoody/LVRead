@@ -109,6 +109,12 @@ final class BookshelfViewController: UIViewController {
             name: .darkModeChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(webSyncStateChanged),
+            name: .webSyncConnectionStateChanged,
+            object: nil
+        )
         loadBooks()
     }
 
@@ -426,14 +432,14 @@ final class BookshelfViewController: UIViewController {
             sectionHeaderView.topAnchor.constraint(equalTo: continueView.bottomAnchor, constant: 22),
             sectionHeaderView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 18),
             sectionHeaderView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -18),
-            sectionHeaderView.heightAnchor.constraint(equalToConstant: 38),
+            sectionHeaderView.heightAnchor.constraint(equalToConstant: 44),
             sectionTitleStack.leadingAnchor.constraint(equalTo: sectionHeaderView.leadingAnchor),
             sectionTitleStack.centerYAnchor.constraint(equalTo: sectionHeaderView.centerYAnchor),
             sectionTitleStack.trailingAnchor.constraint(lessThanOrEqualTo: sectionActionsStack.leadingAnchor, constant: -12),
             sectionActionsStack.trailingAnchor.constraint(equalTo: sectionHeaderView.trailingAnchor),
             sectionActionsStack.centerYAnchor.constraint(equalTo: sectionHeaderView.centerYAnchor),
-            sectionMoreButton.widthAnchor.constraint(equalToConstant: 36),
-            sectionMoreButton.heightAnchor.constraint(equalToConstant: 36),
+            sectionMoreButton.widthAnchor.constraint(equalToConstant: 44),
+            sectionMoreButton.heightAnchor.constraint(equalToConstant: 44),
 
             collectionView.topAnchor.constraint(equalTo: sectionHeaderView.bottomAnchor, constant: 12),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -624,6 +630,11 @@ final class BookshelfViewController: UIViewController {
         updateFilterChipColors()
         collectionView.visibleCells.compactMap { $0 as? BookCell }.forEach { $0.applyAppearance() }
         tableView.visibleCells.compactMap { $0 as? BookListCell }.forEach { $0.applyAppearance() }
+    }
+
+    @objc private func webSyncStateChanged() {
+        collectionView.reloadData()
+        tableView.reloadData()
     }
 
     private func updateFilterChipColors() {
@@ -1015,6 +1026,14 @@ final class BookshelfViewController: UIViewController {
         navigationController?.pushViewController(readerVC, animated: true)
     }
 
+    private func openWebSync(for book: Book) {
+        guard let page = WebSyncServer.shared.savedPageSnapshot(for: book.id) else {
+            LVToast.show(message: "请先打开《\(book.title)》生成阅读页面", style: .info)
+            return
+        }
+        present(WebSyncViewController(book: book, page: page), animated: true)
+    }
+
     // MARK: - Filter Chips
 
     private func createFilterChip(title: String, tag: Int) -> UIButton {
@@ -1062,7 +1081,12 @@ extension BookshelfViewController: UICollectionViewDataSource, UICollectionViewD
             for: indexPath
         ) as! BookCell
         if indexPath.item < filteredBooks.count {
-            cell.configure(with: filteredBooks[indexPath.item])
+            let book = filteredBooks[indexPath.item]
+            cell.configure(
+                with: book,
+                syncConnected: WebSyncServer.shared.isConnected(to: book.id)
+            )
+            cell.onSyncTapped = { [weak self] in self?.openWebSync(for: book) }
         }
         return cell
     }
@@ -1130,7 +1154,12 @@ extension BookshelfViewController: UITableViewDataSource, UITableViewDelegate {
             withIdentifier: BookListCell.reuseIdentifier,
             for: indexPath
         ) as! BookListCell
-        cell.configure(with: filteredBooks[indexPath.row])
+        let book = filteredBooks[indexPath.row]
+        cell.configure(
+            with: book,
+            syncConnected: WebSyncServer.shared.isConnected(to: book.id)
+        )
+        cell.onSyncTapped = { [weak self] in self?.openWebSync(for: book) }
         return cell
     }
 
