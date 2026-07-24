@@ -200,6 +200,15 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("d.error==='beginning_of_book'"))
         XCTAssertFalse(html.contains("setTimeout(loadPage,700)"))
         XCTAssertFalse(html.contains("contentEl.textContent='翻页失败：'"))
+        XCTAssertTrue(html.contains("网页阅读模式"))
+        XCTAssertTrue(html.contains("data-mode=\"default\""))
+        XCTAssertTrue(html.contains("data-mode=\"mobile\""))
+        XCTAssertTrue(html.contains("aria-pressed=\"true\""))
+        XCTAssertTrue(html.contains("lvread_web_reading_mode"))
+        XCTAssertTrue(html.contains("classList.toggle('mobile-portrait'"))
+        XCTAssertTrue(html.contains("html,body{height:100%;overflow:hidden;}"))
+        XCTAssertTrue(html.contains("function resizePortraitText()"))
+        XCTAssertTrue(html.contains("contentEl.scrollHeight>available"))
     }
 
     func testWebSyncPageSnapshotDecodesLegacyValueWithoutLayout() throws {

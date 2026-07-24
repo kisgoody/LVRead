@@ -147,6 +147,139 @@ final class ReadingStatsRepositoryTests: XCTestCase {
     }
 }
 
+final class ReadingAdviceEngineTests: XCTestCase {
+    private var calendar: Calendar!
+    private var now: Date!
+
+    override func setUpWithError() throws {
+        calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 7, day: 24, hour: 12))
+        )
+    }
+
+    func testEveryAdviceKindHasFiveTemplates() {
+        XCTAssertEqual(ReadingAdviceEngine.templates.count, ReadingAdviceKind.allCases.count)
+        ReadingAdviceKind.allCases.forEach {
+            XCTAssertEqual(ReadingAdviceEngine.templates[$0]?.count, 5, $0.rawValue)
+        }
+    }
+
+    func testTemplateSelectorDoesNotRepeatWithinFiveSelections() throws {
+        let suite = "reading-advice-selector-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let selector = ReadingAdviceTemplateSelector(defaults: defaults, randomIndex: { _ in 0 })
+        let values = (0..<10).map { _ in
+            selector.selectIndex(for: .streakStable, templateCount: 5)
+        }
+
+        for start in 0...(values.count - 5) {
+            XCTAssertEqual(Set(values[start..<(start + 5)]).count, 5)
+        }
+    }
+
+    func testInsufficientDataReturnsOnlyDataCollectionAdvice() throws {
+        let engine = makeEngine()
+        let input = makeInput(minutes: [20, 20])
+
+        let suggestions = engine.makeSuggestions(input: input)
+
+        XCTAssertEqual(suggestions.map(\.kind), [.dataInsufficient])
+    }
+
+    func testGrowthUsesReadingStatisticsInsteadOfDailyGoal() throws {
+        let engine = makeEngine()
+        let input = makeInput(minutes: Array(repeating: 10, count: 7) + Array(repeating: 20, count: 7))
+
+        let suggestions = engine.makeSuggestions(input: input)
+
+        XCTAssertEqual(suggestions.first?.kind, .trendGrowth)
+        XCTAssertTrue(suggestions.first?.text.contains("增加") == true
+                      || suggestions.first?.text.contains("提升") == true
+                      || suggestions.first?.text.contains("更加稳定") == true
+                      || suggestions.first?.text.contains("更加活跃") == true)
+    }
+
+    func testOvernightAdviceOverridesNormalNightAdvice() throws {
+        let engine = makeEngine()
+        let days = makeDays(minutes: Array(repeating: 30, count: 5)) { _ in
+            var hours = Array(repeating: 0.0, count: 24)
+            hours[0] = 15
+            hours[1] = 15
+            return hours
+        }
+        let input = makeInput(days: days)
+
+        let suggestions = engine.makeSuggestions(input: input)
+
+        XCTAssertTrue(suggestions.map(\.kind).contains(.timeOvernight))
+        XCTAssertFalse(suggestions.map(\.kind).contains(.timeNight))
+        XCTAssertLessThanOrEqual(suggestions.filter { $0.kind.isTimeAdvice }.count, 1)
+    }
+
+    func testEarlyMorningAdviceUsesDetectedTwoHourRange() throws {
+        let engine = makeEngine()
+        let days = makeDays(minutes: Array(repeating: 30, count: 5)) { _ in
+            var hours = Array(repeating: 0.0, count: 24)
+            hours[6] = 18
+            hours[7] = 12
+            return hours
+        }
+        let input = makeInput(days: days)
+
+        let suggestions = engine.makeSuggestions(input: input)
+
+        let advice = try XCTUnwrap(suggestions.first { $0.kind == .timeEarlyMorning })
+        XCTAssertTrue(advice.text.contains("06:00～08:00") || !advice.text.contains("{range}"))
+    }
+
+    private func makeEngine() -> ReadingAdviceEngine {
+        let suite = "reading-advice-engine-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let selector = ReadingAdviceTemplateSelector(defaults: defaults, randomIndex: { _ in 0 })
+        return ReadingAdviceEngine(selector: selector, calendar: calendar)
+    }
+
+    private func makeInput(minutes: [Int]) -> ReadingAdviceInput {
+        makeInput(days: makeDays(minutes: minutes) { _ in Array(repeating: 0, count: 24) })
+    }
+
+    private func makeInput(days: [ReadingAdviceDay]) -> ReadingAdviceInput {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let daily = Dictionary(uniqueKeysWithValues: days.map {
+            (formatter.string(from: $0.date), $0.minutes)
+        })
+        return ReadingAdviceInput(
+            stats: ReadingStats(
+                totalReadingTimeSeconds: daily.values.reduce(0, +) * 60,
+                dailyReadingMinutes: daily
+            ),
+            days: days,
+            books: [],
+            bookStats: [:],
+            now: now
+        )
+    }
+
+    private func makeDays(
+        minutes: [Int],
+        hours: (Int) -> [Double]
+    ) -> [ReadingAdviceDay] {
+        minutes.enumerated().compactMap { index, value in
+            let offset = minutes.count - index - 1
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: now) else { return nil }
+            return ReadingAdviceDay(date: date, minutes: value, hourlyMinutes: hours(index))
+        }
+    }
+}
+
 final class LVModuleSubtitleProviderTests: XCTestCase {
     func testDailyModuleSubtitlesAreStableAndUnique() {
         let first = [

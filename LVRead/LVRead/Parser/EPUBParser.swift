@@ -182,8 +182,13 @@ final class EPUBParser: FileParserProtocol {
             throw LVError.parseFailed
         }
 
-        try extractZIP(data: data, to: extractDir)
-        return extractDir
+        do {
+            try extractZIP(data: data, to: extractDir)
+            return extractDir
+        } catch {
+            try? FileManager.default.removeItem(atPath: extractDir)
+            throw error
+        }
     }
 
     /// Minimal ZIP extractor using zlib for decompression (works on iOS device & simulator).
@@ -228,7 +233,12 @@ final class EPUBParser: FileParserProtocol {
             // Skip directories
             if fileName.hasSuffix("/") { continue }
 
-            let destPath = (directory as NSString).appendingPathComponent(fileName)
+            let extractionRoot = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL
+            let destination = extractionRoot.appendingPathComponent(fileName).standardizedFileURL
+            guard destination.path.hasPrefix(extractionRoot.path + "/") else {
+                throw LVError.parseFailed
+            }
+            let destPath = destination.path
             let destDir = (destPath as NSString).deletingLastPathComponent
             try FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
 
@@ -249,6 +259,11 @@ final class EPUBParser: FileParserProtocol {
                 try fileData.write(to: URL(fileURLWithPath: destPath))
             } else if compressionMethod == 8 {
                 // Deflate
+                guard dataStart >= 0,
+                      dataStart <= data.count,
+                      compressedSize <= data.count - dataStart else {
+                    throw LVError.parseFailed
+                }
                 let compressedData = data.subdata(in: dataStart..<dataStart+compressedSize)
                 let decompressed = try inflateData(compressedData, uncompressedSize: uncompressedSize)
                 try decompressed.write(to: URL(fileURLWithPath: destPath))

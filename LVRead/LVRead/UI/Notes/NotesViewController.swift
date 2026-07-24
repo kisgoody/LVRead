@@ -19,11 +19,8 @@ final class NotesViewController: UIViewController {
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let searchBar = UISearchBar()
-    private let metricsStack = UIStackView()
-    private let excerptMetric = UILabel()
-    private let commentMetric = UILabel()
-    private let bookmarkMetric = UILabel()
-    private let filterControl = UISegmentedControl(items: ["全部", "摘录", "评论", "书签"])
+    private let filterScrollView = UIScrollView()
+    private let filterStackView = UIStackView()
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let emptyView = LVEmptyStateView(
         icon: "bookmark",
@@ -78,15 +75,13 @@ final class NotesViewController: UIViewController {
         searchBar.delegate = self
         searchBar.accessibilityLabel = "搜索笔记"
 
-        metricsStack.axis = .horizontal
-        metricsStack.spacing = 8
-        metricsStack.distribution = .fillEqually
-        metricsStack.addArrangedSubview(makeMetricCard(valueLabel: excerptMetric, title: "摘录"))
-        metricsStack.addArrangedSubview(makeMetricCard(valueLabel: commentMetric, title: "评论"))
-        metricsStack.addArrangedSubview(makeMetricCard(valueLabel: bookmarkMetric, title: "书签"))
-
-        filterControl.selectedSegmentIndex = 0
-        filterControl.addTarget(self, action: #selector(filterChanged), for: .valueChanged)
+        filterScrollView.showsHorizontalScrollIndicator = false
+        filterStackView.axis = .horizontal
+        filterStackView.spacing = 8
+        filterScrollView.addSubview(filterStackView)
+        ["全部", "摘录", "评论", "书签"].enumerated().forEach { index, title in
+            filterStackView.addArrangedSubview(makeFilterChip(title: title, tag: index))
+        }
         applyFilterAppearance()
 
         tableView.backgroundColor = .clear
@@ -99,10 +94,11 @@ final class NotesViewController: UIViewController {
         tableView.register(LVNoteCardCell.self, forCellReuseIdentifier: LVNoteCardCell.reuseIdentifier)
 
         moduleNavigation.onSelect = { [weak self] module in self?.showMainModule(module) }
-        [titleLabel, subtitleLabel, searchBar, metricsStack, filterControl, tableView, emptyView, moduleNavigation].forEach {
+        [titleLabel, subtitleLabel, searchBar, filterScrollView, tableView, emptyView, moduleNavigation].forEach {
             view.addSubview($0)
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
+        filterStackView.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
@@ -112,15 +108,16 @@ final class NotesViewController: UIViewController {
             searchBar.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 12),
             searchBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
             searchBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-            metricsStack.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 8),
-            metricsStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            metricsStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            metricsStack.heightAnchor.constraint(equalToConstant: 72),
-            filterControl.topAnchor.constraint(equalTo: metricsStack.bottomAnchor, constant: 16),
-            filterControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            filterControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            filterControl.heightAnchor.constraint(equalToConstant: 36),
-            tableView.topAnchor.constraint(equalTo: filterControl.bottomAnchor, constant: 12),
+            filterScrollView.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 8),
+            filterScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            filterScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            filterScrollView.heightAnchor.constraint(equalToConstant: 36),
+            filterStackView.topAnchor.constraint(equalTo: filterScrollView.contentLayoutGuide.topAnchor),
+            filterStackView.leadingAnchor.constraint(equalTo: filterScrollView.contentLayoutGuide.leadingAnchor),
+            filterStackView.trailingAnchor.constraint(equalTo: filterScrollView.contentLayoutGuide.trailingAnchor),
+            filterStackView.bottomAnchor.constraint(equalTo: filterScrollView.contentLayoutGuide.bottomAnchor),
+            filterStackView.heightAnchor.constraint(equalTo: filterScrollView.frameLayoutGuide.heightAnchor),
+            tableView.topAnchor.constraint(equalTo: filterScrollView.bottomAnchor, constant: 12),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             tableView.bottomAnchor.constraint(equalTo: moduleNavigation.topAnchor),
@@ -133,31 +130,6 @@ final class NotesViewController: UIViewController {
             moduleNavigation.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             moduleNavigation.heightAnchor.constraint(equalToConstant: 76)
         ])
-    }
-
-    private func makeMetricCard(valueLabel: UILabel, title: String) -> UIView {
-        let card = UIView()
-        LVBookshelfModuleStyle.applyCard(to: card)
-        valueLabel.font = .systemFont(ofSize: 20, weight: .bold)
-        valueLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
-        valueLabel.textAlignment = .center
-        let caption = UILabel()
-        caption.text = title
-        caption.font = .systemFont(ofSize: 12)
-        caption.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
-        caption.textAlignment = .center
-        let stack = UIStackView(arrangedSubviews: [valueLabel, caption])
-        stack.axis = .vertical
-        stack.alignment = .fill
-        stack.spacing = 4
-        card.addSubview(stack)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            stack.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8)
-        ])
-        return card
     }
 
     @objc private func reloadData() { loadAssets() }
@@ -200,15 +172,17 @@ final class NotesViewController: UIViewController {
         let bookmarkCount = assets.filter { if case .bookmark = $0.kind { return true }; return false }.count
         let excerptCount = assets.filter { if case .excerpt = $0.kind { return true }; return false }.count
         let commentCount = assets.filter { if case .comment = $0.kind { return true }; return false }.count
-        excerptMetric.text = "\(excerptCount)"
-        commentMetric.text = "\(commentCount)"
-        bookmarkMetric.text = "\(bookmarkCount)"
+        updateFilterChipTitles(
+            excerptCount: excerptCount,
+            commentCount: commentCount,
+            bookmarkCount: bookmarkCount
+        )
         emptyView.isHidden = !visibleAssets.isEmpty
         tableView.reloadData()
     }
 
-    @objc private func filterChanged() {
-        filter = Filter(rawValue: filterControl.selectedSegmentIndex) ?? .all
+    @objc private func filterChanged(_ sender: UIButton) {
+        filter = Filter(rawValue: sender.tag) ?? .all
         applyFilter()
     }
 
@@ -228,16 +202,47 @@ final class NotesViewController: UIViewController {
     }
 
     private func applyFilterAppearance() {
-        filterControl.backgroundColor = LVBookshelfModuleStyle.cardBackground
-        filterControl.selectedSegmentTintColor = LVBookshelfModuleStyle.primaryText
-        filterControl.setTitleTextAttributes(
-            [.foregroundColor: LVBookshelfModuleStyle.pageBackground],
-            for: .selected
-        )
-        filterControl.setTitleTextAttributes(
-            [.foregroundColor: LVBookshelfModuleStyle.secondaryText],
-            for: .normal
-        )
+        let panel = LVBookshelfModuleStyle.cardBackground
+        let text = LVBookshelfModuleStyle.secondaryText
+        let accent = LVBookshelfModuleStyle.primaryText
+        let divider = LVBookshelfModuleStyle.divider
+        for case let chip as UIButton in filterStackView.arrangedSubviews {
+            let selected = chip.tag == filter.rawValue
+            chip.backgroundColor = selected ? accent : panel
+            chip.layer.borderColor = (selected ? accent : divider).cgColor
+            chip.titleLabel?.font = .systemFont(ofSize: 13, weight: selected ? .bold : .medium)
+            chip.setTitleColor(selected ? LVBookshelfModuleStyle.pageBackground : text, for: .normal)
+        }
+    }
+
+    private func makeFilterChip(title: String, tag: Int) -> UIButton {
+        let chip = UIButton(type: .system)
+        chip.setTitle(title, for: .normal)
+        chip.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        chip.layer.cornerRadius = 18
+        chip.layer.borderWidth = 1
+        chip.contentEdgeInsets = UIEdgeInsets(top: 0, left: 15, bottom: 0, right: 15)
+        chip.tag = tag
+        chip.addTarget(self, action: #selector(filterChanged(_:)), for: .touchUpInside)
+        chip.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        return chip
+    }
+
+    private func updateFilterChipTitles(
+        excerptCount: Int,
+        commentCount: Int,
+        bookmarkCount: Int
+    ) {
+        let titles = [
+            "全部 \(assets.count)",
+            "摘录 \(excerptCount)",
+            "评论 \(commentCount)",
+            "书签 \(bookmarkCount)"
+        ]
+        for case let chip as UIButton in filterStackView.arrangedSubviews {
+            chip.setTitle(titles[chip.tag], for: .normal)
+        }
+        applyFilterAppearance()
     }
 
     private func open(_ asset: Asset) {

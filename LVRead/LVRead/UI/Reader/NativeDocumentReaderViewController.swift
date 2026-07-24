@@ -553,8 +553,9 @@ final class NativeDocumentReaderViewController: UIViewController {
             menuBookmarkButton.centerYAnchor.constraint(equalTo: menuSyncButton.centerYAnchor),
             menuBookmarkButton.widthAnchor.constraint(equalToConstant: 44),
             menuBookmarkButton.heightAnchor.constraint(equalToConstant: 44),
-            menuTitle.leadingAnchor.constraint(equalTo: menuBack.trailingAnchor, constant: 8),
-            menuTitle.trailingAnchor.constraint(equalTo: menuBookmarkButton.leadingAnchor, constant: -8),
+            menuTitle.centerXAnchor.constraint(equalTo: topMenu.centerXAnchor),
+            menuTitle.leadingAnchor.constraint(greaterThanOrEqualTo: menuBack.trailingAnchor, constant: 8),
+            menuTitle.trailingAnchor.constraint(lessThanOrEqualTo: menuBookmarkButton.leadingAnchor, constant: -8),
             menuTitle.centerYAnchor.constraint(equalTo: menuBack.centerYAnchor),
             bottomMenu.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomMenu.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -1349,6 +1350,9 @@ final class NativeDocumentReaderViewController: UIViewController {
         let bookmarked = currentPage.map(isBookmarked) ?? false
         let image = UIImage(systemName: bookmarked ? "bookmark.fill" : "bookmark")
         menuBookmarkButton.setImage(image, for: .normal)
+        menuBookmarkButton.tintColor = UIColor(
+            hex: bookmarked ? settings.readingTheme.accentColor : settings.readingTheme.textColor
+        )
     }
 
     private func showSettings(section: NativeReaderSettingsSheet.Section) {

@@ -152,7 +152,8 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
 
     var accentColor: String {
         switch self {
-        case .white, .oled: return "#FF5E3A"
+        case .white: return "#C94F32"
+        case .oled: return "#FF5E3A"
         case .warmYellow: return "#E8784A"
         case .mint: return "#00A86B"
         case .latte: return "#C67B5C"

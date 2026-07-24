@@ -209,13 +209,13 @@ enum LVBookshelfModuleStyle {
     static func applyCard(to card: UIView) {
         card.layer.name = cardIdentifier
         card.backgroundColor = cardBackground
-        card.layer.cornerRadius = 8
-        card.layer.borderWidth = 1 / UIScreen.main.scale
+        card.layer.cornerRadius = 12
+        card.layer.borderWidth = 1
         card.layer.borderColor = divider.cgColor
         card.layer.shadowColor = (DarkModeManager.shared.isDarkMode ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
-        card.layer.shadowOffset = CGSize(width: 0, height: 10)
-        card.layer.shadowRadius = 24
-        card.layer.shadowOpacity = 0.06
+        card.layer.shadowOffset = CGSize(width: 0, height: 8)
+        card.layer.shadowRadius = 16
+        card.layer.shadowOpacity = DarkModeManager.shared.isDarkMode ? 0.24 : 0.12
     }
 
     static func refreshCards(in root: UIView) {

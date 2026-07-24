@@ -14,6 +14,7 @@
 		0F034CA07EA95F0200913050 /* LVButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57BD5D219CB21227FDE53835 /* LVButton.swift */; };
 		130CED2158BEEA8F7158FC03 /* FileManager+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C80AFAD9D6A7F08DD4935A32 /* FileManager+Extensions.swift */; };
 		14711A01D99D4D96DA3A3B49 /* ReadingStatsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B867BDBB8344889C9AFC1D /* ReadingStatsRepository.swift */; };
+		A11CE002A11CE002A11CE002 /* ReadingAdviceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE001A11CE001A11CE001 /* ReadingAdviceEngine.swift */; };
 		15F178820373C58A2BFDDF90 /* ThemeColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDAA201AA14ED6C5A7E8F9A2 /* ThemeColors.swift */; };
 		16E27343418515BEAC041E08 /* PaperCurlAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8846C8D88927B1EA3A422C68 /* PaperCurlAnimator.swift */; };
 		1802462534782E1AED65BD62 /* SearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F1AAC3D9A838F575CE45CE /* SearchViewController.swift */; };
@@ -162,6 +163,7 @@
 		8ECA281C6E6CEF779668315C /* LVEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVEmptyStateView.swift; sourceTree = "<group>"; };
 		9136D8721F62BCDE488B10E6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9B95236BF3E76DDAA1AC7A99 /* TCPTransferServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPTransferServer.swift; sourceTree = "<group>"; };
+		A11CE001A11CE001A11CE001 /* ReadingAdviceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingAdviceEngine.swift; sourceTree = "<group>"; };
 		A3634BB6E34575234BAC00D1 /* LVRead.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LVRead.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A43B5825B2ABECB25FE6C7BE /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
 		A724FB18376F02CF582C8225 /* LVCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVCard.swift; sourceTree = "<group>"; };
@@ -393,6 +395,7 @@
 			isa = PBXGroup;
 			children = (
 				63EBAD65EC543257D3ACEB31 /* BookRepository.swift */,
+				A11CE001A11CE001A11CE001 /* ReadingAdviceEngine.swift */,
 				D1D1E66DD3225BF74B35DF0A /* ReadingSettingsRepository.swift */,
 				F7B867BDBB8344889C9AFC1D /* ReadingStatsRepository.swift */,
 			);
@@ -731,6 +734,7 @@
 				EB78B73C18F720EE8323331E /* ReadingSettings.swift in Sources */,
 				09F3D7B6C2E6FD6579C20D73 /* ReadingSettingsRepository.swift in Sources */,
 				5610FCB02DB7FCF5C424AA33 /* ReadingStats.swift in Sources */,
+				A11CE002A11CE002A11CE002 /* ReadingAdviceEngine.swift in Sources */,
 				14711A01D99D4D96DA3A3B49 /* ReadingStatsRepository.swift in Sources */,
 				5D4A9784345ACFD41B4AACDC /* ReadingStatsViewController.swift in Sources */,
 				D7F1C7712B188A60F824A5AA /* SceneDelegate.swift in Sources */,

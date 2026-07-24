@@ -37,7 +37,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
                 self.window?.rootViewController = navigationController
             }
             DarkModeManager.shared.applyTheme()
-            WebSyncServer.shared.resumeSavedSessionIfNeeded()
 
             if let url = connectionOptions.urlContexts.first?.url {
                 self.handleIncomingFile(url)
@@ -62,7 +61,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneWillEnterForeground(_ scene: UIScene) {
         TransferManager.shared.handleForegroundTransition()
-        WebSyncServer.shared.resumeSavedSessionIfNeeded(restartListener: true)
     }
 
     private func handleIncomingFile(_ url: URL) {

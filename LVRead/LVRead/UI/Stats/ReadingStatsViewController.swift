@@ -60,8 +60,6 @@ final class ReadingStatsViewController: UIViewController {
         let timeSummary = ReadingStatsRepository.shared.consistentReadingSummary()
         let books = BookRepository.shared.getAll()
         let bookStats = ReadingStatsRepository.shared.getBookStats()
-        let bookmarkCount = books.reduce(0) { $0 + BookRepository.shared.getBookmarks(for: $1.id).count }
-        let annotationCount = books.reduce(0) { $0 + BookRepository.shared.getHighlights(for: $1.id).count }
 
         stackView.addArrangedSubview(makeSummaryGrid(items: [
             ("总时长", "\(timeSummary.total) 分钟", "clock"),
@@ -90,19 +88,6 @@ final class ReadingStatsViewController: UIViewController {
             content: LVStatsBarChartView(items: weeklyItems, color: .lvInfo)
         ))
 
-        let unread = books.filter { $0.readingProgress.progressPercent <= 0 }.count
-        let reading = books.filter { $0.readingProgress.progressPercent > 0 && $0.readingProgress.progressPercent < 100 }.count
-        let finished = books.filter { $0.readingProgress.progressPercent >= 100 }.count
-        stackView.addArrangedSubview(makeSection(
-            title: "藏书阅读状态",
-            subtitle: "共 \(books.count) 本",
-            content: LVStatsBarChartView(items: [
-                .init(label: "待读", value: Double(unread), valueText: "\(unread) 本"),
-                .init(label: "阅读中", value: Double(reading), valueText: "\(reading) 本"),
-                .init(label: "已读完", value: Double(finished), valueText: "\(finished) 本")
-            ], color: .lvSecondary)
-        ))
-
         let formats = Dictionary(grouping: books, by: { $0.fileFormat.displayName })
             .map { LVStatsBarChartView.Item(label: $0.key, value: Double($0.value.count), valueText: "\($0.value.count) 本") }
             .sorted { $0.value > $1.value }
@@ -125,17 +110,8 @@ final class ReadingStatsViewController: UIViewController {
             content: LVStatsBarChartView(items: Array(topBooks), color: .lvPrimary)
         ))
 
-        stackView.addArrangedSubview(makeSection(
-            title: "笔记沉淀",
-            subtitle: "阅读过程中保存的内容资产",
-            content: LVStatsBarChartView(items: [
-                .init(label: "书签", value: Double(bookmarkCount), valueText: "\(bookmarkCount) 个"),
-                .init(label: "批注", value: Double(annotationCount), valueText: "\(annotationCount) 条")
-            ], color: UIColor(hex: "#C67B5C"))
-        ))
-
         stackView.addArrangedSubview(makeAdviceCard(
-            suggestions(stats: stats, analytics: analytics, books: books, noteCount: bookmarkCount + annotationCount)
+            ReadingAdviceEngine.shared.suggestions().map(\.text)
         ))
     }
 
@@ -217,37 +193,6 @@ final class ReadingStatsViewController: UIViewController {
         }
         embed(stack, in: card)
         return card
-    }
-
-    private func suggestions(
-        stats: ReadingStats,
-        analytics: ReadingAnalytics,
-        books: [Book],
-        noteCount: Int
-    ) -> [String] {
-        let savedGoal = UserDefaults.standard.integer(forKey: "profile_daily_reading_goal_minutes")
-        let goal = savedGoal > 0 ? savedGoal : 30
-        var result: [String] = []
-        if analytics.todayReadingMinutes < goal {
-            result.append("今天距离 \(goal) 分钟目标还差 \(goal - analytics.todayReadingMinutes) 分钟，可以安排一次短阅读。")
-        } else {
-            result.append("今天已完成阅读目标，保持当前节奏即可。")
-        }
-        if analytics.currentStreak == 0 {
-            result.append("连续阅读尚未建立，建议从每天固定 10 分钟开始。")
-        } else {
-            result.append("已经连续阅读 \(analytics.currentStreak) 天，尽量在相同时间段继续阅读。")
-        }
-        let readingBooks = books.filter { $0.readingProgress.progressPercent > 0 && $0.readingProgress.progressPercent < 100 }
-        if readingBooks.count > 3 {
-            result.append("当前有 \(readingBooks.count) 本书同时在读，建议优先完成进度最高的 1–2 本。")
-        }
-        if stats.totalPagesRead > 20, noteCount == 0 {
-            result.append("已有较多阅读记录但尚无笔记，可以尝试每章保存一个书签或批注。")
-        } else if noteCount > 0 {
-            result.append("已沉淀 \(noteCount) 条笔记，建议定期在“笔记”模块回顾和清理。")
-        }
-        return result
     }
 
     private func makeCard() -> UIView {

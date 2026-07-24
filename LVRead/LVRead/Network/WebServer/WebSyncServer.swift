@@ -141,7 +141,6 @@ final class WebSyncServer {
     private enum StorageKey {
         static let bookTokens = "web_sync_book_tokens_v1"
         static let snapshots = "web_sync_snapshots_v1"
-        static let autoResumeEnabled = "web_sync_auto_resume_enabled_v1"
         static let fixedPort: UInt16 = 8989
     }
 
@@ -225,7 +224,6 @@ final class WebSyncServer {
         page: PageSnapshot,
         completion: @escaping (Result<Session, Error>) -> Void
     ) {
-        UserDefaults.standard.set(true, forKey: StorageKey.autoResumeEnabled)
         serverQueue.async { [weak self] in
             self?.startOnQueue(with: book, page: page, completion: completion)
         }
@@ -351,7 +349,6 @@ final class WebSyncServer {
 
     /// Stops the server and closes all connections.
     public func stop() {
-        UserDefaults.standard.set(false, forKey: StorageKey.autoResumeEnabled)
         serverQueue.async { [weak self] in
             self?.stopOnQueue()
         }
@@ -399,49 +396,6 @@ final class WebSyncServer {
                 bookId: bookId
             )
         }
-    }
-
-    /// Restarts the fixed listener using the latest linked book when the user left sync enabled.
-    func resumeSavedSessionIfNeeded(restartListener: Bool = false) {
-        guard UserDefaults.standard.bool(forKey: StorageKey.autoResumeEnabled) else { return }
-        if restartListener {
-            serverQueue.async { [weak self] in
-                guard let self else { return }
-                if self.isRunning {
-                    // iOS may leave the listener marked running after suspending its socket.
-                    // Recreate it on foreground without changing the user's saved switch.
-                    self.stopOnQueue()
-                }
-                self.startSavedSessionOnQueue { _ in }
-            }
-            return
-        }
-        startSavedSession { _ in }
-    }
-
-    func startSavedSession(completion: @escaping (Result<Session, Error>) -> Void) {
-        UserDefaults.standard.set(true, forKey: StorageKey.autoResumeEnabled)
-        serverQueue.async { [weak self] in
-            self?.startSavedSessionOnQueue(completion: completion)
-        }
-    }
-
-    private func startSavedSessionOnQueue(
-        completion: @escaping (Result<Session, Error>) -> Void
-    ) {
-        if isRunning, let book = currentBook, let page = currentPageSnapshot {
-            startOnQueue(with: book, page: page, completion: completion)
-            return
-        }
-        guard
-            let saved = storedSnapshots().max(by: { $0.value.updatedAt < $1.value.updatedAt }),
-            let book = BookRepository.shared.getById(saved.key)
-        else {
-            UserDefaults.standard.set(false, forKey: StorageKey.autoResumeEnabled)
-            DispatchQueue.main.async { completion(.failure(StartError.noSavedSession)) }
-            return
-        }
-        startOnQueue(with: book, page: saved.value.page, completion: completion)
     }
 
     /// Stops the server only if it is running (for app backgrounding).
@@ -1291,10 +1245,10 @@ final class WebSyncServer {
         <style>
         :root{--reader-bg:#F5F2EC;--reader-text:#24211D;--reader-accent:#236D67;--reader-panel:#F3F4F2;--reader-control:#FFFDF8;--reader-font-size:26px;--reader-line-height:1.5;--reader-font-family:"Songti SC","STSong",serif;}
         *{margin:0;padding:0;box-sizing:border-box;}
-        html,body{min-height:100%;}
-        body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--reader-panel);color:var(--reader-text);transition:background-color .2s,color .2s;}
-        .topbar{height:64px;background:var(--reader-control);padding:0 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10;border-bottom:1px solid color-mix(in srgb,var(--reader-text) 12%,transparent);}
-        .topbar-left,.brand,.topbar-right,.chapter-meta,.status{display:flex;align-items:center;}
+        html,body{height:100%;overflow:hidden;}
+        body{height:100vh;height:100dvh;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--reader-panel);color:var(--reader-text);transition:background-color .2s,color .2s;}
+        .topbar{height:64px;flex:0 0 64px;background:var(--reader-control);padding:0 32px;display:flex;align-items:center;justify-content:space-between;z-index:10;border-bottom:1px solid color-mix(in srgb,var(--reader-text) 12%,transparent);}
+        .topbar-left,.brand,.topbar-right,.chapter-meta,.status,.reading-mode-control{display:flex;align-items:center;}
         .topbar-left{gap:16px;min-width:0;}
         .brand{gap:8px;color:var(--reader-accent);font-size:20px;font-weight:700;letter-spacing:.5px;white-space:nowrap;}
         .brand-mark{position:relative;width:24px;height:24px;}
@@ -1308,17 +1262,27 @@ final class WebSyncServer {
         .chapter-meta #pageInfo{margin-left:8px;padding-left:8px;border-left:1px solid color-mix(in srgb,var(--reader-text) 18%,transparent);}
         .status{font-size:12px;color:var(--reader-text);opacity:.72;gap:8px;padding-left:16px;border-left:1px solid color-mix(in srgb,var(--reader-text) 18%,transparent);}
         .dot{width:8px;height:8px;border-radius:50%;background:var(--reader-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--reader-accent) 12%,transparent);}
-        .container{width:min(1120px,calc(100% - 48px));margin:0 auto;padding:40px 0 32px;}
-        .content{height:clamp(496px,calc(100vh - 240px),720px);background:var(--reader-bg);color:var(--reader-text);border:1px solid color-mix(in srgb,var(--reader-text) 12%,transparent);border-radius:12px;padding:48px 64px;overflow:hidden;box-shadow:0 8px 40px color-mix(in srgb,var(--reader-text) 10%,transparent);transition:background-color .2s,color .2s,border-color .2s;}
+        .reading-mode-control{height:44px;padding:4px;background:color-mix(in srgb,var(--reader-text) 7%,var(--reader-control));border:1px solid color-mix(in srgb,var(--reader-text) 12%,transparent);border-radius:12px;white-space:nowrap;}
+        .mode-option{height:36px;min-width:80px;padding:0 16px;background:transparent;color:var(--reader-text);border:0;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .15s,color .15s,transform .15s;}
+        .mode-option:hover:not(.selected){background:color-mix(in srgb,var(--reader-accent) 10%,transparent);}
+        .mode-option:active{transform:scale(.97);}
+        .mode-option:focus-visible{outline:2px solid var(--reader-accent);outline-offset:1px;}
+        .mode-option.selected{background:var(--reader-accent);color:var(--reader-control);box-shadow:0 2px 8px color-mix(in srgb,var(--reader-accent) 24%,transparent);}
+        .mode-option:disabled{opacity:.45;cursor:not-allowed;}
+        .container{width:min(1120px,calc(100% - 48px));flex:1;min-height:0;margin:0 auto;padding:24px 0 16px;display:flex;flex-direction:column;}
+        .container.mobile-portrait{width:min(430px,calc(100% - 32px));}
+        .container.mobile-portrait .content{padding:32px;}
+        .content{flex:1;min-height:0;background:var(--reader-bg);color:var(--reader-text);border:1px solid color-mix(in srgb,var(--reader-text) 12%,transparent);border-radius:12px;padding:40px 64px;overflow:hidden;box-shadow:0 8px 40px color-mix(in srgb,var(--reader-text) 10%,transparent);transition:background-color .2s,color .2s,border-color .2s;}
         .content-text{font-family:var(--reader-font-family);font-size:var(--reader-font-size);line-height:var(--reader-line-height);white-space:pre-wrap;overflow-wrap:anywhere;text-align:justify;}
-        .controls{display:flex;justify-content:center;gap:24px;margin-top:24px;}
+        .controls{display:flex;justify-content:center;gap:24px;margin-top:16px;}
         .controls button{min-width:152px;min-height:48px;background:var(--reader-control);color:var(--reader-accent);border:1px solid color-mix(in srgb,var(--reader-text) 18%,transparent);padding:8px 24px;border-radius:12px;font-size:14px;cursor:pointer;font-weight:600;transition:background-color .15s,border-color .15s,transform .15s;}
         .controls button:hover{background:color-mix(in srgb,var(--reader-accent) 10%,var(--reader-control));border-color:var(--reader-accent);}
         .controls button:active{transform:scale(.98);}
         .controls button:disabled{opacity:.45;cursor:not-allowed;}
-        .shortcuts{margin-top:16px;text-align:center;font-size:12px;color:var(--reader-text);opacity:.58;line-height:1.8;}
+        .shortcuts{height:32px;margin-top:8px;text-align:center;font-size:12px;color:var(--reader-text);opacity:.58;line-height:32px;}
         .shortcuts kbd{display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;background:var(--reader-control);color:var(--reader-accent);padding:0 8px;border-radius:8px;font-family:monospace;font-size:12px;border:1px solid color-mix(in srgb,var(--reader-text) 18%,transparent);}
-        @media(max-width:760px){.topbar{height:auto;min-height:64px;padding:8px 16px;gap:8px;}.separator,.status{display:none;}.book-title{max-width:34vw;font-size:12px;}.topbar-right{gap:8px;}.container{width:calc(100% - 24px);padding-top:16px;}.content{height:calc(100vh - 224px);min-height:416px;padding:32px 24px;}.controls button{min-width:120px;}}
+        @media(max-width:760px){.topbar{padding:0 16px;gap:8px;}.separator,.status,.chapter-meta{display:none;}.book-title{max-width:24vw;font-size:12px;}.topbar-right{gap:8px;}.mode-option{min-width:64px;padding:0 12px;}.container,.container.mobile-portrait{width:calc(100% - 24px);padding:16px 0 8px;}.content,.container.mobile-portrait .content{padding:24px;}.controls{margin-top:8px;}.controls button{min-width:120px;}.shortcuts{margin-top:0;}}
+        @media(max-width:520px){.book-title,.separator{display:none;}}
         </style>
         </head>
         <body>
@@ -1329,11 +1293,15 @@ final class WebSyncServer {
         <div class="book-title" id="bookTitle">正在读取书籍…</div>
         </div>
         <div class="topbar-right">
+        <div class="reading-mode-control" role="group" aria-label="网页阅读模式">
+        <button class="mode-option selected" type="button" data-mode="default" aria-pressed="true">默认</button>
+        <button class="mode-option" type="button" data-mode="mobile" aria-pressed="false">手机竖屏</button>
+        </div>
         <div class="chapter-meta"><span id="chapterTitle"></span><span id="pageInfo"></span></div>
         <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">已连接</span></div>
         </div>
         </div>
-        <div class="container">
+        <div class="container" id="readerContainer">
         <article class="content" id="readingPage">
         <div class="content-text" id="content">正在加载…</div>
         </article>
@@ -1353,7 +1321,16 @@ final class WebSyncServer {
         var chapterTitleEl=document.getElementById('chapterTitle');
         var statusDot=document.getElementById('statusDot');
         var statusText=document.getElementById('statusText');
-        function applyPage(d){if(d.error){throw new Error(d.error);}var title=d.chapterTitle||'';contentEl.textContent=d.content||'当前页面暂无可同步文字';bookTitle=d.bookTitle||bookTitle;bookTitleEl.textContent=bookTitle||'LVRead';totalPages=d.totalPages||1;currentPage=d.pageIndex||0;chapterTitleEl.textContent=title;pageInfoEl.textContent=(currentPage+1)+' / '+totalPages;}
+        var readingModeButtons=document.querySelectorAll('.mode-option');
+        var readerContainer=document.getElementById('readerContainer');
+        var readingPage=document.getElementById('readingPage');
+        var readingModeStorageKey='lvread_web_reading_mode';
+        var readerBaseFontSize=26;
+        function resizePortraitText(){contentEl.style.fontSize='';if(!readerContainer.classList.contains('mobile-portrait')){return;}var pageStyle=getComputedStyle(readingPage);var available=readingPage.clientHeight-parseFloat(pageStyle.paddingTop)-parseFloat(pageStyle.paddingBottom);var size=readerBaseFontSize;contentEl.style.fontSize=size+'px';while(size>10&&contentEl.scrollHeight>available){size-=.5;contentEl.style.fontSize=size+'px';}}
+        function schedulePortraitResize(){requestAnimationFrame(resizePortraitText);}
+        function applyWebReadingMode(mode){var nextMode=mode==='mobile'?'mobile':'default';readerContainer.classList.toggle('mobile-portrait',nextMode==='mobile');readingModeButtons.forEach(function(button){var selected=button.dataset.mode===nextMode;button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',selected);});try{localStorage.setItem(readingModeStorageKey,nextMode);}catch(e){console.warn('无法保存网页阅读模式',e);}schedulePortraitResize();}
+        function loadWebReadingMode(){var mode='default';try{mode=localStorage.getItem(readingModeStorageKey)||mode;}catch(e){console.warn('无法读取网页阅读模式',e);}applyWebReadingMode(mode);}
+        function applyPage(d){if(d.error){throw new Error(d.error);}var title=d.chapterTitle||'';contentEl.textContent=d.content||'当前页面暂无可同步文字';bookTitle=d.bookTitle||bookTitle;bookTitleEl.textContent=bookTitle||'LVRead';totalPages=d.totalPages||1;currentPage=d.pageIndex||0;chapterTitleEl.textContent=title;pageInfoEl.textContent=(currentPage+1)+' / '+totalPages;schedulePortraitResize();}
         function offlineMessage(){return '无法连接到 LVRead。\\n\\n情况一：手机端未打开同步开关。请打开 LVRead，在书架或阅读页点击电脑图标，再点击“打开同步”。\\n\\n情况二：同步已打开，但 App 进入了后台。iOS 会暂停局域网服务，请将 LVRead 切回前台，本页面会自动重新连接。';}
         function loadPage(){fetch('/api/page/current?t='+token()).then(r=>r.json()).then(d=>{applyPage(d);setStatus(true);}).catch(e=>{contentEl.textContent=offlineMessage();console.error(e);});}
         function loadBookInfo(){fetch('/api/book/info?t='+token()).then(r=>r.json()).then(d=>{if(d.title){bookTitle=d.title;bookTitleEl.textContent=d.title;}}).catch(e=>{});}
@@ -1362,13 +1339,16 @@ final class WebSyncServer {
         function prevPage(){turnPage('prev');}
         function nextPage(){turnPage('next');}
         function readerFontFamily(name){if(!name||name.indexOf('系统')>=0){return '-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';}if(name.indexOf('仿宋')>=0){return '"FangSong","STFangsong",serif';}if(name.indexOf('楷体')>=0){return '"Kaiti SC","STKaiti","KaiTi",serif';}if(name.indexOf('宋体')>=0){return '"Songti SC","STSong","SimSun",serif';}return name+',serif';}
-        function applySettings(d){var root=document.documentElement.style;var fontSize=Math.max(18,Math.min(30,(Number(d.fontSize)||23)*1.12));var lineHeight=Math.max(1.45,Math.min(2.2,(Number(d.lineSpacing)||1.3)+.2));root.setProperty('--reader-bg',d.backgroundColor||'#F5F2EC');root.setProperty('--reader-text',d.textColor||'#24211D');root.setProperty('--reader-accent',d.accentColor||'#236D67');root.setProperty('--reader-panel',d.panelColor||'#F3F4F2');root.setProperty('--reader-control',d.controlSurfaceColor||'#FFFDF8');root.setProperty('--reader-font-size',fontSize+'px');root.setProperty('--reader-line-height',lineHeight);root.setProperty('--reader-font-family',readerFontFamily(d.fontFamily));}
+        function applySettings(d){var root=document.documentElement.style;var fontSize=Math.max(18,Math.min(30,(Number(d.fontSize)||23)*1.12));var lineHeight=Math.max(1.45,Math.min(2.2,(Number(d.lineSpacing)||1.3)+.2));readerBaseFontSize=fontSize;root.setProperty('--reader-bg',d.backgroundColor||'#F5F2EC');root.setProperty('--reader-text',d.textColor||'#24211D');root.setProperty('--reader-accent',d.accentColor||'#236D67');root.setProperty('--reader-panel',d.panelColor||'#F3F4F2');root.setProperty('--reader-control',d.controlSurfaceColor||'#FFFDF8');root.setProperty('--reader-font-size',fontSize+'px');root.setProperty('--reader-line-height',lineHeight);root.setProperty('--reader-font-family',readerFontFamily(d.fontFamily));schedulePortraitResize();}
         function loadSettings(){fetch('/api/settings?t='+token()+'&v='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(applySettings).catch(e=>console.error(e));}
         function setStatus(ok){statusDot.style.background=ok?'var(--reader-accent)':'#C94A45';statusText.textContent=ok?'已连接':'连接已断开';}
+        readingModeButtons.forEach(function(button){button.addEventListener('click',function(){applyWebReadingMode(button.dataset.mode);});});
+        window.addEventListener('resize',schedulePortraitResize);
         document.addEventListener('keydown',function(e){if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key==='j'){e.preventDefault();nextPage();}else if(e.key==='ArrowLeft'||e.key==='ArrowUp'||e.key==='k'){e.preventDefault();prevPage();}});
         var es=null,reconnectTimer=null;
         function connectSSE(){if(es){es.close();}es=new EventSource('/api/stream?t='+token());es.addEventListener('connected',function(){setStatus(true);});es.addEventListener('pagechange',loadPage);es.addEventListener('chapterchange',function(e){var d=JSON.parse(e.data);chapterTitleEl.textContent=d.chapterTitle;});es.addEventListener('settingschange',function(e){applySettings(JSON.parse(e.data));});es.onerror=function(){setStatus(false);es.close();clearTimeout(reconnectTimer);reconnectTimer=setTimeout(connectSSE,3000);};}
         if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js?t='+encodeURIComponent(token())).catch(console.error);}
+        loadWebReadingMode();
         loadPage();
         loadBookInfo();
         loadSettings();

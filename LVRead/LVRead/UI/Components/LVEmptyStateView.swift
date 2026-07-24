@@ -18,23 +18,22 @@ final class LVEmptyStateView: UIView {
     private func setupView(icon: String, title: String, subtitle: String, actionTitle: String) {
         // Icon
         iconImageView.image = UIImage(systemName: icon)
-        iconImageView.tintColor = .lvPrimary.withAlphaComponent(0.6)
         iconImageView.contentMode = .scaleAspectFit
         iconImageView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 56, weight: .light)
 
         // Title
         titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
-        titleLabel.textColor = .lvTextPrimary
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0
 
         // Subtitle
         subtitleLabel.text = subtitle
         subtitleLabel.font = .systemFont(ofSize: 15)
-        subtitleLabel.textColor = .lvTextSecondary
         subtitleLabel.textAlignment = .center
         subtitleLabel.numberOfLines = 0
+        subtitleLabel.isHidden = subtitle.isEmpty
+        applyAppearance()
 
         // Content stack
         let contentStack = UIStackView(arrangedSubviews: [iconImageView, titleLabel, subtitleLabel])
@@ -46,7 +45,7 @@ final class LVEmptyStateView: UIView {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            contentStack.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -40),
+            contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             contentStack.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48)
         ])
 
@@ -92,9 +91,16 @@ final class LVEmptyStateView: UIView {
     
     func updateSubtitle(_ subtitle: String) {
         subtitleLabel.text = subtitle
+        subtitleLabel.isHidden = subtitle.isEmpty
     }
     
     func updateIcon(_ systemName: String) {
         iconImageView.image = UIImage(systemName: systemName)
+    }
+
+    func applyAppearance() {
+        iconImageView.tintColor = LVBookshelfModuleStyle.accent.withAlphaComponent(0.65)
+        titleLabel.textColor = LVBookshelfModuleStyle.primaryText
+        subtitleLabel.textColor = LVBookshelfModuleStyle.secondaryText
     }
 }

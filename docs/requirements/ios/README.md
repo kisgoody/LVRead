@@ -10,6 +10,7 @@
 | `reader.md` | 阅读模块：连续页流、缓存窗口、阅读设置、评论/书签入口、异常状态 |
 | `notes.md` | 笔记 Tab：评论、书签、阅读页标记、筛选、统计 |
 | `profile-stats.md` | 我的 Tab：阅读统计、藏书统计、笔记统计、阅读建议 |
+| `reading-advice.md` | 阅读建议：统计规则、时间段细分、优先级、95 条话术和防重复机制 |
 | `interfaces.md` | iOS 模型、Repository 协议、统计服务、错误处理 |
 
 ## 全局 iOS 约束

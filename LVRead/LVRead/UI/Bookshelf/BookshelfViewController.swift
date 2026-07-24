@@ -51,7 +51,7 @@ final class BookshelfViewController: UIViewController {
     private let emptyStateView = LVEmptyStateView(
         icon: "books.vertical",
         title: "书架还是空的\n点击右上角“+”添加第一本书",
-        subtitle: "导入本地文件后，可以在这里继续阅读、筛选和管理藏书"
+        subtitle: ""
     )
     private let fabButton = UIButton(type: .system)
     private let topAddButton = UIButton(type: .system)
@@ -177,6 +177,7 @@ final class BookshelfViewController: UIViewController {
         topAddButton.layer.shadowOffset = CGSize(width: 0, height: 10)
         topAddButton.layer.shadowRadius = 22
         topAddButton.layer.shadowOpacity = 0.08
+        topAddButton.accessibilityLabel = "添加书籍"
         topAddButton.addTarget(self, action: #selector(addBookTapped), for: .touchUpInside)
 
         // Sort button
@@ -270,6 +271,7 @@ final class BookshelfViewController: UIViewController {
         sectionSortButton.addTarget(self, action: #selector(sortTapped), for: .touchUpInside)
         sectionMoreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
         sectionMoreButton.setPreferredSymbolConfiguration(.init(pointSize: 17, weight: .bold), forImageIn: .normal)
+        sectionMoreButton.accessibilityLabel = "更多书籍操作"
         sectionMoreButton.addTarget(self, action: #selector(moreActionsTapped), for: .touchUpInside)
         [sectionEditButton, sectionSortButton, toggleButton, sectionMoreButton].forEach {
             $0.tintColor = UIColor(hex: "#236D67")
@@ -282,6 +284,7 @@ final class BookshelfViewController: UIViewController {
             $0.layer.shadowRadius = 18
             $0.layer.shadowOpacity = 0.06
         }
+        sectionMoreButton.layer.cornerRadius = 22
         sectionActionsStack.addArrangedSubview(sectionMoreButton)
         sectionHeaderView.addSubviews(sectionTitleStack, sectionActionsStack)
         sectionHeaderView.backgroundColor = .clear
@@ -451,9 +454,10 @@ final class BookshelfViewController: UIViewController {
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: bottomNavView.topAnchor),
 
-            emptyStateView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyStateView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -50),
-            emptyStateView.widthAnchor.constraint(equalTo: view.widthAnchor),
+            emptyStateView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            emptyStateView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            emptyStateView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            emptyStateView.bottomAnchor.constraint(equalTo: bottomNavView.topAnchor),
 
             fabButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
             fabButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
@@ -561,6 +565,7 @@ final class BookshelfViewController: UIViewController {
         sectionHeaderView.backgroundColor = .clear
         sectionTitleLabel.textColor = text
         sectionCountLabel.textColor = secondaryText
+        emptyStateView.applyAppearance()
         bottomNavView.backgroundColor = panel
         bottomNavView.layer.borderColor = divider.cgColor
         let theme = DarkModeManager.shared.currentTheme
@@ -572,7 +577,8 @@ final class BookshelfViewController: UIViewController {
         }()
         if usesClassicContinueStyle {
             continueGradientLayer.colors = [accent.cgColor, accent.darker(by: 0.16).cgColor]
-            continueView.layer.borderWidth = 0
+            continueView.layer.borderWidth = 1
+            continueView.layer.borderColor = divider.cgColor
             continueEyebrowLabel.textColor = UIColor.white.withAlphaComponent(0.74)
             continueTitleLabel.textColor = .white
             continueSubtitleLabel.textColor = UIColor.white.withAlphaComponent(0.72)
@@ -588,7 +594,7 @@ final class BookshelfViewController: UIViewController {
                 UIColor(hex: theme.controlSurfaceColor).cgColor
             ]
             continueView.layer.borderWidth = 1
-            continueView.layer.borderColor = accent.withAlphaComponent(0.22).cgColor
+            continueView.layer.borderColor = divider.cgColor
             continueEyebrowLabel.textColor = accent
             continueTitleLabel.textColor = text
             continueSubtitleLabel.textColor = secondaryText
@@ -602,6 +608,12 @@ final class BookshelfViewController: UIViewController {
         continueView.layer.shadowColor = (isDark ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
         topAddButton.backgroundColor = panel
         topAddButton.layer.borderColor = divider.cgColor
+        topAddButton.layer.shadowColor = (isDark ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
+        topAddButton.layer.shadowOpacity = isDark ? 0.24 : 0.08
+        sectionMoreButton.tintColor = accent
+        sectionMoreButton.backgroundColor = isEditingMode ? accent.withAlphaComponent(0.14) : panel
+        sectionMoreButton.layer.borderColor = divider.cgColor
+        sectionMoreButton.layer.shadowColor = (isDark ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
 
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
@@ -618,7 +630,7 @@ final class BookshelfViewController: UIViewController {
 
         sortButton.tintColor = accent
         toggleButton.tintColor = accent
-        topAddButton.tintColor = text
+        topAddButton.tintColor = accent
         editButton.tintColor = accent
         fabButton.backgroundColor = accent
         fabButton.layer.shadowColor = accent.cgColor
@@ -715,7 +727,7 @@ final class BookshelfViewController: UIViewController {
         if hasNoBooks {
             emptyStateView.updateIcon("books.vertical")
             emptyStateView.updateTitle("书架还是空的\n点击右上角“+”添加第一本书")
-            emptyStateView.updateSubtitle("导入本地文件后，可以在这里继续阅读、筛选和管理藏书")
+            emptyStateView.updateSubtitle("")
         } else if filteredBooks.isEmpty {
             emptyStateView.updateIcon("line.3.horizontal.decrease.circle")
             emptyStateView.updateTitle("没有找到符合条件的书籍")
@@ -864,7 +876,9 @@ final class BookshelfViewController: UIViewController {
         
         isEditingMode.toggle()
         selectedBookIds.removeAll()
-        sectionMoreButton.backgroundColor = isEditingMode ? UIColor(hex: "#DCEFEB") : UIColor(hex: "#FFFDF8")
+        sectionMoreButton.backgroundColor = isEditingMode
+            ? LVBookshelfModuleStyle.accent.withAlphaComponent(0.14)
+            : LVBookshelfModuleStyle.cardBackground
 
         if isEditingMode {
             let deleteBarItem = UIBarButtonItem(

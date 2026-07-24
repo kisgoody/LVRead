@@ -7,15 +7,15 @@ final class ProfileViewController: UIViewController {
     private let stackView = UIStackView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
-    private let summaryLabel = UILabel()
     private let todayMetricLabel = UILabel()
+    private let totalTimeMetricLabel = UILabel()
     private let pagesMetricLabel = UILabel()
     private let streakMetricLabel = UILabel()
     private let adviceLabel = UILabel()
-    private let libraryStatsLabel = UILabel()
-    private let noteStatsLabel = UILabel()
     private let nightSwitch = UISwitch()
     private let goalLabel = UILabel()
+    private let goalProgressView = UIProgressView(progressViewStyle: .default)
+    private let goalProgressLabel = UILabel()
     private let goalStepper = UIStepper()
     private let moduleNavigation = LVModuleNavigationView(selectedModule: .profile)
 
@@ -58,9 +58,8 @@ final class ProfileViewController: UIViewController {
         }
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
-        stackView.addArrangedSubview(makeMetricsGrid())
-        stackView.addArrangedSubview(makeAdviceCard())
         stackView.addArrangedSubview(makeStatsCard())
+        stackView.addArrangedSubview(makeAdviceCard())
         stackView.addArrangedSubview(makePreferencesCard())
         stackView.addArrangedSubview(makeAboutCard())
         moduleNavigation.onSelect = { [weak self] module in self?.showMainModule(module) }
@@ -87,20 +86,27 @@ final class ProfileViewController: UIViewController {
     }
 
     private func makeMetricsGrid() -> UIView {
-        let stack = UIStackView(arrangedSubviews: [
-            makeMetric(valueLabel: todayMetricLabel, title: "今日"),
-            makeMetric(valueLabel: pagesMetricLabel, title: "累计页数"),
-            makeMetric(valueLabel: streakMetricLabel, title: "连续")
+        let firstRow = UIStackView(arrangedSubviews: [
+            makeMetric(valueLabel: todayMetricLabel, title: "今日阅读"),
+            makeMetric(valueLabel: totalTimeMetricLabel, title: "累计时长")
         ])
-        stack.axis = .horizontal
+        let secondRow = UIStackView(arrangedSubviews: [
+            makeMetric(valueLabel: pagesMetricLabel, title: "累计页数"),
+            makeMetric(valueLabel: streakMetricLabel, title: "连续阅读")
+        ])
+        [firstRow, secondRow].forEach {
+            $0.axis = .horizontal
+            $0.spacing = 8
+            $0.distribution = .fillEqually
+        }
+        let stack = UIStackView(arrangedSubviews: [firstRow, divider(), secondRow])
+        stack.axis = .vertical
         stack.spacing = 8
-        stack.distribution = .fillEqually
-        stack.heightAnchor.constraint(equalToConstant: 72).isActive = true
         return stack
     }
 
     private func makeMetric(valueLabel: UILabel, title: String) -> UIView {
-        let card = makeCard()
+        let container = UIView()
         valueLabel.font = .systemFont(ofSize: 20, weight: .bold)
         valueLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         valueLabel.textAlignment = .center
@@ -115,14 +121,15 @@ final class ProfileViewController: UIViewController {
         stack.axis = .vertical
         stack.spacing = 4
         stack.alignment = .fill
-        card.addSubview(stack)
+        container.addSubview(stack)
         stack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            stack.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8)
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8)
         ])
-        return card
+        return container
     }
 
     private func makeAdviceCard() -> UIView {
@@ -159,13 +166,10 @@ final class ProfileViewController: UIViewController {
 
     private func makeStatsCard() -> UIView {
         let card = makeCard()
-        let heading = makeHeading("阅读统计")
-        summaryLabel.numberOfLines = 0
-        summaryLabel.font = .systemFont(ofSize: 14)
-        summaryLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+        let heading = makeHeading("阅读概览")
 
         let button = UIButton(type: .system)
-        button.setTitle("查看完整统计与建议", for: .normal)
+        button.setTitle("查看详细趋势与建议", for: .normal)
         button.setImage(UIImage(systemName: "chart.bar.xaxis"), for: .normal)
         LVBookshelfModuleStyle.applyAccent(to: button)
         button.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
@@ -173,30 +177,13 @@ final class ProfileViewController: UIViewController {
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
         button.addTarget(self, action: #selector(showStats), for: .touchUpInside)
 
-        let libraryHeading = makeSectionTitle("藏书统计")
-        libraryStatsLabel.font = .systemFont(ofSize: 14)
-        libraryStatsLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
-        libraryStatsLabel.numberOfLines = 0
-        let noteHeading = makeSectionTitle("笔记统计")
-        noteStatsLabel.font = .systemFont(ofSize: 14)
-        noteStatsLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
-        noteStatsLabel.numberOfLines = 0
         let content = UIStackView(arrangedSubviews: [
-            heading, summaryLabel, divider(), libraryHeading, libraryStatsLabel,
-            divider(), noteHeading, noteStatsLabel, button
+            heading, makeMetricsGrid(), divider(), button
         ])
         content.axis = .vertical
         content.spacing = 12
         embed(content, in: card)
         return card
-    }
-
-    private func makeSectionTitle(_ text: String) -> UILabel {
-        let label = UILabel()
-        label.text = text
-        label.font = .systemFont(ofSize: 14, weight: .semibold)
-        label.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
-        return label
     }
 
     private func makePreferencesCard() -> UIView {
@@ -217,7 +204,17 @@ final class ProfileViewController: UIViewController {
         let goalValueRow = UIStackView(arrangedSubviews: [goalLabel, UIView()])
         goalValueRow.axis = .horizontal
 
-        let content = UIStackView(arrangedSubviews: [heading, nightRow, divider(), goalRow, goalValueRow])
+        goalProgressView.layer.cornerRadius = 2
+        goalProgressView.clipsToBounds = true
+        goalProgressView.heightAnchor.constraint(equalToConstant: 4).isActive = true
+        goalProgressLabel.font = .systemFont(ofSize: 12)
+        goalProgressLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+        goalProgressLabel.numberOfLines = 0
+
+        let content = UIStackView(arrangedSubviews: [
+            heading, nightRow, divider(), goalRow, goalValueRow,
+            goalProgressView, goalProgressLabel
+        ])
         content.axis = .vertical
         content.spacing = 12
         embed(content, in: card)
@@ -226,9 +223,10 @@ final class ProfileViewController: UIViewController {
 
     private func makeAboutCard() -> UIView {
         let card = makeCard()
-        let heading = makeHeading("模块说明")
+        let heading = makeHeading("版本信息")
         let label = UILabel()
-        label.text = "笔记用于管理书签、摘录和批注；我的用于阅读统计、目标和全局偏好。"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
+        label.text = "LVRead 版本：V\(version)"
         label.font = .systemFont(ofSize: 14)
         label.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         label.numberOfLines = 0
@@ -297,29 +295,24 @@ final class ProfileViewController: UIViewController {
         let stats = statsRepository.getStats()
         let analytics = ReadingAnalytics(stats: stats)
         let todayMinutes = statsRepository.displayedReadingMinutes(for: Date())
-        let books = BookRepository.shared.getAll()
-        let noteCount = books.reduce(0) {
-            $0 + BookRepository.shared.getBookmarks(for: $1.id).count
-                + BookRepository.shared.getHighlights(for: $1.id).count
-        }
-        let finishedCount = books.filter { $0.readingProgress.progressPercent >= 100 }.count
-        let readingCount = books.filter { $0.readingProgress.progressPercent > 0 && $0.readingProgress.progressPercent < 100 }.count
         todayMetricLabel.text = "\(todayMinutes)分钟"
+        totalTimeMetricLabel.text = analytics.totalReadingTimeFormatted
         pagesMetricLabel.text = "\(stats.totalPagesRead)"
         streakMetricLabel.text = "\(analytics.currentStreak)天"
         let savedGoal = UserDefaults.standard.integer(forKey: Keys.dailyGoalMinutes)
         let goal = savedGoal > 0 ? savedGoal : 30
-        adviceLabel.text = todayMinutes >= goal
-            ? "今天已完成 \(goal) 分钟目标，保持当前阅读节奏。"
-            : "今天距离目标还差 \(goal - todayMinutes) 分钟，可以安排一次短阅读。"
-        summaryLabel.text = "累计阅读 \(analytics.totalReadingTimeFormatted)\n阅读 \(stats.totalPagesRead) 页 · 完成 \(finishedCount) 本 · 沉淀 \(noteCount) 条笔记"
-        libraryStatsLabel.text = "总藏书 \(books.count) 本，阅读中 \(readingCount) 本，已读完 \(finishedCount) 本。"
-        let bookmarkCount = books.reduce(0) { $0 + BookRepository.shared.getBookmarks(for: $1.id).count }
-        let annotationCount = books.reduce(0) { $0 + BookRepository.shared.getHighlights(for: $1.id).count }
-        noteStatsLabel.text = "评论 \(annotationCount) 条，书签 \(bookmarkCount) 个。"
+        let suggestions = ReadingAdviceEngine.shared.suggestions()
+        adviceLabel.text = suggestions.map { "• \($0.text)" }.joined(separator: "\n\n")
+        adviceLabel.accessibilityLabel = suggestions.map(\.text).joined(separator: "；")
         nightSwitch.isOn = DarkModeManager.shared.isDarkMode
         goalStepper.value = Double(savedGoal > 0 ? savedGoal : 30)
         goalLabel.text = "当前目标：\(Int(goalStepper.value)) 分钟/天"
+        goalProgressView.progress = min(Float(todayMinutes) / Float(goal), 1)
+        goalProgressLabel.text = todayMinutes >= goal
+            ? "今日已阅读 \(todayMinutes) 分钟，已达到目标"
+            : "今日已阅读 \(todayMinutes) / \(goal) 分钟，还差 \(goal - todayMinutes) 分钟"
+        goalProgressView.accessibilityLabel = "今日阅读目标进度"
+        goalProgressView.accessibilityValue = goalProgressLabel.text
     }
 
     @objc private func showStats() {
@@ -333,7 +326,7 @@ final class ProfileViewController: UIViewController {
     @objc private func goalChanged() {
         let value = Int(goalStepper.value)
         UserDefaults.standard.set(value, forKey: Keys.dailyGoalMinutes)
-        goalLabel.text = "当前目标：\(value) 分钟/天"
+        updateContent()
     }
 
     @objc private func themeChanged() {
@@ -346,6 +339,8 @@ final class ProfileViewController: UIViewController {
         view.backgroundColor = LVBookshelfModuleStyle.pageBackground
         LVBookshelfModuleStyle.refreshCards(in: view)
         LVBookshelfModuleStyle.refreshAccents(in: view)
+        goalProgressView.progressTintColor = LVBookshelfModuleStyle.accent
+        goalProgressView.trackTintColor = LVBookshelfModuleStyle.divider
     }
 }
 

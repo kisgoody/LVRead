@@ -295,6 +295,36 @@ final class ParserTests: XCTestCase {
         XCTAssertFalse(content.isEmpty)
     }
 
+    func testEPUBParserRejectsPathTraversalEntry() throws {
+        let escapedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lvread-escaped-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: escapedURL) }
+
+        let epubURL = try makeMinimalEPUB(
+            opfXML: "<package><manifest/><spine/></package>",
+            chapterHTML: "",
+            additionalEntries: [("../\(escapedURL.lastPathComponent)", Data("escaped".utf8))]
+        )
+
+        XCTAssertThrowsError(try EPUBParser().parseMetadata(filePath: epubURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: escapedURL.path))
+    }
+
+    func testEPUBParserRejectsTruncatedDeflatePayload() throws {
+        let epubURL = try makeMinimalEPUB(
+            opfXML: "<package><manifest/><spine/></package>",
+            chapterHTML: ""
+        )
+        var zip = try Data(contentsOf: epubURL)
+        let centralHeader = Data([0x50, 0x4B, 0x01, 0x02])
+        let centralRange = try XCTUnwrap(zip.range(of: centralHeader))
+        zip.replaceUInt16LE(at: centralRange.lowerBound + 10, with: 8)
+        zip.replaceUInt32LE(at: centralRange.lowerBound + 20, with: UInt32.max)
+        try zip.write(to: epubURL, options: .atomic)
+
+        XCTAssertThrowsError(try EPUBParser().parseMetadata(filePath: epubURL.path))
+    }
+
     // MARK: - ReadingProgress Tests
     
     func testReadingProgressInitialization() throws {
@@ -372,7 +402,11 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(stats.fileSizeBytes, 1024000)
     }
 
-    private func makeMinimalEPUB(opfXML: String, chapterHTML: String) throws -> URL {
+    private func makeMinimalEPUB(
+        opfXML: String,
+        chapterHTML: String,
+        additionalEntries: [(String, Data)] = []
+    ) throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("lvread-epub-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -394,7 +428,7 @@ final class ParserTests: XCTestCase {
             <?xml version="1.0" encoding="UTF-8"?>
             <ncx><navMap><navPoint><navLabel><text>第一章</text></navLabel></navPoint></navMap></ncx>
             """.utf8))
-        ]
+        ] + additionalEntries
 
         var zip = Data()
         var centralDirectory = Data()
@@ -463,5 +497,21 @@ private extension Data {
         append(UInt8((value >> 8) & 0x000000FF))
         append(UInt8((value >> 16) & 0x000000FF))
         append(UInt8((value >> 24) & 0x000000FF))
+    }
+
+    mutating func replaceUInt16LE(at offset: Int, with value: UInt16) {
+        replaceSubrange(offset..<(offset + 2), with: [
+            UInt8(value & 0x00FF),
+            UInt8((value >> 8) & 0x00FF)
+        ])
+    }
+
+    mutating func replaceUInt32LE(at offset: Int, with value: UInt32) {
+        replaceSubrange(offset..<(offset + 4), with: [
+            UInt8(value & 0x000000FF),
+            UInt8((value >> 8) & 0x000000FF),
+            UInt8((value >> 16) & 0x000000FF),
+            UInt8((value >> 24) & 0x000000FF)
+        ])
     }
 }
