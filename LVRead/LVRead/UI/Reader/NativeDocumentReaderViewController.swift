@@ -36,6 +36,8 @@ final class NativeDocumentReaderViewController: UIViewController {
     private var chapters: [Chapter] = []
     private var pages: [NativeDocumentPage] = []
     private var chapterPageCounts: [Int: Int] = [:]
+    private var continuousPageHeights: [CGFloat] = []
+    private var continuousPageOffsets: [CGFloat] = []
     private var currentIndex = 0
     private var loadVersion = 0
     private var preloadRadius = 6
@@ -833,10 +835,9 @@ final class NativeDocumentReaderViewController: UIViewController {
             return
         }
         suppressWindowRefresh = true
-        let continuousHeight = max(continuousScrollView.bounds.height, 1)
         let previousPageID = currentPage?.id
         let previousIntraPageOffset = navigationMode == .continuousVertical
-            ? continuousScrollView.contentOffset.y - CGFloat(currentIndex) * continuousHeight
+            ? continuousScrollView.contentOffset.y - continuousOffset(forPageAt: currentIndex)
             : 0
         let cachedPages = window.map {
             PageData(
@@ -922,12 +923,23 @@ final class NativeDocumentReaderViewController: UIViewController {
             continuousStack.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
-        let height = max(continuousScrollView.bounds.height, 1)
+        let viewportHeight = max(continuousScrollView.bounds.height, 1)
+        let width = max(continuousScrollView.bounds.width, 1)
         let textInsets = NativeDocumentTypography.continuousInsets(
-            size: CGSize(width: continuousScrollView.bounds.width, height: height),
+            size: CGSize(width: width, height: viewportHeight),
             settings: settings
         )
-        for page in pages {
+        continuousPageHeights = pages.map {
+            continuousHeight(for: $0, width: width, viewportHeight: viewportHeight, textInsets: textInsets)
+        }
+        continuousPageOffsets = []
+        var yOffset: CGFloat = 0
+        for height in continuousPageHeights {
+            continuousPageOffsets.append(yOffset)
+            yOffset += height
+        }
+        for (index, page) in pages.enumerated() {
+            let height = continuousPageHeights[safe: index] ?? viewportHeight
             let canvas = NativeCoreTextView()
             canvas.page = page
             canvas.settings = settings
@@ -955,7 +967,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         }
         view.layoutIfNeeded()
         continuousScrollView.setContentOffset(
-            CGPoint(x: 0, y: max(0, CGFloat(target) * height + intraPageOffset)),
+            CGPoint(x: 0, y: max(0, continuousOffset(forPageAt: target) + intraPageOffset)),
             animated: false
         )
     }
@@ -963,12 +975,58 @@ final class NativeDocumentReaderViewController: UIViewController {
     private func refreshVisiblePages() {
         guard !isPageTransitioning else { return }
         if navigationMode == .continuousVertical {
-            let height = max(continuousScrollView.bounds.height, 1)
-            let intraPageOffset = continuousScrollView.contentOffset.y - CGFloat(currentIndex) * height
+            let intraPageOffset = continuousScrollView.contentOffset.y - continuousOffset(forPageAt: currentIndex)
             renderContinuousWindow(target: currentIndex, intraPageOffset: intraPageOffset)
         } else if let controllers = pageControllers(at: currentIndex) {
             pageViewController.setViewControllers(controllers, direction: .forward, animated: false)
         }
+    }
+
+    private func continuousHeight(
+        for page: NativeDocumentPage,
+        width: CGFloat,
+        viewportHeight: CGFloat,
+        textInsets: UIEdgeInsets
+    ) -> CGFloat {
+        if page.image != nil { return viewportHeight }
+        let textWidth = max(1, width - textInsets.left - textInsets.right)
+        let attributed = NativeDocumentTypography.attributed(
+            page.text,
+            settings: settings,
+            color: UIColor(hex: settings.readingTheme.textColor)
+        )
+        guard attributed.length > 0 else { return 80 }
+        let suggested = CTFramesetterSuggestFrameSizeWithConstraints(
+            CTFramesetterCreateWithAttributedString(attributed),
+            CFRange(location: 0, length: attributed.length),
+            nil,
+            CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+            nil
+        )
+        let verticalPadding: CGFloat = 24
+        return max(80, ceil(suggested.height + textInsets.top + textInsets.bottom + verticalPadding))
+    }
+
+    private func continuousOffset(forPageAt index: Int) -> CGFloat {
+        guard continuousPageOffsets.indices.contains(index) else {
+            return CGFloat(index) * max(continuousScrollView.bounds.height, 1)
+        }
+        return continuousPageOffsets[index]
+    }
+
+    private func continuousPageIndex(at y: CGFloat) -> Int {
+        guard !continuousPageOffsets.isEmpty else {
+            return min(max(Int(y / max(continuousScrollView.bounds.height, 1)), 0), max(pages.count - 1, 0))
+        }
+        var result = 0
+        for index in continuousPageOffsets.indices {
+            if y >= continuousPageOffsets[index] {
+                result = index
+            } else {
+                break
+            }
+        }
+        return min(max(result, 0), max(pages.count - 1, 0))
     }
 
     private func settleOnCurrentPage() {
@@ -1098,7 +1156,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         guard target != currentIndex else { return }
         if navigationMode == .continuousVertical {
             continuousScrollView.setContentOffset(
-                CGPoint(x: 0, y: CGFloat(target) * max(continuousScrollView.bounds.height, 1)),
+                CGPoint(x: 0, y: continuousOffset(forPageAt: target)),
                 animated: true
             )
         } else if abs(target - currentIndex) == 1 {
@@ -1469,7 +1527,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         if navigationMode == .continuousVertical {
             currentIndex = target
             continuousScrollView.setContentOffset(
-                CGPoint(x: 0, y: CGFloat(target) * max(continuousScrollView.bounds.height, 1)),
+                CGPoint(x: 0, y: continuousOffset(forPageAt: target)),
                 animated: true
             )
             settleOnCurrentPage()
@@ -1537,7 +1595,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         if navigationMode == .continuousVertical {
             currentIndex = target
             continuousScrollView.setContentOffset(
-                CGPoint(x: 0, y: CGFloat(target) * max(continuousScrollView.bounds.height, 1)),
+                CGPoint(x: 0, y: continuousOffset(forPageAt: target)),
                 animated: true
             )
             settleOnCurrentPage()
@@ -1839,10 +1897,7 @@ extension NativeDocumentReaderViewController: UIScrollViewDelegate {
               !suppressWindowRefresh,
               scrollView.bounds.height > 0,
               !pages.isEmpty else { return }
-        let index = min(
-            max(Int((scrollView.contentOffset.y + scrollView.bounds.height / 2) / scrollView.bounds.height), 0),
-            pages.count - 1
-        )
+        let index = continuousPageIndex(at: scrollView.contentOffset.y + scrollView.bounds.height / 2)
         if index != currentIndex {
             currentIndex = index
             settleOnCurrentPage()

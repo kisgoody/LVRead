@@ -128,7 +128,7 @@ final class TransferDeviceListViewController: UIViewController {
                     let newEmptyView = LVEmptyStateView(
                         icon: "📡",
                         title: "未发现附近设备",
-                        subtitle: "请确保两台设备已连接同一 Wi-Fi 且均打开 LV Read",
+                        subtitle: "请确保两台设备已连接同一 Wi-Fi 且均打开 LVRead",
                         actionTitle: ""
                     )
                     self?.emptyView = newEmptyView

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1024" height="1024" viewBox="0 0 1024 1024"
+     role="img" aria-labelledby="title description">
+  <title id="title">LVRead 无限阅读图标</title>
+  <desc id="description">深墨绿色背景上的暖米白色无限书本图形。</desc>
+  <metadata>
+    作品名称：LVRead 无限阅读图标；
+    登记版本：以 2026-07-23 用户确认母版为准；
+    作者及权利人信息：登记前据实填写。
+  </metadata>
+  <defs>
+    <radialGradient id="backgroundGradient" cx="50%" cy="48%" r="76%">
+      <stop offset="0%" stop-color="#18231E"/>
+      <stop offset="58%" stop-color="#17211D"/>
+      <stop offset="100%" stop-color="#121C18"/>
+    </radialGradient>
+    <linearGradient id="paperGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F5E9D0"/>
+      <stop offset="50%" stop-color="#F2E5CB"/>
+      <stop offset="100%" stop-color="#EFE0C2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 01 背景图层 -->
+  <g id="layer-background" data-layer-name="01 背景">
+    <rect width="1024" height="1024" fill="url(#backgroundGradient)"/>
+  </g>
+
+  <!-- 02 无限书本主体图层 -->
+  <g id="layer-infinity"
+     data-layer-name="02 无限书本主体"
+     transform="matrix(0.907 0 0 0.777 37.2 107)">
+    <path id="infinity-ribbon"
+          d="M490 450
+             C410 372 330 345 250 380
+             C145 425 135 565 195 638
+             C270 728 395 704 484 610
+             L650 436
+             C728 354 838 356 876 454
+             C916 557 856 665 758 680
+             C680 692 620 649 560 585"
+          fill="none"
+          stroke="url(#paperGradient)"
+          stroke-width="74"
+          stroke-linecap="butt"
+          stroke-linejoin="round"
+          vector-effect="non-scaling-stroke"/>
+  </g>
+
+  <!-- 03 书脊与书页图层 -->
+  <g id="layer-book-spine"
+     data-layer-name="03 书脊与书页"
+     transform="matrix(0.907 0 0 0.777 37.2 107)"
+     fill="none"
+     stroke="#F2E5CB"
+     stroke-linecap="round"
+     vector-effect="non-scaling-stroke">
+    <path id="spine-left" d="M481 638 L481 724" stroke-width="8"/>
+    <path id="spine-center" d="M512 597 L512 724" stroke-width="10"/>
+    <path id="spine-right" d="M543 638 L543 724" stroke-width="8"/>
+  </g>
+
+  <!-- 04 安全区参考图层：默认隐藏 -->
+  <g id="layer-guides" data-layer-name="04 安全区参考（隐藏）" display="none">
+    <rect x="82" y="82" width="860" height="860" rx="190"
+          fill="none" stroke="#C9873E" stroke-width="2"
+          stroke-dasharray="12 12"/>
+  </g>
+</svg>

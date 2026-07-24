@@ -19,10 +19,10 @@ final class EPUBParser: FileParserProtocol {
         }
 
         // Extract OPF path
-        guard let opfRelPath = firstMatch(in: containerXML, pattern: "full-path=\"([^\"]+)\"") else {
+        guard let opfRelPath = attributeValue(in: containerXML, name: "full-path") else {
             throw LVError.parseFailed
         }
-        let opfPath = (unzipDir as NSString).appendingPathComponent(opfRelPath)
+        let opfPath = (unzipDir as NSString).appendingPathComponent(decodedPath(opfRelPath))
         let opfDir = (opfPath as NSString).deletingLastPathComponent
 
         guard let opfXML = try? String(contentsOfFile: opfPath, encoding: .utf8) else {
@@ -38,26 +38,30 @@ final class EPUBParser: FileParserProtocol {
 
         // Extract manifest items
         var manifestMap: [String: String] = [:]
-        let manifestPattern = try? NSRegularExpression(pattern: "id=\"([^\"]+)\"[^>]*href=\"([^\"]+)\"")
+        let manifestPattern = try? NSRegularExpression(pattern: "<item\\b[^>]*>", options: [.caseInsensitive])
         if let regex = manifestPattern {
             regex.enumerateMatches(in: opfXML, range: NSRange(opfXML.startIndex..., in: opfXML)) { match, _, _ in
                 guard let m = match,
-                      let idR = Range(m.range(at: 1), in: opfXML),
-                      let hrefR = Range(m.range(at: 2), in: opfXML) else { return }
-                manifestMap[String(opfXML[idR])] = String(opfXML[hrefR])
+                      let itemRange = Range(m.range, in: opfXML) else { return }
+                let item = String(opfXML[itemRange])
+                guard let id = self.attributeValue(in: item, name: "id"),
+                      let href = self.attributeValue(in: item, name: "href") else { return }
+                manifestMap[id] = self.decodedPath(href)
             }
         }
 
         // Extract spine order (itemref idref="...")
         var spineOrder: [String] = []
-        let spinePattern = try? NSRegularExpression(pattern: "idref=\"([^\"]+)\"")
+        let spinePattern = try? NSRegularExpression(pattern: "<itemref\\b[^>]*>", options: [.caseInsensitive])
         if let regex = spinePattern {
             // Only match within <spine>...</spine>
-            if let spineRange = cleanXML.range(of: "<spine[^>]*>.*?</spine>", options: .regularExpression) {
-                let spineXML = String(cleanXML[spineRange])
+            if let spineXML = firstMatch(in: cleanXML, pattern: "<spine[^>]*>(.*?)</spine>") {
                 regex.enumerateMatches(in: spineXML, range: NSRange(spineXML.startIndex..., in: spineXML)) { match, _, _ in
-                    guard let m = match, let r = Range(m.range(at: 1), in: spineXML) else { return }
-                    spineOrder.append(String(spineXML[r]))
+                    guard let m = match, let itemRange = Range(m.range, in: spineXML) else { return }
+                    let item = String(spineXML[itemRange])
+                    if let idref = self.attributeValue(in: item, name: "idref") {
+                        spineOrder.append(idref)
+                    }
                 }
             }
         }
@@ -70,7 +74,7 @@ final class EPUBParser: FileParserProtocol {
         }
 
         // Try to find NCX for chapter titles
-        let ncxHref = manifestMap.values.first { $0.hasSuffix(".ncx") } ?? "toc.ncx"
+        let ncxHref = manifestMap.values.first { $0.lowercased().hasSuffix(".ncx") } ?? "toc.ncx"
         let ncxPath = (opfDir as NSString).appendingPathComponent(ncxHref)
         var ncxTitles: [String] = []
         if let ncxXML = try? String(contentsOfFile: ncxPath, encoding: .utf8) {
@@ -144,11 +148,11 @@ final class EPUBParser: FileParserProtocol {
         
         let containerPath = (unzipDir as NSString).appendingPathComponent("META-INF/container.xml")
         guard let containerXML = try? String(contentsOfFile: containerPath, encoding: .utf8),
-              let opfRelPath = firstMatch(in: containerXML, pattern: "full-path=\"([^\"]+)\"") else {
+              let opfRelPath = attributeValue(in: containerXML, name: "full-path") else {
             throw LVError.parseFailed
         }
 
-        let opfDir = ((unzipDir as NSString).appendingPathComponent(opfRelPath) as NSString).deletingLastPathComponent
+        let opfDir = ((unzipDir as NSString).appendingPathComponent(decodedPath(opfRelPath)) as NSString).deletingLastPathComponent
         let fullPath = (opfDir as NSString).appendingPathComponent(relativeHref)
         guard let htmlData = try? Data(contentsOf: URL(fileURLWithPath: fullPath)) else {
             throw LVError.parseFailed
@@ -194,8 +198,11 @@ final class EPUBParser: FileParserProtocol {
         }
         guard eocdOffset > 0 else { throw LVError.parseFailed }
 
-        let cdSize = Int(data.subdata(in: eocdOffset+12..<eocdOffset+16).withUnsafeBytes { $0.load(as: UInt32.self).littleEndian })
-        let cdOffset = Int(data.subdata(in: eocdOffset+16..<eocdOffset+20).withUnsafeBytes { $0.load(as: UInt32.self).littleEndian })
+        let cdSize = Int(readUInt32LE(data, at: eocdOffset + 12))
+        let cdOffset = Int(readUInt32LE(data, at: eocdOffset + 16))
+        guard cdOffset > 0, cdSize > 0, cdOffset + cdSize <= data.count else {
+            throw LVError.parseFailed
+        }
 
         // Parse central directory
         var pos = cdOffset
@@ -204,14 +211,15 @@ final class EPUBParser: FileParserProtocol {
             let sig = data.subdata(in: pos..<pos+4)
             guard sig[0] == 0x50 && sig[1] == 0x4B && sig[2] == 0x01 && sig[3] == 0x02 else { break }
 
-            let compressionMethod = data.subdata(in: pos+10..<pos+12).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
-            let compressedSize = Int(data.subdata(in: pos+20..<pos+24).withUnsafeBytes { $0.load(as: UInt32.self).littleEndian })
-            let uncompressedSize = Int(data.subdata(in: pos+24..<pos+28).withUnsafeBytes { $0.load(as: UInt32.self).littleEndian })
-            let fileNameLen = Int(data.subdata(in: pos+28..<pos+30).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian })
-            let extraLen = Int(data.subdata(in: pos+30..<pos+32).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian })
-            let commentLen = Int(data.subdata(in: pos+32..<pos+34).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian })
-            let localHeaderOffset = Int(data.subdata(in: pos+42..<pos+46).withUnsafeBytes { $0.load(as: UInt32.self).littleEndian })
+            let compressionMethod = readUInt16LE(data, at: pos + 10)
+            let compressedSize = Int(readUInt32LE(data, at: pos + 20))
+            let uncompressedSize = Int(readUInt32LE(data, at: pos + 24))
+            let fileNameLen = Int(readUInt16LE(data, at: pos + 28))
+            let extraLen = Int(readUInt16LE(data, at: pos + 30))
+            let commentLen = Int(readUInt16LE(data, at: pos + 32))
+            let localHeaderOffset = Int(readUInt32LE(data, at: pos + 42))
 
+            guard pos + 46 + fileNameLen <= data.count else { break }
             let fileNameData = data.subdata(in: pos+46..<pos+46+fileNameLen)
             guard let fileName = String(data: fileNameData, encoding: .utf8) else { break }
 
@@ -225,13 +233,13 @@ final class EPUBParser: FileParserProtocol {
             try FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
 
             // Find local file header
-            var lhPos = localHeaderOffset
+            let lhPos = localHeaderOffset
             guard lhPos + 30 <= data.count else { continue }
             let lhSig = data.subdata(in: lhPos..<lhPos+4)
             guard lhSig[0] == 0x50 && lhSig[1] == 0x4B && lhSig[2] == 0x03 && lhSig[3] == 0x04 else { continue }
 
-            let lhFileNameLen = Int(data.subdata(in: lhPos+26..<lhPos+28).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian })
-            let lhExtraLen = Int(data.subdata(in: lhPos+28..<lhPos+30).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian })
+            let lhFileNameLen = Int(readUInt16LE(data, at: lhPos + 26))
+            let lhExtraLen = Int(readUInt16LE(data, at: lhPos + 28))
             let dataStart = lhPos + 30 + lhFileNameLen + lhExtraLen
 
             if compressionMethod == 0 {
@@ -281,6 +289,36 @@ final class EPUBParser: FileParserProtocol {
         return String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private func attributeValue(in text: String, name: String) -> String? {
+        let pattern = "\\b\(NSRegularExpression.escapedPattern(for: name))\\s*=\\s*(['\"])(.*?)\\1"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              let valueRange = Range(match.range(at: 2), in: text) else {
+            return nil
+        }
+        return String(text[valueRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func decodedPath(_ path: String) -> String {
+        path.removingPercentEncoding ?? path
+    }
+
+    private func readUInt16LE(_ data: Data, at offset: Int) -> UInt16 {
+        guard offset + 1 < data.count else { return 0 }
+        return UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+    }
+
+    private func readUInt32LE(_ data: Data, at offset: Int) -> UInt32 {
+        guard offset + 3 < data.count else { return 0 }
+        return UInt32(data[offset])
+            | (UInt32(data[offset + 1]) << 8)
+            | (UInt32(data[offset + 2]) << 16)
+            | (UInt32(data[offset + 3]) << 24)
+    }
+
     private func extractCoverHref(opfXML: String, manifest: [String: String], opfDir: String) -> String? {
         // Method 1: meta name="cover" -> manifest item
         if let coverId = firstMatch(in: opfXML, pattern: "name=\"cover\"[^>]*content=\"([^\"]+)\""),
@@ -305,8 +343,8 @@ final class EPUBParser: FileParserProtocol {
         var text = html
 
         // Extract body content
-        if let bodyRange = text.range(of: "<body[^>]*>(.*?)</body>", options: .regularExpression) {
-            text = String(text[bodyRange])
+        if let body = firstMatch(in: text, pattern: "<body[^>]*>(.*?)</body>") {
+            text = body
         }
 
         // Strip scripts and styles

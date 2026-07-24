@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Document and prototype the iOS-only bottom navigation, notes, and profile statistics scope for LV Read.
+**Goal:** Document and prototype the iOS-only bottom navigation, notes, and profile statistics scope for LVRead.
 
 **Architecture:** Keep `LV_Read_APP_需求文档.md` as the product overview. Add focused iOS module documents under `docs/requirements/ios/`. Add static UI references under `UI界面/` for iPhone, iPad, and Web so implementation can validate content and empty states before UIKit work starts.
 

@@ -18,8 +18,6 @@
 		16E27343418515BEAC041E08 /* PaperCurlAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8846C8D88927B1EA3A422C68 /* PaperCurlAnimator.swift */; };
 		1802462534782E1AED65BD62 /* SearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F1AAC3D9A838F575CE45CE /* SearchViewController.swift */; };
 		22E9F02C51C0BF2C49517643 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9136D8721F62BCDE488B10E6 /* Assets.xcassets */; };
-		BEEF0001BEEF0001BEEF0001 /* WebSyncIdentityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEF0003BEEF0003BEEF0003 /* WebSyncIdentityManager.swift */; };
-		BEEF0002BEEF0002BEEF0002 /* BonjourHostPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEF0004BEEF0004BEEF0004 /* BonjourHostPublisher.swift */; };
 		23514D4BA84231EA61CA1247 /* BookRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63EBAD65EC543257D3ACEB31 /* BookRepository.swift */; };
 		26D5D74A601E656163A9709A /* FontManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0967476EA7EE8004B503E1DF /* FontManager.swift */; };
 		2C573C526254C96BE41C2624 /* PaperCurlPhysicsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20201E6A3729405A40C9C434 /* PaperCurlPhysicsTests.swift */; };
@@ -77,6 +75,8 @@
 		B8CA2C5D6BD5D4C21F432232 /* BookshelfViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 308997F51817F6004BFAD110 /* BookshelfViewController.swift */; };
 		BB40E01014E5E666406E9F46 /* LVLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC35912FAC1597CCFEB72E82 /* LVLogger.swift */; };
 		BDEF3CD1A4FB7F6EBC7B16DC /* BookOpenTransitionAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD2968D792E4C00994C9F6D /* BookOpenTransitionAnimator.swift */; };
+		BEEF0001BEEF0001BEEF0001 /* WebSyncIdentityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEF0003BEEF0003BEEF0003 /* WebSyncIdentityManager.swift */; };
+		BEEF0002BEEF0002BEEF0002 /* BonjourHostPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEF0004BEEF0004BEEF0004 /* BonjourHostPublisher.swift */; };
 		CF5DD8D71C338C96682A49D0 /* MOBIParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5B7CAAD0F6E8A45F8EAE88 /* MOBIParser.swift */; };
 		D1180845A89837DD6D0713E1 /* PageFlipTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24470147EF1A50A03AA5E42D /* PageFlipTypes.swift */; };
 		D2AFA5023FA12064DC798B83 /* BookshelfViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72A2DA081232B85C4FBDAD9 /* BookshelfViewModel.swift */; };
@@ -161,8 +161,6 @@
 		8B4604DC299723CFE48A229D /* ProfileViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewController.swift; sourceTree = "<group>"; };
 		8ECA281C6E6CEF779668315C /* LVEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVEmptyStateView.swift; sourceTree = "<group>"; };
 		9136D8721F62BCDE488B10E6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		BEEF0003BEEF0003BEEF0003 /* WebSyncIdentityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSyncIdentityManager.swift; sourceTree = "<group>"; };
-		BEEF0004BEEF0004BEEF0004 /* BonjourHostPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourHostPublisher.swift; sourceTree = "<group>"; };
 		9B95236BF3E76DDAA1AC7A99 /* TCPTransferServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPTransferServer.swift; sourceTree = "<group>"; };
 		A3634BB6E34575234BAC00D1 /* LVRead.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LVRead.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A43B5825B2ABECB25FE6C7BE /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
@@ -184,6 +182,8 @@
 		BC35912FAC1597CCFEB72E82 /* LVLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVLogger.swift; sourceTree = "<group>"; };
 		BD85564CA1F348A2544E85D4 /* TransferTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferTask.swift; sourceTree = "<group>"; };
 		BDF448E12AC80BCD0D113E8C /* SimulationAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulationAnimator.swift; sourceTree = "<group>"; };
+		BEEF0003BEEF0003BEEF0003 /* WebSyncIdentityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSyncIdentityManager.swift; sourceTree = "<group>"; };
+		BEEF0004BEEF0004BEEF0004 /* BonjourHostPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourHostPublisher.swift; sourceTree = "<group>"; };
 		C3C9127C839C8EB3501E844E /* TransferSelectBooksViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferSelectBooksViewController.swift; sourceTree = "<group>"; };
 		C54154FD888C1A9548FDAA18 /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		C80AFAD9D6A7F08DD4935A32 /* FileManager+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileManager+Extensions.swift"; sourceTree = "<group>"; };
@@ -778,7 +778,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = H23MN65AK5;
+				DEVELOPMENT_TEAM = WN8UX325LG;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = LVRead/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -789,7 +789,7 @@
 					"-lsqlite3",
 					"-lz",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.lvread.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yyguo.lvread;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -818,7 +818,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = H23MN65AK5;
+				DEVELOPMENT_TEAM = WN8UX325LG;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = LVRead/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -829,7 +829,7 @@
 					"-lsqlite3",
 					"-lz",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.lvread.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yyguo.lvread;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1003,7 +1003,6 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = 1F8A0079E929F7E53A0031F1 /* Project object */;
 }

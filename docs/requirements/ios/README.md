@@ -1,4 +1,4 @@
-# LV Read iOS 模块需求索引
+# LVRead iOS 模块需求索引
 
 当前阶段仅考虑 iOS 开发，本文档目录用于拆分 `LV_Read_APP_需求文档.md` 中的模块需求和接口。
 

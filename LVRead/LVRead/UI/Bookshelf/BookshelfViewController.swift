@@ -150,7 +150,7 @@ final class BookshelfViewController: UIViewController {
         navigationItem.largeTitleDisplayMode = .never
         navigationController?.navigationBar.prefersLargeTitles = false
 
-        titleLabel.text = "LV Read"
+        titleLabel.text = "LVRead"
         titleLabel.font = .systemFont(ofSize: 30, weight: .bold)
         titleLabel.textAlignment = .left
         titleLabel.backgroundColor = .clear

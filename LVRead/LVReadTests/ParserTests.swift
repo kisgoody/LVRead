@@ -232,6 +232,69 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(metadata.totalCharCount, 10000)
     }
 
+    func testEPUBParserHandlesManifestAttributesInAnyOrder() throws {
+        let epubURL = try makeMinimalEPUB(
+            opfXML: """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <package xmlns:dc="http://purl.org/dc/elements/1.1/">
+              <metadata>
+                <dc:title>属性顺序测试</dc:title>
+                <dc:creator>LVRead</dc:creator>
+              </metadata>
+              <manifest>
+                <item href="chapter1.xhtml" media-type="application/xhtml+xml" id="chap1"/>
+                <item media-type="application/x-dtbncx+xml" href="toc.ncx" id="ncx"/>
+              </manifest>
+              <spine toc="ncx">
+                <itemref idref="chap1"/>
+              </spine>
+            </package>
+            """,
+            chapterHTML: """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <html><body><p>这是 EPUB 正文内容。</p></body></html>
+            """
+        )
+
+        let parser = EPUBParser()
+        let metadata = try parser.parseMetadata(filePath: epubURL.path)
+
+        XCTAssertEqual(metadata.title, "属性顺序测试")
+        XCTAssertEqual(metadata.author, "LVRead")
+        XCTAssertEqual(metadata.chapters.count, 1)
+        XCTAssertEqual(metadata.chapters.first?.internalHref, "chapter1.xhtml")
+
+        let content = try parser.parseChapterContent(
+            filePath: epubURL.path,
+            chapter: try XCTUnwrap(metadata.chapters.first),
+            encoding: "UTF-8"
+        )
+        XCTAssertTrue(content.contains("这是 EPUB 正文内容。"))
+    }
+
+    func testEPUBParserHandlesProvidedHaodooEPUBWhenAvailable() throws {
+        let epubURL = URL(fileURLWithPath: "/Users/yf_zhao/Downloads/1010490972.epub")
+        guard FileManager.default.fileExists(atPath: epubURL.path) else {
+            throw XCTSkip("1010490972.epub is only available on the local development machine.")
+        }
+
+        let parser = EPUBParser()
+        let metadata = try parser.parseMetadata(filePath: epubURL.path)
+
+        XCTAssertEqual(metadata.title, "地球末日記")
+        XCTAssertEqual(metadata.author, "杜亞梅")
+        XCTAssertEqual(metadata.chapters.count, 21)
+        XCTAssertEqual(metadata.chapters.first?.internalHref, "0.xhtml")
+
+        let firstChapter = try XCTUnwrap(metadata.chapters.first)
+        let content = try parser.parseChapterContent(
+            filePath: epubURL.path,
+            chapter: firstChapter,
+            encoding: "UTF-8"
+        )
+        XCTAssertFalse(content.isEmpty)
+    }
+
     // MARK: - ReadingProgress Tests
     
     func testReadingProgressInitialization() throws {
@@ -307,5 +370,98 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(stats.totalChapters, 10)
         XCTAssertEqual(stats.totalChars, 500000)
         XCTAssertEqual(stats.fileSizeBytes, 1024000)
+    }
+
+    private func makeMinimalEPUB(opfXML: String, chapterHTML: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lvread-epub-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let epubURL = dir.appendingPathComponent("test.epub")
+
+        let entries: [(String, Data)] = [
+            ("mimetype", Data("application/epub+zip".utf8)),
+            ("META-INF/container.xml", Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+              <rootfiles>
+                <rootfile media-type="application/oebps-package+xml" full-path="OEBPS/content.opf"/>
+              </rootfiles>
+            </container>
+            """.utf8)),
+            ("OEBPS/content.opf", Data(opfXML.utf8)),
+            ("OEBPS/chapter1.xhtml", Data(chapterHTML.utf8)),
+            ("OEBPS/toc.ncx", Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <ncx><navMap><navPoint><navLabel><text>第一章</text></navLabel></navPoint></navMap></ncx>
+            """.utf8))
+        ]
+
+        var zip = Data()
+        var centralDirectory = Data()
+        for (name, payload) in entries {
+            let localHeaderOffset = UInt32(zip.count)
+            let nameData = Data(name.utf8)
+
+            zip.appendUInt32LE(0x04034B50)
+            zip.appendUInt16LE(20)
+            zip.appendUInt16LE(0)
+            zip.appendUInt16LE(0)
+            zip.appendUInt16LE(0)
+            zip.appendUInt16LE(0)
+            zip.appendUInt32LE(0)
+            zip.appendUInt32LE(UInt32(payload.count))
+            zip.appendUInt32LE(UInt32(payload.count))
+            zip.appendUInt16LE(UInt16(nameData.count))
+            zip.appendUInt16LE(0)
+            zip.append(nameData)
+            zip.append(payload)
+
+            centralDirectory.appendUInt32LE(0x02014B50)
+            centralDirectory.appendUInt16LE(20)
+            centralDirectory.appendUInt16LE(20)
+            centralDirectory.appendUInt16LE(0)
+            centralDirectory.appendUInt16LE(0)
+            centralDirectory.appendUInt16LE(0)
+            centralDirectory.appendUInt16LE(0)
+            centralDirectory.appendUInt32LE(0)
+            centralDirectory.appendUInt32LE(UInt32(payload.count))
+            centralDirectory.appendUInt32LE(UInt32(payload.count))
+            centralDirectory.appendUInt16LE(UInt16(nameData.count))
+            centralDirectory.appendUInt16LE(0)
+            centralDirectory.appendUInt16LE(0)
+            centralDirectory.appendUInt16LE(0)
+            centralDirectory.appendUInt16LE(0)
+            centralDirectory.appendUInt32LE(0)
+            centralDirectory.appendUInt32LE(localHeaderOffset)
+            centralDirectory.append(nameData)
+        }
+
+        let centralDirectoryOffset = UInt32(zip.count)
+        zip.append(centralDirectory)
+        zip.appendUInt32LE(0x06054B50)
+        zip.appendUInt16LE(0)
+        zip.appendUInt16LE(0)
+        zip.appendUInt16LE(UInt16(entries.count))
+        zip.appendUInt16LE(UInt16(entries.count))
+        zip.appendUInt32LE(UInt32(centralDirectory.count))
+        zip.appendUInt32LE(centralDirectoryOffset)
+        zip.appendUInt16LE(0)
+
+        try zip.write(to: epubURL)
+        return epubURL
+    }
+}
+
+private extension Data {
+    mutating func appendUInt16LE(_ value: UInt16) {
+        append(UInt8(value & 0x00FF))
+        append(UInt8((value >> 8) & 0x00FF))
+    }
+
+    mutating func appendUInt32LE(_ value: UInt32) {
+        append(UInt8(value & 0x000000FF))
+        append(UInt8((value >> 8) & 0x000000FF))
+        append(UInt8((value >> 16) & 0x000000FF))
+        append(UInt8((value >> 24) & 0x000000FF))
     }
 }
