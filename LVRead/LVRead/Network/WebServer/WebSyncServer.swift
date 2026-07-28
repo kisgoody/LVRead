@@ -141,6 +141,7 @@ final class WebSyncServer {
     private enum StorageKey {
         static let bookTokens = "web_sync_book_tokens_v1"
         static let snapshots = "web_sync_snapshots_v1"
+        static let foregroundReconnectEnabled = "web_sync_foreground_reconnect_enabled_v2"
         static let fixedPort: UInt16 = 8989
     }
 
@@ -224,6 +225,7 @@ final class WebSyncServer {
         page: PageSnapshot,
         completion: @escaping (Result<Session, Error>) -> Void
     ) {
+        UserDefaults.standard.set(true, forKey: StorageKey.foregroundReconnectEnabled)
         serverQueue.async { [weak self] in
             self?.startOnQueue(with: book, page: page, completion: completion)
         }
@@ -349,6 +351,7 @@ final class WebSyncServer {
 
     /// Stops the server and closes all connections.
     public func stop() {
+        UserDefaults.standard.set(false, forKey: StorageKey.foregroundReconnectEnabled)
         serverQueue.async { [weak self] in
             self?.stopOnQueue()
         }
@@ -398,9 +401,37 @@ final class WebSyncServer {
         }
     }
 
-    /// Stops the server only if it is running (for app backgrounding).
-    public func stopIfNeeded() {
-        stop()
+    /// Rebuilds the listener after iOS has suspended the app, but only when the
+    /// user previously enabled web sync. This is intentionally not called on launch.
+    func reconnectAfterForegroundIfNeeded() {
+        guard UserDefaults.standard.bool(
+            forKey: StorageKey.foregroundReconnectEnabled
+        ) else { return }
+
+        serverQueue.async { [weak self] in
+            guard let self else { return }
+            guard
+                let saved = self.storedSnapshots().max(
+                    by: { $0.value.updatedAt < $1.value.updatedAt }
+                ),
+                let book = BookRepository.shared.getById(saved.key)
+            else {
+                UserDefaults.standard.set(
+                    false,
+                    forKey: StorageKey.foregroundReconnectEnabled
+                )
+                return
+            }
+
+            if self.isRunning {
+                self.stopOnQueue()
+            }
+            self.startOnQueue(with: book, page: saved.value.page) { result in
+                if case .failure(let error) = result {
+                    print("[WebSyncServer] Foreground reconnect failed: \(error)")
+                }
+            }
+        }
     }
 
     private func completeStart(with result: Result<Session, Error>) {

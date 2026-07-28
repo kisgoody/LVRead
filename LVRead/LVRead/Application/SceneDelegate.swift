@@ -61,6 +61,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneWillEnterForeground(_ scene: UIScene) {
         TransferManager.shared.handleForegroundTransition()
+        WebSyncServer.shared.reconnectAfterForegroundIfNeeded()
     }
 
     private func handleIncomingFile(_ url: URL) {

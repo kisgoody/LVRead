@@ -83,7 +83,7 @@ final class WebSyncViewController: UIViewController {
         copyButton.addTarget(self, action: #selector(copyLink), for: .touchUpInside)
         shareButton.addTarget(self, action: #selector(shareLink), for: .touchUpInside)
 
-        tipLabel.text = "电脑与手机需连接同一 Wi-Fi，并保持 LVRead 在前台\n根证书在每台电脑上只需安装一次"
+        tipLabel.text = "电脑与手机需连接同一 Wi-Fi\nApp 从后台返回后会自动恢复连接"
         tipLabel.font = .systemFont(ofSize: 12)
         tipLabel.textColor = .lvTextTertiary
         tipLabel.textAlignment = .center
