@@ -29,7 +29,7 @@ final class TransferProgressViewController: UIViewController {
     private let progressView = UIProgressView()
     private let percentLabel = UILabel()
     private let speedLabel = UILabel()
-    private let cancelButton = LVButton(title: "取消传输", style: .outline)
+    private let cancelButton = LVButton(title: L("取消传输"), style: .outline)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -43,7 +43,7 @@ final class TransferProgressViewController: UIViewController {
         iconLabel.font = .systemFont(ofSize: 48)
         iconLabel.textAlignment = .center
 
-        titleLabel.text = "正在传输..."
+        titleLabel.text = L("正在传输...")
         titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         titleLabel.textColor = .lvTextPrimary
         titleLabel.textAlignment = .center
@@ -57,7 +57,7 @@ final class TransferProgressViewController: UIViewController {
         percentLabel.textColor = .lvPrimary
         percentLabel.textAlignment = .center
 
-        speedLabel.text = "准备中..."
+        speedLabel.text = L("准备中...")
         speedLabel.font = .systemFont(ofSize: 13)
         speedLabel.textColor = .lvTextSecondary
         speedLabel.textAlignment = .center
@@ -119,7 +119,7 @@ extension TransferProgressViewController: TransferManagerDelegate {
     func transferManager(_ manager: TransferManager, didComplete task: TransferTask) {
         DispatchQueue.main.async { [weak self] in
             self?.dismiss(animated: true) {
-                LVToast.show(message: "传输完成!", style: .success)
+                LVToast.show(message: L("传输完成!"), style: .success)
                 NotificationCenter.default.post(name: .bookImported, object: nil)
             }
         }

@@ -28,7 +28,7 @@ final class NativeReaderLookupViewController: UIViewController {
 
         if hasDefinition {
             let source = UILabel()
-            source.text = "内容来源：Apple 系统词典"
+            source.text = L("内容来源：Apple 系统词典")
             source.font = .systemFont(ofSize: 12)
             source.textColor = foreground.withAlphaComponent(0.64)
             source.textAlignment = .right
@@ -53,14 +53,14 @@ final class NativeReaderLookupViewController: UIViewController {
         } else {
             let scrollView = UIScrollView()
             let original = UILabel()
-            original.text = "原文：\(text)"
+            original.text = LF("原文：%@", text)
             original.font = .systemFont(ofSize: 14, weight: .medium)
             original.textColor = foreground
             original.numberOfLines = 0
             original.lineBreakMode = .byWordWrapping
 
             let pinyin = UILabel()
-            pinyin.text = "拼音：\(Self.pinyin(for: text))"
+            pinyin.text = LF("拼音：%@", Self.pinyin(for: text))
             pinyin.font = .systemFont(ofSize: 14)
             pinyin.textColor = accent
             pinyin.numberOfLines = 0
@@ -117,7 +117,7 @@ final class NativeReaderLookupViewController: UIViewController {
             let label = (subview.accessibilityLabel ?? "").lowercased()
             let frame = subview.convert(subview.bounds, to: root)
             let typeName = String(describing: type(of: subview)).lowercased()
-            let isCloseLabel = ["关闭", "完成", "close", "done"].contains {
+            let isCloseLabel = [L("关闭"), L("完成"), "close", "done"].contains {
                 label.contains($0)
             }
             let isTopTrailingButton = (subview is UIControl || typeName.contains("button"))
@@ -135,7 +135,7 @@ final class NativeReaderLookupViewController: UIViewController {
     }
 
     private static func pinyin(for text: String) -> String {
-        text.applyingTransform(.mandarinToLatin, reverse: false) ?? "暂无拼音"
+        text.applyingTransform(.mandarinToLatin, reverse: false) ?? L("暂无拼音")
     }
 }
 
@@ -148,11 +148,11 @@ enum ReaderNavigationMode: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .simulation: return "仿真"
-        case .horizontal: return "左右"
-        case .vertical: return "上下"
-        case .continuousVertical: return "滚屏"
-        case .none: return "无动画"
+        case .simulation: return L("仿真")
+        case .horizontal: return L("左右")
+        case .vertical: return L("上下")
+        case .continuousVertical: return L("滚屏")
+        case .none: return L("无动画")
         }
     }
 
@@ -174,6 +174,7 @@ final class NativeReaderCatalogViewController: UIViewController {
     private let currentPageText: String
     private let settings: ReadingSettings
     private let tableView = UITableView(frame: .zero, style: .plain)
+    private var hasPositionedCurrentEntry = false
 
     init(
         chapters: [Chapter],
@@ -210,14 +211,19 @@ final class NativeReaderCatalogViewController: UIViewController {
         }
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        positionCurrentEntryIfNeeded()
+    }
+
     private func buildHeader() {
         let title = UILabel()
-        title.text = "章节目录"
+        title.text = L("章节目录")
         title.font = .systemFont(ofSize: 20, weight: .semibold)
         title.textColor = UIColor(hex: settings.readingTheme.textColor)
 
         let close = UIButton(type: .system)
-        close.setTitle("关闭", for: .normal)
+        close.setTitle(L("关闭"), for: .normal)
         close.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
         close.tintColor = UIColor(hex: settings.readingTheme.textColor)
         close.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
@@ -249,8 +255,18 @@ final class NativeReaderCatalogViewController: UIViewController {
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
-        guard entries.indices.contains(currentEntryIndex) else { return }
-        tableView.scrollToRow(at: IndexPath(row: currentEntryIndex, section: 0), at: .middle, animated: false)
+    }
+
+    private func positionCurrentEntryIfNeeded() {
+        guard !hasPositionedCurrentEntry,
+              entries.indices.contains(currentEntryIndex) else { return }
+        hasPositionedCurrentEntry = true
+        tableView.layoutIfNeeded()
+        tableView.scrollToRow(
+            at: IndexPath(row: currentEntryIndex, section: 0),
+            at: .middle,
+            animated: false
+        )
     }
 
     @objc private func closeTapped() { dismiss(animated: true) }
@@ -287,8 +303,9 @@ extension NativeReaderCatalogViewController: UITableViewDataSource, UITableViewD
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let entry = entries[indexPath.row]
         let targetIndex = entry.sourceIndices.contains(currentIndex) ? currentIndex : entry.sourceIndex
-        onSelect?(targetIndex)
-        dismiss(animated: true)
+        dismiss(animated: true) { [onSelect] in
+            onSelect?(targetIndex)
+        }
     }
 }
 
@@ -373,10 +390,10 @@ final class NativeReaderSettingsSheet: UIViewController {
     }
 
     private func buildChrome() {
-        titleLabel.text = section == .theme ? "主题设置" : "字体与布局"
+        titleLabel.text = section == .theme ? L("主题设置") : L("字体与布局")
         titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
 
-        doneButton.setTitle("完成", for: .normal)
+        doneButton.setTitle(L("完成"), for: .normal)
         doneButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .medium)
         doneButton.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
 
@@ -432,13 +449,13 @@ final class NativeReaderSettingsSheet: UIViewController {
         stack.addArrangedSubview(brightnessSection())
         stack.addArrangedSubview(themeSection())
         stack.addArrangedSubview(choiceSection(
-            title: "护眼滤镜",
-            items: ["关闭", "暖黄", "薄荷"],
+            title: L("护眼滤镜"),
+            items: [L("关闭"), L("暖黄"), L("薄荷")],
             selectedIndex: EyeCareFilter.allCases.firstIndex(of: settings.eyeCareFilter) ?? 0,
             action: #selector(eyeChoiceTapped(_:))
         ))
         stack.addArrangedSubview(choiceSection(
-            title: "翻页方式",
+            title: L("翻页方式"),
             items: ReaderNavigationMode.allCases.map(\.title),
             selectedIndex: ReaderNavigationMode.allCases.firstIndex(of: mode) ?? 1,
             action: #selector(modeChoiceTapped(_:))
@@ -448,7 +465,7 @@ final class NativeReaderSettingsSheet: UIViewController {
     private func buildLayout() {
         stack.addArrangedSubview(fontSection())
         stack.addArrangedSubview(stepperRow(
-            title: "字号",
+            title: L("字号"),
             value: Double(settings.fontSize),
             range: 12...32,
             step: 1,
@@ -456,7 +473,7 @@ final class NativeReaderSettingsSheet: UIViewController {
             onChange: { [weak self] in self?.settings.fontSize = Int($0.rounded()); self?.notify() }
         ))
         stack.addArrangedSubview(stepperRow(
-            title: "行距",
+            title: L("行距"),
             value: settings.lineSpacing,
             range: 1.0...2.5,
             step: 0.1,
@@ -464,7 +481,7 @@ final class NativeReaderSettingsSheet: UIViewController {
             onChange: { [weak self] in self?.updateLineSpacing($0) }
         ))
         stack.addArrangedSubview(stepperRow(
-            title: "段距",
+            title: L("段距"),
             value: settings.paragraphSpacing ?? settings.lineSpacing,
             range: 1.0...3.0,
             step: 0.1,
@@ -475,7 +492,7 @@ final class NativeReaderSettingsSheet: UIViewController {
             }
         ))
         stack.addArrangedSubview(stepperRow(
-            title: "左右边距",
+            title: L("左右边距"),
             value: settings.pageMarginHorizontal,
             range: 5.0...20.0,
             step: 1,
@@ -483,7 +500,7 @@ final class NativeReaderSettingsSheet: UIViewController {
             onChange: { [weak self] in self?.settings.pageMarginHorizontal = $0; self?.notify() }
         ))
         stack.addArrangedSubview(stepperRow(
-            title: "上下边距",
+            title: L("上下边距"),
             value: settings.pageMarginVertical,
             range: 2.0...20.0,
             step: 1,
@@ -493,7 +510,7 @@ final class NativeReaderSettingsSheet: UIViewController {
     }
 
     private func brightnessSection() -> UIView {
-        let container = sectionStack(title: "亮度")
+        let container = sectionStack(title: L("亮度"))
         let row = UIStackView()
         row.axis = .horizontal
         row.alignment = .center
@@ -518,7 +535,7 @@ final class NativeReaderSettingsSheet: UIViewController {
     }
 
     private func themeSection() -> UIView {
-        let container = sectionStack(title: "阅读主题")
+        let container = sectionStack(title: L("阅读主题"))
         let scroll = UIScrollView()
         themeScrollView = scroll
         scroll.showsHorizontalScrollIndicator = false
@@ -544,7 +561,7 @@ final class NativeReaderSettingsSheet: UIViewController {
 
     private func fontSection() -> UIView {
         let row = baseRow(height: 64)
-        row.addArrangedSubview(rowLabel("字体"))
+        row.addArrangedSubview(rowLabel(L("字体")))
         let scroll = UIScrollView()
         fontScrollView = scroll
         scroll.showsHorizontalScrollIndicator = false

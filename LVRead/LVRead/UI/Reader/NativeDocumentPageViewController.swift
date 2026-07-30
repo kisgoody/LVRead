@@ -15,11 +15,11 @@ enum NativeTextAction: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .lookup: return "查询"
-        case .excerpt: return "摘录"
-        case .comment: return "评论"
-        case .copy: return "复制"
-        case .listen: return "从本段听"
+        case .lookup: return L("查询")
+        case .excerpt: return L("摘录")
+        case .comment: return L("评论")
+        case .copy: return L("复制")
+        case .listen: return L("从本段听")
         }
     }
 }
@@ -182,7 +182,7 @@ final class NativeDocumentPageViewController: UIViewController {
         let backConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: backConfiguration), for: .normal)
         backButton.tintColor = foreground
-        backButton.accessibilityLabel = "返回"
+        backButton.accessibilityLabel = L("返回")
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         chapterLabel.text = page.chapterTitle
         chapterLabel.font = .systemFont(ofSize: 13, weight: .medium)
@@ -201,7 +201,7 @@ final class NativeDocumentPageViewController: UIViewController {
         bookmark.tintColor = UIColor(hex: settings.readingTheme.accentColor)
         comment.setImage(UIImage(systemName: "text.bubble.fill"), for: .normal)
         comment.tintColor = UIColor(hex: settings.readingTheme.accentColor)
-        comment.accessibilityLabel = "查看或修改评论"
+        comment.accessibilityLabel = L("查看或修改评论")
         comment.addTarget(self, action: #selector(commentTapped), for: .touchUpInside)
         view.addSubview(canvas)
         view.addSubview(backButton)

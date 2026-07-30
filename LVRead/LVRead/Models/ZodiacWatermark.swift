@@ -14,7 +14,7 @@ enum ZodiacAnimal: String, Codable, CaseIterable, Hashable {
     case dog = "狗"
     case pig = "猪"
 
-    var chineseName: String { rawValue }
+    var displayName: String { L(rawValue) }
 
     /// SF Symbol that best represents this animal for the toolbar icon
     var sfSymbol: String {

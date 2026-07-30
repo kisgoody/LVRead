@@ -8,6 +8,45 @@ enum NativeListeningPillLayout {
     static let expandedWidth = buttonSize * 3
 }
 
+enum NativeReaderRestorationStore {
+    private static let featureEnabledKey = "native_reader_restoration_enabled_v1"
+    private static let activeBookKey = "native_reader_active_book_id_v1"
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: featureEnabledKey)
+    }
+
+    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: featureEnabledKey)
+        if !enabled { clear(defaults: defaults) }
+    }
+
+    static func save(bookID: String, defaults: UserDefaults = .standard) {
+        guard isEnabled(defaults: defaults), !bookID.isEmpty else { return }
+        defaults.set(bookID, forKey: activeBookKey)
+    }
+
+    static func clear(bookID: String? = nil, defaults: UserDefaults = .standard) {
+        if let bookID, defaults.string(forKey: activeBookKey) != bookID { return }
+        defaults.removeObject(forKey: activeBookKey)
+    }
+
+    static func bookID(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: activeBookKey)
+    }
+
+    static func restorableBook() -> Book? {
+        guard isEnabled(),
+              let bookID = bookID(),
+              let book = BookRepository.shared.getById(bookID),
+              FileManager.default.fileExists(atPath: book.resolvedFilePath()) else {
+            clear()
+            return nil
+        }
+        return book
+    }
+}
+
 struct NativeListeningControlsVisibility: Equatable {
     let pillVisible: Bool
     let footerVisible: Bool
@@ -178,6 +217,9 @@ final class NativeDocumentReaderViewController: UIViewController {
         super.viewWillDisappear(animated)
         saveProgress()
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+        if persistsReadingProgress {
+            NativeReaderRestorationStore.clear(bookID: book.id)
+        }
         stopListening()
         flushActiveReadingInterval(recordPages: true)
         loadVersion += 1
@@ -342,7 +384,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func buildPersistentStatus() {
-        let back = iconButton("chevron.left", label: "返回", action: #selector(backTapped))
+        let back = iconButton("chevron.left", label: L("返回"), action: #selector(backTapped))
         chapterLabel.font = .systemFont(ofSize: 13, weight: .medium)
         chapterLabel.textAlignment = .right
         chapterLabel.lineBreakMode = .byTruncatingTail
@@ -357,7 +399,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         view.addSubview(bottomStatus)
         pullBookmarkReveal.backgroundColor = UIColor(hex: settings.readingTheme.panelColor)
         pullBookmarkReveal.alpha = 0
-        pullBookmarkLabel.text = "下拉设置书签"
+        pullBookmarkLabel.text = L("下拉设置书签")
         pullBookmarkLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         pullBookmarkLabel.textColor = UIColor(hex: settings.readingTheme.textColor)
         pullBookmarkLabel.textAlignment = .right
@@ -472,17 +514,17 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func buildMenus() {
-        let menuBack = iconButton("chevron.left", label: "返回", action: #selector(backTapped))
+        let menuBack = iconButton("chevron.left", label: L("返回"), action: #selector(backTapped))
         menuSyncButton.setImage(UIImage(systemName: "desktopcomputer"), for: .normal)
         menuSyncButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(pointSize: 18, weight: .medium),
             forImageIn: .normal
         )
-        menuSyncButton.accessibilityLabel = "电脑端同步阅读"
+        menuSyncButton.accessibilityLabel = L("电脑端同步阅读")
         menuSyncButton.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
         menuSyncButton.backgroundColor = .clear
         menuBookmarkButton.setImage(UIImage(systemName: "bookmark"), for: .normal)
-        menuBookmarkButton.accessibilityLabel = "添加或取消书签"
+        menuBookmarkButton.accessibilityLabel = L("添加或取消书签")
         menuBookmarkButton.addTarget(self, action: #selector(bookmarkTapped), for: .touchUpInside)
         menuTitle.text = book.title
         menuTitle.font = .systemFont(ofSize: 18, weight: .semibold)
@@ -493,28 +535,28 @@ final class NativeDocumentReaderViewController: UIViewController {
         topMenu.addSubview(menuBookmarkButton)
         topMenu.addSubview(menuSyncButton)
         let stack = UIStackView(arrangedSubviews: [
-            menuButton("目录", "list.bullet", #selector(catalogTapped)),
-            menuButton("夜间", "moon", #selector(nightTapped)),
-            menuButton("主题", "circle.lefthalf.filled", #selector(themeTapped)),
-            menuButton("布局", "rectangle.split.2x2", #selector(layoutTapped))
+            menuButton(L("目录"), "list.bullet", #selector(catalogTapped)),
+            menuButton(L("夜间"), "moon", #selector(nightTapped)),
+            menuButton(L("主题"), "circle.lefthalf.filled", #selector(themeTapped)),
+            menuButton(L("布局"), "rectangle.split.2x2", #selector(layoutTapped))
         ])
         stack.axis = .horizontal
         stack.distribution = .fillEqually
         listeningPill.layer.cornerRadius = NativeListeningPillLayout.buttonSize / 2
         listeningPill.clipsToBounds = true
         listeningPill.isOpaque = true
-        listenButton.setTitle("听", for: .normal)
+        listenButton.setTitle(L("听"), for: .normal)
         listenButton.titleLabel?.font = .systemFont(ofSize: 22, weight: .bold)
-        listenButton.accessibilityLabel = "开始听书"
+        listenButton.accessibilityLabel = L("开始听书")
         listenButton.addTarget(self, action: #selector(listenTapped), for: .touchUpInside)
         pauseListeningButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
-        pauseListeningButton.accessibilityLabel = "暂停听书"
+        pauseListeningButton.accessibilityLabel = L("暂停听书")
         pauseListeningButton.addTarget(self, action: #selector(pauseListeningTapped), for: .touchUpInside)
         stopListeningButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        stopListeningButton.accessibilityLabel = "结束听书"
+        stopListeningButton.accessibilityLabel = L("结束听书")
         stopListeningButton.addTarget(self, action: #selector(stopListeningTapped), for: .touchUpInside)
         footerListeningButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
-        footerListeningButton.accessibilityLabel = "暂停听书"
+        footerListeningButton.accessibilityLabel = L("暂停听书")
         footerListeningButton.layer.cornerRadius = 22
         footerListeningButton.addTarget(self, action: #selector(pauseListeningTapped), for: .touchUpInside)
         listeningControls.addArrangedSubview(pauseListeningButton)
@@ -599,12 +641,40 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     private func menuButton(_ title: String, _ symbol: String, _ action: Selector) -> UIButton {
         let button = UIButton(type: .system)
-        button.setTitle(title, for: .normal)
-        button.setImage(UIImage(systemName: symbol), for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .regular)
-        button.imageView?.contentMode = .scaleAspectFit
-        button.imageEdgeInsets = UIEdgeInsets(top: -18, left: 14, bottom: 0, right: -14)
-        button.titleEdgeInsets = UIEdgeInsets(top: 26, left: -14, bottom: 0, right: 14)
+        if #available(iOS 15.0, *) {
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = title
+            configuration.image = UIImage(systemName: symbol)
+            configuration.imagePlacement = .top
+            configuration.imagePadding = 4
+            configuration.contentInsets = .zero
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+                var attributes = $0
+                attributes.font = .systemFont(ofSize: 14, weight: .regular)
+                return attributes
+            }
+            button.configuration = configuration
+        } else {
+            button.setTitle(title, for: .normal)
+            button.setImage(UIImage(systemName: symbol), for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 14, weight: .regular)
+            button.imageView?.contentMode = .scaleAspectFit
+            let imageSize = button.imageView?.intrinsicContentSize ?? .zero
+            let titleSize = button.titleLabel?.intrinsicContentSize ?? .zero
+            button.imageEdgeInsets = UIEdgeInsets(
+                top: -titleSize.height - 4,
+                left: 0,
+                bottom: 0,
+                right: -titleSize.width
+            )
+            button.titleEdgeInsets = UIEdgeInsets(
+                top: imageSize.height + 4,
+                left: -imageSize.width,
+                bottom: 0,
+                right: 0
+            )
+        }
+        button.contentHorizontalAlignment = .center
         button.layer.cornerRadius = 12
         button.addTarget(self, action: action, for: .touchUpInside)
         button.accessibilityLabel = title
@@ -678,7 +748,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     private func loadBook() {
         chapters = BookRepository.shared.getChapters(for: book.id)
         if chapters.isEmpty {
-            chapters = [Chapter(bookId: book.id, title: "正文", orderIndex: 0)]
+            chapters = [Chapter(bookId: book.id, title: L("正文"), orderIndex: 0)]
         }
         let progress = BookRepository.shared.getById(book.id)?.readingProgress ?? book.readingProgress
         let startChapter = initialChapterIndex ?? progress.currentChapterIndex
@@ -1041,6 +1111,9 @@ final class NativeDocumentReaderViewController: UIViewController {
         updateBookmarkButton()
         WebSyncServer.shared.updateCurrentPage(bookId: book.id, page: webSyncSnapshot(for: page))
         saveProgress()
+        if persistsReadingProgress {
+            NativeReaderRestorationStore.save(bookID: book.id)
+        }
         let reloadMargin = min(3, max(1, pages.count / 3))
         if !suppressWindowRefresh,
            currentIndex < reloadMargin || currentIndex >= pages.count - reloadMargin {
@@ -1233,16 +1306,16 @@ final class NativeDocumentReaderViewController: UIViewController {
             $0.isComment && (selection == nil || $0.text == selection?.text)
         }
         let selected = selection?.text ?? existing?.text ?? page.text
-        let alert = UIAlertController(title: existing == nil ? "添加评论" : "修改评论", message: selected, preferredStyle: .alert)
+        let alert = UIAlertController(title: existing == nil ? L("添加评论") : L("修改评论"), message: selected, preferredStyle: .alert)
         alert.addTextField {
-            $0.placeholder = "评论不能为空，最多1000字"
+            $0.placeholder = L("评论不能为空，最多1000字")
             $0.text = existing?.note
         }
-        alert.addAction(UIAlertAction(title: "保存", style: .default) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: L("保存"), style: .default) { [weak self, weak alert] _ in
             guard let self,
                   let note = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !note.isEmpty else {
-                LVToast.show(message: "评论内容不能为空", style: .error)
+                LVToast.show(message: L("评论内容不能为空"), style: .error)
                 return
             }
             if let existing { BookRepository.shared.deleteHighlight(existing.id) }
@@ -1267,9 +1340,9 @@ final class NativeDocumentReaderViewController: UIViewController {
                 self.refreshVisiblePages()
             }
             NotificationCenter.default.post(name: NSNotification.Name("LVReadSettingsChanged"), object: nil)
-            LVToast.show(message: "评论已保存", style: .success)
+            LVToast.show(message: L("评论已保存"), style: .success)
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
         present(alert, animated: true)
     }
 
@@ -1284,7 +1357,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             $0.isExcerpt && $0.startCharOffset == start && $0.endCharOffset == end
         }
         guard !existing else {
-            LVToast.show(message: "该段已摘录", style: .info)
+            LVToast.show(message: L("该段已摘录"), style: .info)
             return
         }
         BookRepository.shared.insertHighlight(
@@ -1304,7 +1377,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             refreshVisiblePages()
         }
         NotificationCenter.default.post(name: NSNotification.Name("LVReadSettingsChanged"), object: nil)
-        LVToast.show(message: "已添加到摘录", style: .success)
+        LVToast.show(message: L("已添加到摘录"), style: .success)
     }
 
     private func toggleBookmark(_ controller: NativeDocumentPageViewController) {
@@ -1400,10 +1473,10 @@ final class NativeDocumentReaderViewController: UIViewController {
         skeleton.stop()
         let fileExists = FileManager.default.fileExists(atPath: book.resolvedFilePath())
         let title = fileExists
-            ? (error is NativeDocumentReaderError ? "该章节暂无可阅读内容" : "文件解析失败")
-            : "文件已被移动或删除"
+            ? (error is NativeDocumentReaderError ? L("该章节暂无可阅读内容") : L("文件解析失败"))
+            : L("文件已被移动或删除")
         let alert = UIAlertController(title: title, message: error.localizedDescription, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "返回书架", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("返回书架"), style: .default) { [weak self] _ in
             self?.navigationController?.popViewController(animated: true)
         })
         present(alert, animated: true)
@@ -1414,7 +1487,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     @objc private func catalogTapped() {
         guard let page = currentPage else { return }
         let total = chapterPageCounts[page.chapterIndex] ?? page.pageIndex + 1
-        let current = "当前 \(page.pageIndex + 1) / \(total)"
+        let current = LF("第 %d / %d 页", page.pageIndex + 1, total)
         let catalog = NativeReaderCatalogViewController(
             chapters: chapters,
             currentIndex: page.chapterIndex,
@@ -1422,7 +1495,13 @@ final class NativeDocumentReaderViewController: UIViewController {
             settings: settings
         )
         catalog.onSelect = { [weak self] index in
-            self?.loadWindow(chapterIndex: index, pageIndex: 0, characterOffset: nil, showSkeleton: false)
+            self?.loadWindow(
+                chapterIndex: index,
+                pageIndex: 0,
+                characterOffset: nil,
+                showSkeleton: false,
+                preserveCurrentPage: false
+            )
         }
         present(catalog, animated: true)
     }
@@ -1454,7 +1533,7 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     private func startListening(page: NativeDocumentPage, from offset: Int) {
         guard page.image == nil else {
-            LVToast.show(message: "PDF 图片页暂不支持听书", style: .info)
+            LVToast.show(message: L("PDF 图片页暂不支持听书"), style: .info)
             return
         }
         guard let pageIndex = pages.firstIndex(where: { $0.id == page.id }),
@@ -1471,7 +1550,10 @@ final class NativeDocumentReaderViewController: UIViewController {
             try audioSession.setCategory(.playback, mode: .spokenAudio)
             try audioSession.setActive(true)
         } catch {
-            LVToast.show(message: "无法启动听书：\(error.localizedDescription)", style: .error)
+            LVToast.show(
+                message: LF("无法启动听书：%@", error.localizedDescription),
+                style: .error
+            )
             return
         }
         isListening = true
@@ -1623,12 +1705,12 @@ final class NativeDocumentReaderViewController: UIViewController {
             UIImage(systemName: isListeningPaused ? "play.fill" : "pause.fill"),
             for: .normal
         )
-        pauseListeningButton.accessibilityLabel = isListeningPaused ? "继续听书" : "暂停听书"
-        footerListeningButton.accessibilityLabel = isListeningPaused ? "继续听书" : "暂停听书"
+        pauseListeningButton.accessibilityLabel = isListeningPaused ? L("继续听书") : L("暂停听书")
+        footerListeningButton.accessibilityLabel = isListeningPaused ? L("继续听书") : L("暂停听书")
         listenButton.setTitleColor(isListening ? accent : foreground, for: .normal)
         listenButton.isUserInteractionEnabled = !isListening
-        listenButton.accessibilityLabel = isListening ? "正在听书" : "开始听书"
-        listenButton.accessibilityValue = isListening ? "正在播放" : "已停止"
+        listenButton.accessibilityLabel = isListening ? L("正在听书") : L("开始听书")
+        listenButton.accessibilityValue = isListening ? L("正在播放") : L("已停止")
 
         let shouldExpand = isListening
         let targetWidth = shouldExpand
@@ -1718,7 +1800,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         let foreground = UIColor(hex: settings.readingTheme.textColor)
         menuSyncButton.tintColor = connected ? accent : foreground.withAlphaComponent(0.55)
         menuSyncButton.backgroundColor = .clear
-        menuSyncButton.accessibilityValue = connected ? "已连接" : "未连接"
+        menuSyncButton.accessibilityValue = connected ? L("已连接") : L("未连接")
     }
 
     private func webSyncSnapshot(for page: NativeDocumentPage) -> WebSyncServer.PageSnapshot {
@@ -1823,7 +1905,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             editComment(page: page, pageController: pageController, selection: selection)
         case .copy:
             UIPasteboard.general.string = selection.text
-            LVToast.show(message: "已复制", style: .success)
+            LVToast.show(message: L("已复制"), style: .success)
         case .listen:
             if isListening { stopListening() }
             startListening(page: page, from: selection.range.location)
@@ -1935,7 +2017,7 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
         controller.view.transform = CGAffineTransform(translationX: 0, y: translation)
         pullBookmarkReveal.alpha = min(1, translation / 56)
         let reachedThreshold = translation >= 72
-        pullBookmarkLabel.text = reachedThreshold ? "松开设置书签" : "下拉设置书签"
+        pullBookmarkLabel.text = reachedThreshold ? L("松开设置书签") : L("下拉设置书签")
         controller.setPullBookmarkPreviewVisible(reachedThreshold)
     }
 
@@ -2038,7 +2120,7 @@ extension NativeDocumentReaderViewController: UIPopoverPresentationControllerDel
 
 private enum NativeDocumentReaderError: LocalizedError {
     case emptyContent
-    var errorDescription: String? { "没有可显示的正文" }
+    var errorDescription: String? { L("没有可显示的正文") }
 }
 
 private final class NativeDocumentSkeletonView: UIView {
@@ -2064,7 +2146,7 @@ private final class NativeDocumentSkeletonView: UIView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 32),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -32)
         ])
-        accessibilityLabel = "正在加载正文"
+        accessibilityLabel = L("正在加载正文")
     }
 
     @available(*, unavailable)

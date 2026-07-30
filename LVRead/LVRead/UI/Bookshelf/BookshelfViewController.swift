@@ -50,14 +50,14 @@ final class BookshelfViewController: UIViewController {
     private let tableView: UITableView
     private let emptyStateView = LVEmptyStateView(
         icon: "books.vertical",
-        title: "书架还是空的\n点击右上角“+”添加第一本书",
+        title: L("书架还是空的\n点击右上角“+”添加第一本书"),
         subtitle: ""
     )
     private let fabButton = UIButton(type: .system)
     private let topAddButton = UIButton(type: .system)
     private let sortButton = UIButton(type: .system)
     private let toggleButton = UIButton(type: .system)
-    private lazy var editButton = UIBarButtonItem(title: "编辑", style: .plain, target: self, action: #selector(toggleEditMode))
+    private lazy var editButton = UIBarButtonItem(title: L("编辑"), style: .plain, target: self, action: #selector(toggleEditMode))
     private let headerView = UIView()
     private let titleLabel = UILabel()
     private let taglineLabel = UILabel()
@@ -126,6 +126,7 @@ final class BookshelfViewController: UIViewController {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
         ImageCacheManager.shared.clearMemoryCache()
+        taglineLabel.text = LVModuleSubtitleProvider.subtitle(for: .shelf)
         applyReadingThemeToHome()
         loadBooks()
     }
@@ -158,6 +159,7 @@ final class BookshelfViewController: UIViewController {
         taglineLabel.text = LVModuleSubtitleProvider.subtitle(for: .shelf)
         taglineLabel.font = .systemFont(ofSize: 14, weight: .regular)
         taglineLabel.textAlignment = .left
+        taglineLabel.numberOfLines = 2
         taglineLabel.backgroundColor = .clear
 
         navigationTitleStack.addArrangedSubview(titleLabel)
@@ -177,7 +179,7 @@ final class BookshelfViewController: UIViewController {
         topAddButton.layer.shadowOffset = CGSize(width: 0, height: 10)
         topAddButton.layer.shadowRadius = 22
         topAddButton.layer.shadowOpacity = 0.08
-        topAddButton.accessibilityLabel = "添加书籍"
+        topAddButton.accessibilityLabel = L("添加书籍")
         topAddButton.addTarget(self, action: #selector(addBookTapped), for: .touchUpInside)
 
         // Sort button
@@ -220,7 +222,7 @@ final class BookshelfViewController: UIViewController {
         continueGradientLayer.endPoint = CGPoint(x: 1, y: 1)
         continueGradientLayer.cornerRadius = 8
         continueView.layer.insertSublayer(continueGradientLayer, at: 0)
-        continueEyebrowLabel.text = "继续阅读"
+        continueEyebrowLabel.text = L("继续阅读")
         continueEyebrowLabel.font = .systemFont(ofSize: 13, weight: .medium)
         continueEyebrowLabel.textColor = UIColor.white.withAlphaComponent(0.74)
         continueTitleLabel.font = .systemFont(ofSize: 21, weight: .bold)
@@ -243,11 +245,11 @@ final class BookshelfViewController: UIViewController {
         continueButton.isAccessibilityElement = false
         continueView.addTarget(self, action: #selector(continueReadingTapped), for: .touchUpInside)
         continueView.accessibilityTraits = .button
-        continueView.accessibilityLabel = "继续阅读"
+        continueView.accessibilityLabel = L("继续阅读")
         continueView.addSubviews(continueEyebrowLabel, continueTitleLabel, continueSubtitleLabel, continueProgressBar, continueProgressLabel, continueButton)
         view.addSubview(continueView)
 
-        sectionTitleLabel.text = "我的书籍"
+        sectionTitleLabel.text = L("我的书籍")
         sectionTitleLabel.font = .systemFont(ofSize: 20, weight: .bold)
         sectionTitleLabel.textColor = .lvTextPrimary
         sectionTitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -271,7 +273,7 @@ final class BookshelfViewController: UIViewController {
         sectionSortButton.addTarget(self, action: #selector(sortTapped), for: .touchUpInside)
         sectionMoreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
         sectionMoreButton.setPreferredSymbolConfiguration(.init(pointSize: 17, weight: .bold), forImageIn: .normal)
-        sectionMoreButton.accessibilityLabel = "更多书籍操作"
+        sectionMoreButton.accessibilityLabel = L("更多书籍操作")
         sectionMoreButton.addTarget(self, action: #selector(moreActionsTapped), for: .touchUpInside)
         [sectionEditButton, sectionSortButton, toggleButton, sectionMoreButton].forEach {
             $0.tintColor = UIColor(hex: "#236D67")
@@ -299,7 +301,7 @@ final class BookshelfViewController: UIViewController {
         filterScrollView.addSubview(filterStackView)
         view.addSubview(filterScrollView)
 
-        let chips = ["全部", "阅读中", "待读", "已读完", "收藏"]
+        let chips = [L("全部"), L("阅读中"), L("待读"), L("已读完"), L("收藏")]
         for (idx, title) in chips.enumerated() {
             let chip = createFilterChip(title: title, tag: idx)
             filterStackView.addArrangedSubview(chip)
@@ -507,8 +509,8 @@ final class BookshelfViewController: UIViewController {
         bottomNavView.addSubview(stack)
 
         configureBottomNavButton(bottomShelfButton, title: "LVRead", icon: "book.closed", active: true)
-        configureBottomNavButton(bottomNotesButton, title: "笔记", icon: "bookmark", active: false)
-        configureBottomNavButton(bottomMineButton, title: "我的", icon: "person", active: false)
+        configureBottomNavButton(bottomNotesButton, title: L("笔记"), icon: "bookmark", active: false)
+        configureBottomNavButton(bottomMineButton, title: L("我的"), icon: "person", active: false)
         bottomNotesButton.addTarget(self, action: #selector(openNotesModule), for: .touchUpInside)
         bottomMineButton.addTarget(self, action: #selector(openProfileModule), for: .touchUpInside)
 
@@ -636,8 +638,8 @@ final class BookshelfViewController: UIViewController {
         fabButton.layer.shadowColor = accent.cgColor
 
         configureBottomNavButton(bottomShelfButton, title: "LVRead", icon: "book.closed", active: true)
-        configureBottomNavButton(bottomNotesButton, title: "笔记", icon: "bookmark", active: false)
-        configureBottomNavButton(bottomMineButton, title: "我的", icon: "person", active: false)
+        configureBottomNavButton(bottomNotesButton, title: L("笔记"), icon: "bookmark", active: false)
+        configureBottomNavButton(bottomMineButton, title: L("我的"), icon: "person", active: false)
 
         updateFilterChipColors()
         collectionView.visibleCells.compactMap { $0 as? BookCell }.forEach { $0.applyAppearance() }
@@ -726,12 +728,12 @@ final class BookshelfViewController: UIViewController {
 
         if hasNoBooks {
             emptyStateView.updateIcon("books.vertical")
-            emptyStateView.updateTitle("书架还是空的\n点击右上角“+”添加第一本书")
+            emptyStateView.updateTitle(L("书架还是空的\n点击右上角“+”添加第一本书"))
             emptyStateView.updateSubtitle("")
         } else if filteredBooks.isEmpty {
             emptyStateView.updateIcon("line.3.horizontal.decrease.circle")
-            emptyStateView.updateTitle("没有找到符合条件的书籍")
-            emptyStateView.updateSubtitle("请尝试调整筛选条件或搜索关键词")
+            emptyStateView.updateTitle(L("没有找到符合条件的书籍"))
+            emptyStateView.updateSubtitle(L("请尝试调整筛选条件或搜索关键词"))
         }
 
         updateContinueCard()
@@ -744,11 +746,11 @@ final class BookshelfViewController: UIViewController {
         let finishedCount = books.filter { $0.readingProgress.progressPercent >= 100 }.count
         let favoriteCount = books.filter { $0.isFavorite }.count
         let titles = [
-            0: "全部",
-            1: "阅读中 \(readingCount)",
-            2: "待读 \(unreadCount)",
-            3: "已读完 \(finishedCount)",
-            4: "收藏 \(favoriteCount)"
+            0: L("全部"),
+            1: LF("阅读中 %d", readingCount),
+            2: LF("待读 %d", unreadCount),
+            3: LF("已读完 %d", finishedCount),
+            4: LF("收藏 %d", favoriteCount)
         ]
         for case let chip as UIButton in filterStackView.arrangedSubviews {
             chip.setTitle(titles[chip.tag], for: .normal)
@@ -768,30 +770,39 @@ final class BookshelfViewController: UIViewController {
 
         continueView.isHidden = false
         continueTitleLabel.text = book.title
-        continueSubtitleLabel.text = "\(book.author) · 第\(book.readingProgress.currentChapterIndex + 1)章 · \(book.fileFormat.displayName)"
+        continueSubtitleLabel.text = LF(
+            "%@ · 第 %d 章 · %@",
+            book.author,
+            book.readingProgress.currentChapterIndex + 1,
+            book.fileFormat.displayName
+        )
         continueProgressBar.progress = Float(book.readingProgress.progressPercent / 100)
         continueProgressLabel.text = String(format: "%.0f%%", book.readingProgress.progressPercent)
-        continueView.accessibilityLabel = "继续阅读《\(book.title)》，进度 \(continueProgressLabel.text ?? "")"
+        continueView.accessibilityLabel = LF(
+            "继续阅读《%@》，进度 %@",
+            book.title,
+            continueProgressLabel.text ?? ""
+        )
     }
 
     // MARK: - Actions
 
     @objc private func addBookTapped() {
-        let alert = UIAlertController(title: "导入书籍", message: nil, preferredStyle: .actionSheet)
-        let localAction = UIAlertAction(title: "从本地文件导入", style: .default) { [weak self] _ in
+        let alert = UIAlertController(title: L("导入书籍"), message: nil, preferredStyle: .actionSheet)
+        let localAction = UIAlertAction(title: L("从本地文件导入"), style: .default) { [weak self] _ in
             self?.presentFilePicker()
         }
         localAction.setValue(UIImage(systemName: "doc.badge.plus"), forKey: "image")
         alert.addAction(localAction)
 
-        let transferAction = UIAlertAction(title: "同网传输", style: .default) { [weak self] _ in
+        let transferAction = UIAlertAction(title: L("同网传输"), style: .default) { [weak self] _ in
             let transferVC = TransferDeviceListViewController()
             self?.navigationController?.pushViewController(transferVC, animated: true)
         }
         transferAction.setValue(UIImage(systemName: "wifi"), forKey: "image")
         alert.addAction(transferAction)
 
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
 
         if let popover = alert.popoverPresentationController {
             popover.sourceView = topAddButton
@@ -801,13 +812,13 @@ final class BookshelfViewController: UIViewController {
 
     @objc private func moreActionsTapped() {
         let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        let editAction = UIAlertAction(title: isEditingMode ? "完成编辑" : "编辑", style: .default) { [weak self] _ in
+        let editAction = UIAlertAction(title: isEditingMode ? L("完成编辑") : L("编辑"), style: .default) { [weak self] _ in
             self?.toggleEditMode()
         }
         editAction.setValue(UIImage(systemName: isEditingMode ? "checkmark.circle" : "pencil"), forKey: "image")
         alert.addAction(editAction)
 
-        let sortAction = UIAlertAction(title: "排序", style: .default) { [weak self] _ in
+        let sortAction = UIAlertAction(title: L("排序"), style: .default) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.sortTapped()
             }
@@ -815,13 +826,13 @@ final class BookshelfViewController: UIViewController {
         sortAction.setValue(UIImage(systemName: "arrow.up.arrow.down"), forKey: "image")
         alert.addAction(sortAction)
 
-        let viewAction = UIAlertAction(title: isGridView ? "列表方式" : "宫格方式", style: .default) { [weak self] _ in
+        let viewAction = UIAlertAction(title: isGridView ? L("列表方式") : L("宫格方式"), style: .default) { [weak self] _ in
             self?.toggleViewMode()
         }
         viewAction.setValue(UIImage(systemName: isGridView ? "list.bullet" : "square.grid.2x2"), forKey: "image")
         alert.addAction(viewAction)
 
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
         if let popover = alert.popoverPresentationController {
             popover.sourceView = sectionMoreButton
             popover.sourceRect = sectionMoreButton.bounds
@@ -846,7 +857,7 @@ final class BookshelfViewController: UIViewController {
     }
 
     @objc private func sortTapped() {
-        let alert = UIAlertController(title: "排序方式", message: nil, preferredStyle: .actionSheet)
+        let alert = UIAlertController(title: L("排序方式"), message: nil, preferredStyle: .actionSheet)
         for sortType in BookSortType.allCases {
             let title = sortType.rawValue
             alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
@@ -854,7 +865,7 @@ final class BookshelfViewController: UIViewController {
                 self?.loadBooks()
             })
         }
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
         if let popover = alert.popoverPresentationController {
             popover.sourceView = sectionMoreButton
             popover.sourceRect = sectionMoreButton.bounds
@@ -882,7 +893,7 @@ final class BookshelfViewController: UIViewController {
 
         if isEditingMode {
             let deleteBarItem = UIBarButtonItem(
-                title: "删除",
+                title: L("删除"),
                 style: .plain,
                 target: self,
                 action: #selector(batchDelete)
@@ -898,19 +909,19 @@ final class BookshelfViewController: UIViewController {
     @objc private func batchDelete() {
         guard !selectedBookIds.isEmpty else { return }
         let alert = UIAlertController(
-            title: "确定删除 \(selectedBookIds.count) 本书？",
-            message: "该操作不可撤销",
+            title: LF("确定删除 %d 本书？", selectedBookIds.count),
+            message: L("该操作不可撤销"),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "删除", style: .destructive) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("删除"), style: .destructive) { [weak self] _ in
             guard let self = self else { return }
             _ = BookRepository.shared.deleteBatch(Array(self.selectedBookIds))
             self.selectedBookIds.removeAll()
             self.toggleEditMode()
             self.loadBooks()
-            LVToast.show(message: "已删除", style: .info)
+            LVToast.show(message: L("已删除"), style: .info)
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
         present(alert, animated: true)
     }
 
@@ -929,26 +940,26 @@ final class BookshelfViewController: UIViewController {
     private func showBookActions(for book: Book, at indexPath: IndexPath) {
         let alert = UIAlertController(title: book.title, message: nil, preferredStyle: .actionSheet)
 
-        alert.addAction(UIAlertAction(title: "✏️ 修改信息", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("✏️ 修改信息"), style: .default) { [weak self] _ in
             self?.showRenameDialog(for: book)
         })
-        alert.addAction(UIAlertAction(title: "🖼️ 修改封面", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("🖼️ 修改封面"), style: .default) { [weak self] _ in
             self?.showChangeCover(for: book)
         })
-        alert.addAction(UIAlertAction(title: "📤 分享", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("📤 分享"), style: .default) { [weak self] _ in
             self?.shareBook(book)
         })
-        alert.addAction(UIAlertAction(title: "🗑️ 删除", style: .destructive) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("🗑️ 删除"), style: .destructive) { [weak self] _ in
             self?.confirmDelete(book)
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
         present(alert, animated: true)
     }
 
     private func showRenameDialog(for book: Book) {
-        let alert = UIAlertController(title: "修改书名", message: nil, preferredStyle: .alert)
+        let alert = UIAlertController(title: L("修改书名"), message: nil, preferredStyle: .alert)
         alert.addTextField { $0.text = book.title }
-        alert.addAction(UIAlertAction(title: "确定", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("确定"), style: .default) { [weak self] _ in
             guard let newTitle = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespaces),
                   !newTitle.isEmpty else { return }
             var updated = book
@@ -956,12 +967,12 @@ final class BookshelfViewController: UIViewController {
             switch BookRepository.shared.update(updated) {
             case .success:
                 self?.loadBooks()
-                LVToast.show(message: "书名已修改", style: .success)
+                LVToast.show(message: L("书名已修改"), style: .success)
             case .failure:
-                LVToast.show(message: "修改失败，请稍后重试", style: .error)
+                LVToast.show(message: L("修改失败，请稍后重试"), style: .error)
             }
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
         present(alert, animated: true)
     }
 
@@ -977,7 +988,7 @@ final class BookshelfViewController: UIViewController {
     private func shareBook(_ book: Book) {
         let url = URL(fileURLWithPath: book.resolvedFilePath())
         guard FileManager.default.fileExists(atPath: url.path) else {
-            LVToast.show(message: "原文件不存在，无法分享", style: .error)
+            LVToast.show(message: L("原文件不存在，无法分享"), style: .error)
             return
         }
         let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
@@ -990,23 +1001,23 @@ final class BookshelfViewController: UIViewController {
 
     private func confirmDelete(_ book: Book) {
         let alert = UIAlertController(
-            title: "确定删除《\(book.title)》？",
-            message: "该操作不可撤销",
+            title: LF("确定删除《%@》？", book.title),
+            message: L("该操作不可撤销"),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "删除", style: .destructive) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("删除"), style: .destructive) { [weak self] _ in
             _ = BookRepository.shared.delete(book.id)
             self?.loadBooks()
-            LVToast.show(message: "已删除", style: .info)
+            LVToast.show(message: L("已删除"), style: .info)
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
         present(alert, animated: true)
     }
 
     private func openReader(for book: Book) {
         let filePath = book.resolvedFilePath()
         guard FileManager.default.fileExists(atPath: filePath) else {
-            LVToast.show(message: "原文件不存在，请重新导入", style: .error)
+            LVToast.show(message: L("原文件不存在，请重新导入"), style: .error)
             return
         }
         if book.fileFormat != .pdf,
@@ -1027,12 +1038,12 @@ final class BookshelfViewController: UIViewController {
                     )
                 }
                 guard !restored.isEmpty else {
-                    LVToast.show(message: "无法恢复章节，请重新导入", style: .error)
+                    LVToast.show(message: L("无法恢复章节，请重新导入"), style: .error)
                     return
                 }
                 BookRepository.shared.insertChapters(restored)
             } catch {
-                LVToast.show(message: "章节恢复失败，请重新导入", style: .error)
+                LVToast.show(message: L("章节恢复失败，请重新导入"), style: .error)
                 return
             }
         }
@@ -1042,7 +1053,7 @@ final class BookshelfViewController: UIViewController {
 
     private func openWebSync(for book: Book) {
         guard let page = WebSyncServer.shared.savedPageSnapshot(for: book.id) else {
-            LVToast.show(message: "请先打开《\(book.title)》生成阅读页面", style: .info)
+            LVToast.show(message: LF("请先打开《%@》生成阅读页面", book.title), style: .info)
             return
         }
         present(WebSyncViewController(book: book, page: page), animated: true)
@@ -1141,13 +1152,13 @@ extension BookshelfViewController: UICollectionViewDataSource, UICollectionViewD
         guard indexPath.item < filteredBooks.count else { return nil }
         let book = filteredBooks[indexPath.item]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            let rename = UIAction(title: "修改信息", image: UIImage(systemName: "pencil")) { _ in
+            let rename = UIAction(title: L("修改信息"), image: UIImage(systemName: "pencil")) { _ in
                 self?.showRenameDialog(for: book)
             }
-            let share = UIAction(title: "分享", image: UIImage(systemName: "square.and.arrow.up")) { _ in
+            let share = UIAction(title: L("分享"), image: UIImage(systemName: "square.and.arrow.up")) { _ in
                 self?.shareBook(book)
             }
-            let delete = UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+            let delete = UIAction(title: L("删除"), image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
                 self?.confirmDelete(book)
             }
             return UIMenu(children: [rename, share, delete])
@@ -1187,11 +1198,11 @@ extension BookshelfViewController: UITableViewDataSource, UITableViewDelegate {
     ) -> UISwipeActionsConfiguration? {
         guard filteredBooks.indices.contains(indexPath.row) else { return nil }
         let book = filteredBooks[indexPath.row]
-        let delete = UIContextualAction(style: .destructive, title: "删除") { [weak self] _, _, completion in
+        let delete = UIContextualAction(style: .destructive, title: L("删除")) { [weak self] _, _, completion in
             self?.confirmDelete(book)
             completion(true)
         }
-        let share = UIContextualAction(style: .normal, title: "分享") { [weak self] _, _, completion in
+        let share = UIContextualAction(style: .normal, title: L("分享")) { [weak self] _, _, completion in
             self?.shareBook(book)
             completion(true)
         }
@@ -1205,7 +1216,7 @@ extension BookshelfViewController: UITableViewDataSource, UITableViewDelegate {
     ) -> UISwipeActionsConfiguration? {
         guard filteredBooks.indices.contains(indexPath.row) else { return nil }
         let book = filteredBooks[indexPath.row]
-        let rename = UIContextualAction(style: .normal, title: "改名") { [weak self] _, _, completion in
+        let rename = UIContextualAction(style: .normal, title: L("改名")) { [weak self] _, _, completion in
             self?.showRenameDialog(for: book)
             completion(true)
         }
@@ -1221,13 +1232,13 @@ extension BookshelfViewController: UITableViewDataSource, UITableViewDelegate {
         guard filteredBooks.indices.contains(indexPath.row) else { return nil }
         let book = filteredBooks[indexPath.row]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            let rename = UIAction(title: "修改书名", image: UIImage(systemName: "pencil")) { _ in
+            let rename = UIAction(title: L("修改书名"), image: UIImage(systemName: "pencil")) { _ in
                 self?.showRenameDialog(for: book)
             }
-            let share = UIAction(title: "分享", image: UIImage(systemName: "square.and.arrow.up")) { _ in
+            let share = UIAction(title: L("分享"), image: UIImage(systemName: "square.and.arrow.up")) { _ in
                 self?.shareBook(book)
             }
-            let delete = UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
+            let delete = UIAction(title: L("删除"), image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
                 self?.confirmDelete(book)
             }
             return UIMenu(children: [rename, share, delete])
@@ -1258,7 +1269,7 @@ extension BookshelfViewController: UIDocumentPickerDelegate {
                     importVC.dismiss(animated: true) {
                         switch result {
                         case .success:
-                            LVToast.show(message: "导入成功!", style: .success)
+                            LVToast.show(message: L("导入成功!"), style: .success)
                             self.loadBooks()
                         case .failure(let error):
                             LVToast.show(message: error.localizedDescription, style: .error)

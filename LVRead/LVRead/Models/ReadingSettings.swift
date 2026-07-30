@@ -63,9 +63,9 @@ enum EyeCareFilter: String, Codable, CaseIterable, Hashable {
 
     var displayName: String {
         switch self {
-        case .none: return "冷白"
-        case .warmYellow: return "暖黄"
-        case .mintGreen: return "护眼绿"
+        case .none: return L("冷白")
+        case .warmYellow: return L("暖黄")
+        case .mintGreen: return L("护眼绿")
         }
     }
 
@@ -95,11 +95,11 @@ enum PageFlipMode: String, Codable, CaseIterable, Hashable {
 
     var displayName: String {
         switch self {
-        case .simulation: return "仿真翻页"
-        case .cover: return "覆盖翻页"
-        case .slide: return "平移翻页"
-        case .scroll: return "上下滚动"
-        case .none: return "无动画"
+        case .simulation: return L("仿真翻页")
+        case .cover: return L("覆盖翻页")
+        case .slide: return L("平移翻页")
+        case .scroll: return L("上下滚动")
+        case .none: return L("无动画")
         }
     }
 }
@@ -219,14 +219,14 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
 
     var displayName: String {
         switch self {
-        case .white, .custom: return "素白"
-        case .warmYellow: return "暖黄"
-        case .mint: return "薄荷"
-        case .latte: return "拿铁"
-        case .bookshelf: return "青白"
-        case .bookshelfNight: return "青岚"
-        case .midnight: return "墨蓝"
-        case .oled: return "纯黑"
+        case .white, .custom: return L("素白")
+        case .warmYellow: return L("暖黄")
+        case .mint: return L("薄荷")
+        case .latte: return L("拿铁")
+        case .bookshelf: return L("青白")
+        case .bookshelfNight: return L("青岚")
+        case .midnight: return L("墨蓝")
+        case .oled: return L("纯黑")
         }
     }
 }

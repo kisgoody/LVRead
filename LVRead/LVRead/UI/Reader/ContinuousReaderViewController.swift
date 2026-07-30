@@ -59,7 +59,7 @@ final class ContinuousReaderViewController: UIViewController {
         super.viewDidLoad()
         chapters = BookRepository.shared.getChapters(for: book.id)
         if chapters.isEmpty {
-            chapters = [Chapter(bookId: book.id, title: "正文", orderIndex: 0)]
+            chapters = [Chapter(bookId: book.id, title: L("正文"), orderIndex: 0)]
         }
         setupUI()
         setupGestures()
@@ -115,7 +115,7 @@ final class ContinuousReaderViewController: UIViewController {
         scrollView.addSubview(scrollStackView)
         containerView.addSubview(scrollView)
 
-        loadingLabel.text = "正在加载..."
+        loadingLabel.text = L("正在加载...")
         loadingLabel.font = .systemFont(ofSize: 15, weight: .medium)
         loadingLabel.textAlignment = .center
         loadingLabel.textColor = UIColor(hex: settings.readingTheme.textColor).withAlphaComponent(0.55)
@@ -294,7 +294,7 @@ final class ContinuousReaderViewController: UIViewController {
                 DispatchQueue.main.async {
                     guard generation == self.loadGeneration else { return }
                     self.pendingLoadCenter = nil
-                    self.loadingLabel.text = "加载失败"
+                    self.loadingLabel.text = L("加载失败")
                 }
                 return
             }
@@ -431,7 +431,7 @@ final class ContinuousReaderViewController: UIViewController {
                     pageIndex: 0,
                     startCharOffset: 0,
                     endCharOffset: 0,
-                    content: "本章加载失败",
+                    content: L("本章加载失败"),
                     chapterTitle: chapter.title,
                     chapterIndex: index
                 )

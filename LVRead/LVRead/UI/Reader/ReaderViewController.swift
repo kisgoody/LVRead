@@ -865,7 +865,7 @@ final class ReaderViewController: UIViewController {
             savedPageOffset = book.readingProgress.currentPageOffset
         }
         if chapters.isEmpty {
-            chapters = [Chapter(bookId: book.id, title: "正文", level: 1, orderIndex: 0)]
+            chapters = [Chapter(bookId: book.id, title: L("正文"), level: 1, orderIndex: 0)]
         }
         loadReadingPages(startChapterIndex: savedChapterIndex, startPageOffset: savedPageOffset)
     }
@@ -898,7 +898,7 @@ final class ReaderViewController: UIViewController {
                 }
 
                 guard !pages.isEmpty else {
-                    DispatchQueue.main.async { LVToast.show(message: "读取失败", style: .error) }
+                    DispatchQueue.main.async { LVToast.show(message: L("读取失败"), style: .error) }
                     return
                 }
 
@@ -935,10 +935,10 @@ final class ReaderViewController: UIViewController {
                     guard !self.isClosing else { return }
                     let fm = FileManager.default
                     if !fm.fileExists(atPath: self.book.resolvedFilePath()) {
-                        LVToast.show(message: "书籍文件丢失，请重新导入", style: .error)
+                        LVToast.show(message: L("书籍文件丢失，请重新导入"), style: .error)
                         self.dismiss(animated: true)
                     } else {
-                        LVToast.show(message: "读取失败", style: .error)
+                        LVToast.show(message: L("读取失败"), style: .error)
                     }
                 }
             }

@@ -8,37 +8,30 @@ enum LVMainModule {
 
 enum LVModuleSubtitleProvider {
     private static let dateKey = "lv_module_subtitle_date"
-    private static let valuesKey = "lv_module_subtitle_values"
-    private static let values = [
-        "拾字存光，落笔留章", "摘录世间字句，收藏心中山河", "与文字共情，把思绪存档",
-        "藏书页碎语，记人间所思", "一文一注解，一念一收藏", "留存文字，沉淀思绪",
-        "摘抄、批注、所思所感", "文字存档，灵感自留", "留住书中值得回味的片段",
-        "为好文落笔，因所思留痕", "文字为骨，笔记为魂", "阅尽千行字，记下一寸心",
-        "字落于心，笔藏于册", "拾句，存思，留忆", "书有注解，心有归处",
-        "藏万千书卷，守一方阅读天地", "以书为伴，与自己相逢", "你的阅读宇宙",
-        "为文字而生，因阅读而狂"
+    private static let indexKey = "lv_module_subtitle_index"
+    private static let keys: [LVMainModule: [String]] = [
+        .shelf: (1...10).map { String(format: "quote.home.%02d", $0) },
+        .notes: (1...10).map { String(format: "quote.notes.%02d", $0) },
+        .profile: (1...10).map { String(format: "quote.profile.%02d", $0) }
     ]
 
     static func subtitle(for module: LVMainModule) -> String {
-        let assignments = dailyAssignments()
-        return assignments[module.index]
+        guard let moduleKeys = keys[module], !moduleKeys.isEmpty else { return "" }
+        return L(moduleKeys[dailyIndex() % moduleKeys.count])
     }
 
-    private static func dailyAssignments() -> [String] {
+    private static func dailyIndex() -> Int {
         let defaults = UserDefaults.standard
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         let today = formatter.string(from: Date())
-        if defaults.string(forKey: dateKey) == today,
-           let saved = defaults.stringArray(forKey: valuesKey),
-           saved.count == 3,
-           Set(saved).count == 3 {
-            return saved
+        if defaults.string(forKey: dateKey) == today {
+            return defaults.integer(forKey: indexKey)
         }
-        let selected = Array(values.shuffled().prefix(3))
+        let selected = Int.random(in: 0..<10)
         defaults.set(today, forKey: dateKey)
-        defaults.set(selected, forKey: valuesKey)
+        defaults.set(selected, forKey: indexKey)
         return selected
     }
 }
@@ -80,8 +73,8 @@ final class LVModuleNavigationView: UIView {
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         configure(shelfButton, title: "LVRead", symbol: "book.closed", module: .shelf)
-        configure(notesButton, title: "笔记", symbol: "bookmark", module: .notes)
-        configure(profileButton, title: "我的", symbol: "person", module: .profile)
+        configure(notesButton, title: L("笔记"), symbol: "bookmark", module: .notes)
+        configure(profileButton, title: L("我的"), symbol: "person", module: .profile)
         [shelfButton, notesButton, profileButton].forEach(stackView.addArrangedSubview)
 
         NSLayoutConstraint.activate([

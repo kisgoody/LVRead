@@ -97,7 +97,7 @@ final class BookListCell: UITableViewCell {
         )
         bookActionButton.tintColor = UIColor(hex: "#24211D")
         bookActionButton.backgroundColor = .clear
-        bookActionButton.accessibilityHint = "打开电脑端同步阅读"
+        bookActionButton.accessibilityHint = L("打开电脑端同步阅读")
         bookActionButton.addTarget(self, action: #selector(syncTapped), for: .touchUpInside)
 
         coverImageView.addSubviews(coverSpineView, coverTitleLabel, coverMarkView)
@@ -259,15 +259,16 @@ final class BookListCell: UITableViewCell {
         titleLabel.text = book.title
         coverTitleLabel.text = book.title
         let percent = book.readingProgress.progressPercent
-        authorLabel.text = "\(book.author) · \(percent > 0 ? "已读 \(Int(percent))%" : "尚未开始")"
+        let readingProgress = percent > 0 ? LF("已读 %d%%", Int(percent)) : L("尚未开始")
+        authorLabel.text = "\(book.author) · \(readingProgress)"
         progressBar.progress = Float(percent / 100.0)
         progressLabel.text = book.progressPercentDisplay
         if percent >= 100 {
-            detailLabel.text = "已读完"
+            detailLabel.text = L("已读完")
         } else if percent > 0 {
-            detailLabel.text = "阅读中"
+            detailLabel.text = L("阅读中")
         } else {
-            detailLabel.text = "待读"
+            detailLabel.text = L("待读")
         }
         sourceBadge.text = "  \(book.fileFormat.displayName)  "
 
@@ -275,7 +276,11 @@ final class BookListCell: UITableViewCell {
         zodiacBadge.isHidden = true
         coverImageView.image = makeCoverBackground(for: book)
         coverImageView.backgroundColor = .clear
-        bookActionButton.accessibilityLabel = "《\(book.title)》电脑同步，\(syncConnected ? "已连接" : "未连接")"
+        bookActionButton.accessibilityLabel = LF(
+            "%@，电脑同步：%@",
+            book.title,
+            syncConnected ? L("已连接") : L("未连接")
+        )
         applyAppearance()
     }
 

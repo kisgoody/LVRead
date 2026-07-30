@@ -7,9 +7,9 @@ enum BookSource: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .shareImport: return "分享导入"
-        case .localFile: return "本地文件"
-        case .lanTransfer: return "同网传输"
+        case .shareImport: return L("分享导入")
+        case .localFile: return L("本地文件")
+        case .lanTransfer: return L("同网传输")
         }
     }
 

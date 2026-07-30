@@ -13,12 +13,12 @@ final class TransferSelectBooksViewController: UIViewController {
     private var selectedBooks: Set<String> = []
 
     private let tableView = UITableView(frame: .zero, style: .plain)
-    private let sendButton = LVButton(title: "发送 (0)", style: .primary)
+    private let sendButton = LVButton(title: L("发送 (0)"), style: .primary)
 
     init(device: LanDevice) {
         self.device = device
         super.init(nibName: nil, bundle: nil)
-        title = "选择书籍"
+        title = L("选择书籍")
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -129,6 +129,6 @@ extension TransferSelectBooksViewController: UITableViewDataSource, UITableViewD
             selectedBooks.insert(bookId)
         }
         tableView.reloadRows(at: [indexPath], with: .automatic)
-        sendButton.setTitle("发送 (\(selectedBooks.count))", for: .normal)
+        sendButton.setTitle(LF("发送 (%d)", selectedBooks.count), for: .normal)
     }
 }

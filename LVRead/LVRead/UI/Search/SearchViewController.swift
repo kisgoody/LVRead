@@ -13,7 +13,7 @@ final class SearchViewController: UIViewController {
 
     private let searchBar = UISearchBar()
     private let tableView = UITableView(frame: .zero, style: .plain)
-    private let emptyView = LVEmptyStateView(icon: "🔍", title: "没有找到匹配的书籍")
+    private let emptyView = LVEmptyStateView(icon: "🔍", title: L("没有找到匹配的书籍"))
 
     // MARK: - Properties
 
@@ -24,9 +24,9 @@ final class SearchViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "搜索"
+        title = L("搜索")
 
-        searchBar.placeholder = "搜索书名、作者..."
+        searchBar.placeholder = L("搜索书名、作者...")
         searchBar.delegate = self
         searchBar.searchBarStyle = .minimal
         searchBar.becomeFirstResponder()

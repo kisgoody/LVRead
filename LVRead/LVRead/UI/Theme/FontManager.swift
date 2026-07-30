@@ -5,7 +5,7 @@ final class FontManager {
     private init() {}
 
     var availableFonts: [String] {
-        var fonts = ["系统默认", "宋体", "仿宋", "黑体", "楷体"]
+        var fonts = [L("系统默认"), L("宋体"), L("仿宋"), L("黑体"), L("楷体")]
         if let customFonts = loadCustomFonts() {
             fonts.append(contentsOf: customFonts)
         }
@@ -13,20 +13,24 @@ final class FontManager {
     }
 
     func font(named name: String, size: CGFloat) -> UIFont {
-        switch name {
-        case "系统默认": return firstAvailable(["PingFangSC-Regular"], size: size) ?? .systemFont(ofSize: size)
-        case "宋体": return firstAvailable(["STSongti-SC-Regular", "Songti SC"], size: size) ?? designedFont(.serif, size: size)
-        case "仿宋": return firstAvailable(["STFangsong", "FangSong", "STSong"], size: size)
-            ?? transformedSongti(size: size, scaleX: 0.92, shear: 0)
-        case "黑体": return UIFont(name: "STHeitiSC-Light", size: size) ?? .systemFont(ofSize: size)
-        case "楷体": return firstAvailable(["STKaiti", "Kaiti SC", "STKaitiSC-Regular"], size: size)
-            ?? transformedSongti(size: size, scaleX: 1, shear: -0.16)
-        default:
-            if let customFont = UIFont(name: name, size: size) {
-                return customFont
-            }
-            return .systemFont(ofSize: size)
+        if ["系统默认", "System"].contains(name) {
+            return firstAvailable(["PingFangSC-Regular"], size: size) ?? .systemFont(ofSize: size)
         }
+        if ["宋体", "Song"].contains(name) {
+            return firstAvailable(["STSongti-SC-Regular", "Songti SC"], size: size) ?? designedFont(.serif, size: size)
+        }
+        if ["仿宋", "Fang Song"].contains(name) {
+            return firstAvailable(["STFangsong", "FangSong", "STSong"], size: size)
+            ?? transformedSongti(size: size, scaleX: 0.92, shear: 0)
+        }
+        if ["黑体", "Hei"].contains(name) {
+            return UIFont(name: "STHeitiSC-Light", size: size) ?? .systemFont(ofSize: size)
+        }
+        if ["楷体", "Kai"].contains(name) {
+            return firstAvailable(["STKaiti", "Kaiti SC", "STKaitiSC-Regular"], size: size)
+            ?? transformedSongti(size: size, scaleX: 1, shear: -0.16)
+        }
+        return UIFont(name: name, size: size) ?? .systemFont(ofSize: size)
     }
 
     private func firstAvailable(_ names: [String], size: CGFloat) -> UIFont? {

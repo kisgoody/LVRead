@@ -39,9 +39,9 @@ final class DarkModeManager: ObservableObject {
 
         var displayName: String {
             switch self {
-            case .system: return "跟随系统"
-            case .light: return "浅色模式"
-            case .dark: return "深色模式"
+            case .system: return L("跟随系统")
+            case .light: return L("浅色模式")
+            case .dark: return L("深色模式")
             }
         }
     }

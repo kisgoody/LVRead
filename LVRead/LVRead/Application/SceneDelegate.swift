@@ -23,17 +23,25 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = (scene as? UIWindowScene) else { return }
         window = UIWindow(windowScene: windowScene)
 
+        if connectionOptions.urlContexts.isEmpty,
+           let book = NativeReaderRestorationStore.restorableBook() {
+            let navigationController = makeBookshelfNavigationController()
+            navigationController.viewControllers.append(
+                NativeDocumentReaderViewController(book: book)
+            )
+            window?.rootViewController = navigationController
+            window?.makeKeyAndVisible()
+            DarkModeManager.shared.applyTheme()
+            return
+        }
+
         let splash = SplashViewController()
         splash.onComplete = { [weak self] in
-            guard let self = self else { return }
-            
-            let bookshelfVC = BookshelfViewController()
-            let navigationController = UINavigationController(navigationBarClass: BookshelfNavigationBar.self, toolbarClass: nil)
-            navigationController.viewControllers = [bookshelfVC]
-            navigationController.navigationBar.prefersLargeTitles = false
-            AppearanceManager.shared.configure(navigationController)
+            guard let self else { return }
+            let navigationController = self.makeBookshelfNavigationController()
 
-            UIView.transition(with: self.window!, duration: 0.4, options: .transitionCrossDissolve) {
+            guard let window = self.window else { return }
+            UIView.transition(with: window, duration: 0.4, options: .transitionCrossDissolve) {
                 self.window?.rootViewController = navigationController
             }
             DarkModeManager.shared.applyTheme()
@@ -45,6 +53,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         window?.rootViewController = splash
         window?.makeKeyAndVisible()
+    }
+
+    private func makeBookshelfNavigationController() -> UINavigationController {
+        let navigationController = UINavigationController(
+            navigationBarClass: BookshelfNavigationBar.self,
+            toolbarClass: nil
+        )
+        navigationController.viewControllers = [BookshelfViewController()]
+        navigationController.navigationBar.prefersLargeTitles = false
+        AppearanceManager.shared.configure(navigationController)
+        return navigationController
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

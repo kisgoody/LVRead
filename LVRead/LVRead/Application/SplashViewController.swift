@@ -132,7 +132,7 @@ final class SplashViewController: UIViewController {
         appNameLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appNameLabel)
         
-        subtitleLabel.text = "书香致远"
+        subtitleLabel.text = L("书香致远")
         subtitleLabel.font = {
             if let songti = UIFont(name: "STSongti-SC-Regular", size: 18) { return songti }
             if let georgia = UIFont(name: "Georgia", size: 18) { return georgia }

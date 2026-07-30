@@ -109,7 +109,7 @@ final class BookCell: UICollectionViewCell {
             forImageIn: .normal
         )
         syncButton.backgroundColor = .clear
-        syncButton.accessibilityHint = "打开电脑端同步阅读"
+        syncButton.accessibilityHint = L("打开电脑端同步阅读")
         syncButton.addTarget(self, action: #selector(syncTapped), for: .touchUpInside)
 
         // Add subviews
@@ -206,13 +206,17 @@ final class BookCell: UICollectionViewCell {
         progressBar.progress = progress
         progressLabel.text = String(format: "%.0f%%", book.readingProgress.progressPercent)
         
-        sourceBadge.text = "第\(book.readingProgress.currentChapterIndex + 1)章"
+        sourceBadge.text = LF("第 %d 章", book.readingProgress.currentChapterIndex + 1)
         formatBadge.text = book.fileSizeDisplay
 
         zodiacBadge.image = nil
         zodiacBadge.isHidden = true
         coverImageView.image = generatePlaceholderCover(for: book)
-        syncButton.accessibilityLabel = "《\(book.title)》电脑同步，\(syncConnected ? "已连接" : "未连接")"
+        syncButton.accessibilityLabel = LF(
+            "%@，电脑同步：%@",
+            book.title,
+            syncConnected ? L("已连接") : L("未连接")
+        )
         applyAppearance()
     }
 

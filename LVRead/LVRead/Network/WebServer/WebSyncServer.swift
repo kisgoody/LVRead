@@ -15,9 +15,9 @@ enum WebSyncConnectionState: String, Equatable {
 
     var title: String {
         switch self {
-        case .disconnected: return "同步已关闭"
-        case .connecting: return "等待连接"
-        case .connected: return "连接成功"
+        case .disconnected: return L("同步已关闭")
+        case .connecting: return L("等待连接")
+        case .connected: return L("连接成功")
         }
     }
 

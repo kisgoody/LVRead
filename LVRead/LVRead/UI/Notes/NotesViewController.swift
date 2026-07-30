@@ -24,8 +24,8 @@ final class NotesViewController: UIViewController {
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let emptyView = LVEmptyStateView(
         icon: "bookmark",
-        title: "还没有笔记",
-        subtitle: "阅读时可以添加摘录、评论或书签，保存的内容会集中显示在这里。"
+        title: L("还没有笔记"),
+        subtitle: L("阅读时可以添加摘录、评论或书签，保存的内容会集中显示在这里。")
     )
     private let moduleNavigation = LVModuleNavigationView(selectedModule: .notes)
 
@@ -33,6 +33,7 @@ final class NotesViewController: UIViewController {
     private var visibleAssets: [Asset] = []
     private var filter: Filter = .all
     private var searchText = ""
+    private var isFirstAppearance = true
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -44,42 +45,48 @@ final class NotesViewController: UIViewController {
             name: .darkModeChanged,
             object: nil
         )
-        loadAssets()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(reloadData),
             name: NSNotification.Name("LVReadSettingsChanged"),
             object: nil
         )
+        loadAssets()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
-        loadAssets()
+        subtitleLabel.text = LVModuleSubtitleProvider.subtitle(for: .notes)
+        if isFirstAppearance {
+            isFirstAppearance = false
+        } else {
+            loadAssets()
+        }
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
     private func buildInterface() {
         view.backgroundColor = modulePageBackground
-        titleLabel.text = "笔记"
+        titleLabel.text = L("笔记")
         titleLabel.font = .systemFont(ofSize: 30, weight: .bold)
         titleLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         subtitleLabel.text = LVModuleSubtitleProvider.subtitle(for: .notes)
         subtitleLabel.font = .systemFont(ofSize: 14)
         subtitleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+        subtitleLabel.numberOfLines = 2
 
-        searchBar.placeholder = "搜索书名、章节、摘录或批注"
+        searchBar.placeholder = L("搜索书名、章节、摘录或批注")
         searchBar.searchBarStyle = .minimal
         searchBar.delegate = self
-        searchBar.accessibilityLabel = "搜索笔记"
+        searchBar.accessibilityLabel = L("搜索笔记")
 
         filterScrollView.showsHorizontalScrollIndicator = false
         filterStackView.axis = .horizontal
         filterStackView.spacing = 8
         filterScrollView.addSubview(filterStackView)
-        ["全部", "摘录", "评论", "书签"].enumerated().forEach { index, title in
+        [L("全部"), L("摘录"), L("评论"), L("书签")].enumerated().forEach { index, title in
             filterStackView.addArrangedSubview(makeFilterChip(title: title, tag: index))
         }
         applyFilterAppearance()
@@ -105,6 +112,7 @@ final class NotesViewController: UIViewController {
             titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
             searchBar.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 12),
             searchBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
             searchBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
@@ -146,7 +154,8 @@ final class NotesViewController: UIViewController {
             let annotations = BookRepository.shared.getHighlights(for: book.id).map { value in
                 Asset(id: value.id, book: book, chapterIndex: value.chapterIndex,
                       pageOffset: value.pageOffset,
-                      chapterTitle: BookRepository.shared.getChapters(for: book.id)[safe: value.chapterIndex]?.title ?? "第 \(value.chapterIndex + 1) 章",
+                      chapterTitle: BookRepository.shared.getChapters(for: book.id)[safe: value.chapterIndex]?.title
+                          ?? LF("第 %d 章", value.chapterIndex + 1),
                       excerpt: value.text, note: value.note, createdAt: value.createdAt,
                       kind: value.isComment ? .comment(value) : .excerpt(value))
             }
@@ -234,15 +243,18 @@ final class NotesViewController: UIViewController {
         bookmarkCount: Int
     ) {
         let titles = [
-            "全部 \(assets.count)",
-            "摘录 \(excerptCount)",
-            "评论 \(commentCount)",
-            "书签 \(bookmarkCount)"
+            LF("全部 %d", assets.count),
+            LF("摘录 %d", excerptCount),
+            LF("评论 %d", commentCount),
+            LF("书签 %d", bookmarkCount)
         ]
-        for case let chip as UIButton in filterStackView.arrangedSubviews {
-            chip.setTitle(titles[chip.tag], for: .normal)
+        UIView.performWithoutAnimation {
+            for case let chip as UIButton in filterStackView.arrangedSubviews {
+                chip.setTitle(titles[chip.tag], for: .normal)
+            }
+            applyFilterAppearance()
+            filterStackView.layoutIfNeeded()
         }
-        applyFilterAppearance()
     }
 
     private func open(_ asset: Asset) {
@@ -273,13 +285,13 @@ extension NotesViewController: UITableViewDataSource, UITableViewDelegate {
         let cell = tableView.dequeueReusableCell(withIdentifier: LVNoteCardCell.reuseIdentifier, for: indexPath) as! LVNoteCardCell
         let kind: String
         switch asset.kind {
-        case .bookmark: kind = "书签标识"
-        case .excerpt: kind = "摘录"
-        case .comment: kind = "评论标记"
+        case .bookmark: kind = L("书签标识")
+        case .excerpt: kind = L("摘录")
+        case .comment: kind = L("评论标记")
         }
         let body = [asset.excerpt, asset.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         cell.configure(kind: kind, title: "\(asset.book.title) · \(asset.chapterTitle)",
-                       body: body.isEmpty ? "未保存摘录" : body,
+                       body: body.isEmpty ? L("未保存摘录") : body,
                        date: Self.dateFormatter.string(from: asset.createdAt))
         return cell
     }
@@ -291,7 +303,7 @@ extension NotesViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         let asset = visibleAssets[indexPath.row]
-        let delete = UIContextualAction(style: .destructive, title: "删除") { [weak self] _, _, completion in
+        let delete = UIContextualAction(style: .destructive, title: L("删除")) { [weak self] _, _, completion in
             switch asset.kind {
             case let .bookmark(value): BookRepository.shared.deleteBookmark(value.id)
             case let .excerpt(value), let .comment(value): BookRepository.shared.deleteHighlight(value.id)
@@ -305,7 +317,7 @@ extension NotesViewController: UITableViewDataSource, UITableViewDelegate {
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "MM月dd日 HH:mm"
+        formatter.dateFormat = L("MM月dd日 HH:mm")
         return formatter
     }()
 }
@@ -333,7 +345,7 @@ private final class LVNoteCardCell: UITableViewCell {
         bodyLabel.numberOfLines = 2
         dateLabel.font = .systemFont(ofSize: 12)
         dateLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
-        actionLabel.text = "回到原文"
+        actionLabel.text = L("回到原文")
         actionLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         LVBookshelfModuleStyle.applyAccent(to: actionLabel)
         let footer = UIStackView(arrangedSubviews: [dateLabel, UIView(), actionLabel])

@@ -13,6 +13,7 @@ final class ProfileViewController: UIViewController {
     private let streakMetricLabel = UILabel()
     private let adviceLabel = UILabel()
     private let nightSwitch = UISwitch()
+    private let restoreReadingSwitch = UISwitch()
     private let goalLabel = UILabel()
     private let goalProgressView = UIProgressView(progressViewStyle: .default)
     private let goalProgressLabel = UILabel()
@@ -33,6 +34,7 @@ final class ProfileViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+        subtitleLabel.text = LVModuleSubtitleProvider.subtitle(for: .profile)
         applyAppearance()
         updateContent()
     }
@@ -41,12 +43,13 @@ final class ProfileViewController: UIViewController {
 
     private func buildInterface() {
         view.backgroundColor = profilePageBackground
-        titleLabel.text = "我的"
+        titleLabel.text = L("我的")
         titleLabel.font = .systemFont(ofSize: 30, weight: .bold)
         titleLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         subtitleLabel.text = LVModuleSubtitleProvider.subtitle(for: .profile)
         subtitleLabel.font = .systemFont(ofSize: 14)
         subtitleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+        subtitleLabel.numberOfLines = 2
 
         scrollView.alwaysBounceVertical = true
         stackView.axis = .vertical
@@ -69,6 +72,7 @@ final class ProfileViewController: UIViewController {
             titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
             scrollView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 16),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -87,12 +91,12 @@ final class ProfileViewController: UIViewController {
 
     private func makeMetricsGrid() -> UIView {
         let firstRow = UIStackView(arrangedSubviews: [
-            makeMetric(valueLabel: todayMetricLabel, title: "今日阅读"),
-            makeMetric(valueLabel: totalTimeMetricLabel, title: "累计时长")
+            makeMetric(valueLabel: todayMetricLabel, title: L("今日阅读")),
+            makeMetric(valueLabel: totalTimeMetricLabel, title: L("累计时长"))
         ])
         let secondRow = UIStackView(arrangedSubviews: [
-            makeMetric(valueLabel: pagesMetricLabel, title: "累计页数"),
-            makeMetric(valueLabel: streakMetricLabel, title: "连续阅读")
+            makeMetric(valueLabel: pagesMetricLabel, title: L("累计页数")),
+            makeMetric(valueLabel: streakMetricLabel, title: L("连续阅读"))
         ])
         [firstRow, secondRow].forEach {
             $0.axis = .horizontal
@@ -138,7 +142,7 @@ final class ProfileViewController: UIViewController {
         let marker = UIView()
         marker.backgroundColor = UIColor(hex: "#C2933D")
         let heading = UILabel()
-        heading.text = "阅读建议"
+        heading.text = L("阅读建议")
         heading.font = .systemFont(ofSize: 14, weight: .bold)
         heading.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         adviceLabel.font = .systemFont(ofSize: 14)
@@ -166,10 +170,10 @@ final class ProfileViewController: UIViewController {
 
     private func makeStatsCard() -> UIView {
         let card = makeCard()
-        let heading = makeHeading("阅读概览")
+        let heading = makeHeading(L("阅读概览"))
 
         let button = UIButton(type: .system)
-        button.setTitle("查看详细趋势与建议", for: .normal)
+        button.setTitle(L("查看详细趋势与建议"), for: .normal)
         button.setImage(UIImage(systemName: "chart.bar.xaxis"), for: .normal)
         LVBookshelfModuleStyle.applyAccent(to: button)
         button.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
@@ -188,16 +192,29 @@ final class ProfileViewController: UIViewController {
 
     private func makePreferencesCard() -> UIView {
         let card = makeCard()
-        let heading = makeHeading("阅读偏好")
+        let heading = makeHeading(L("阅读偏好"))
 
-        let nightRow = makeRow(title: "夜间模式", subtitle: "降低界面亮度，适合暗光环境", control: nightSwitch)
+        let nightRow = makeRow(title: L("夜间模式"), subtitle: L("降低界面亮度，适合暗光环境"), control: nightSwitch)
         nightSwitch.addTarget(self, action: #selector(nightChanged), for: .valueChanged)
+
+        let restoreRow = makeRow(
+            title: L("恢复上次阅读"),
+            subtitle: L("在阅读时退出APP，App 重新启动后自动返回上次阅读的书籍"),
+            control: restoreReadingSwitch
+        )
+        restoreReadingSwitch.addTarget(
+            self,
+            action: #selector(restoreReadingChanged),
+            for: .valueChanged
+        )
+        restoreReadingSwitch.accessibilityLabel = L("恢复上次阅读")
+        restoreReadingSwitch.accessibilityHint = L("在阅读时退出APP，App 重新启动后自动返回上次阅读的书籍")
 
         goalStepper.minimumValue = 10
         goalStepper.maximumValue = 180
         goalStepper.stepValue = 10
         goalStepper.addTarget(self, action: #selector(goalChanged), for: .valueChanged)
-        let goalRow = makeRow(title: "每日目标", subtitle: "用于生成阅读建议", control: goalStepper)
+        let goalRow = makeRow(title: L("每日目标"), subtitle: L("用于生成阅读建议"), control: goalStepper)
         goalLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
         LVBookshelfModuleStyle.applyAccent(to: goalLabel)
 
@@ -212,7 +229,7 @@ final class ProfileViewController: UIViewController {
         goalProgressLabel.numberOfLines = 0
 
         let content = UIStackView(arrangedSubviews: [
-            heading, nightRow, divider(), goalRow, goalValueRow,
+            heading, nightRow, divider(), restoreRow, divider(), goalRow, goalValueRow,
             goalProgressView, goalProgressLabel
         ])
         content.axis = .vertical
@@ -223,10 +240,10 @@ final class ProfileViewController: UIViewController {
 
     private func makeAboutCard() -> UIView {
         let card = makeCard()
-        let heading = makeHeading("版本信息")
+        let heading = makeHeading(L("版本信息"))
         let label = UILabel()
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
-        label.text = "LVRead 版本：V\(version)"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? L("未知")
+        label.text = LF("LVRead V%@", version)
         label.font = .systemFont(ofSize: 14)
         label.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         label.numberOfLines = 0
@@ -295,23 +312,24 @@ final class ProfileViewController: UIViewController {
         let stats = statsRepository.getStats()
         let analytics = ReadingAnalytics(stats: stats)
         let todayMinutes = statsRepository.displayedReadingMinutes(for: Date())
-        todayMetricLabel.text = "\(todayMinutes)分钟"
+        todayMetricLabel.text = LF("%d 分钟", todayMinutes)
         totalTimeMetricLabel.text = analytics.totalReadingTimeFormatted
         pagesMetricLabel.text = "\(stats.totalPagesRead)"
-        streakMetricLabel.text = "\(analytics.currentStreak)天"
+        streakMetricLabel.text = LF("%d 天", analytics.currentStreak)
         let savedGoal = UserDefaults.standard.integer(forKey: Keys.dailyGoalMinutes)
         let goal = savedGoal > 0 ? savedGoal : 30
         let suggestions = ReadingAdviceEngine.shared.suggestions()
         adviceLabel.text = suggestions.map { "• \($0.text)" }.joined(separator: "\n\n")
         adviceLabel.accessibilityLabel = suggestions.map(\.text).joined(separator: "；")
         nightSwitch.isOn = DarkModeManager.shared.isDarkMode
+        restoreReadingSwitch.isOn = NativeReaderRestorationStore.isEnabled()
         goalStepper.value = Double(savedGoal > 0 ? savedGoal : 30)
-        goalLabel.text = "当前目标：\(Int(goalStepper.value)) 分钟/天"
+        goalLabel.text = LF("目标：%d 分钟/天", Int(goalStepper.value))
         goalProgressView.progress = min(Float(todayMinutes) / Float(goal), 1)
         goalProgressLabel.text = todayMinutes >= goal
-            ? "今日已阅读 \(todayMinutes) 分钟，已达到目标"
-            : "今日已阅读 \(todayMinutes) / \(goal) 分钟，还差 \(goal - todayMinutes) 分钟"
-        goalProgressView.accessibilityLabel = "今日阅读目标进度"
+            ? LF("今日已阅读 %d 分钟，已达标", todayMinutes)
+            : LF("今日 %d / %d 分钟，还差 %d 分钟", todayMinutes, goal, goal - todayMinutes)
+        goalProgressView.accessibilityLabel = L("今日阅读目标进度")
         goalProgressView.accessibilityValue = goalProgressLabel.text
     }
 
@@ -321,6 +339,10 @@ final class ProfileViewController: UIViewController {
 
     @objc private func nightChanged() {
         DarkModeManager.shared.setNightMode(nightSwitch.isOn)
+    }
+
+    @objc private func restoreReadingChanged() {
+        NativeReaderRestorationStore.setEnabled(restoreReadingSwitch.isOn)
     }
 
     @objc private func goalChanged() {
@@ -339,6 +361,8 @@ final class ProfileViewController: UIViewController {
         view.backgroundColor = LVBookshelfModuleStyle.pageBackground
         LVBookshelfModuleStyle.refreshCards(in: view)
         LVBookshelfModuleStyle.refreshAccents(in: view)
+        nightSwitch.onTintColor = LVBookshelfModuleStyle.accent
+        restoreReadingSwitch.onTintColor = LVBookshelfModuleStyle.accent
         goalProgressView.progressTintColor = LVBookshelfModuleStyle.accent
         goalProgressView.trackTintColor = LVBookshelfModuleStyle.divider
     }

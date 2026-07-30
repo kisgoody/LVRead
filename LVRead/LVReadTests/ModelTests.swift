@@ -159,67 +159,53 @@ final class ReadingAdviceEngineTests: XCTestCase {
         )
     }
 
-    func testEveryAdviceKindHasFiveTemplates() {
-        XCTAssertEqual(ReadingAdviceEngine.templates.count, ReadingAdviceKind.allCases.count)
-        ReadingAdviceKind.allCases.forEach {
-            XCTAssertEqual(ReadingAdviceEngine.templates[$0]?.count, 5, $0.rawValue)
-        }
-    }
-
-    func testTemplateSelectorDoesNotRepeatWithinFiveSelections() throws {
-        let suite = "reading-advice-selector-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let selector = ReadingAdviceTemplateSelector(defaults: defaults, randomIndex: { _ in 0 })
-        let values = (0..<10).map { _ in
-            selector.selectIndex(for: .streakStable, templateCount: 5)
-        }
-
-        for start in 0...(values.count - 5) {
-            XCTAssertEqual(Set(values[start..<(start + 5)]).count, 5)
-        }
-    }
-
-    func testInsufficientDataReturnsOnlyDataCollectionAdvice() throws {
+    func testNoReadingHistoryReturnsOnlyDataCollectionAdvice() {
         let engine = makeEngine()
-        let input = makeInput(minutes: [20, 20])
+        let input = makeInput(minutes: Array(repeating: 0, count: 14))
 
         let suggestions = engine.makeSuggestions(input: input)
 
         XCTAssertEqual(suggestions.map(\.kind), [.dataInsufficient])
     }
 
-    func testGrowthUsesReadingStatisticsInsteadOfDailyGoal() throws {
+    func testShortHistoryReportsActualDaysAndMinutes() {
         let engine = makeEngine()
-        let input = makeInput(minutes: Array(repeating: 10, count: 7) + Array(repeating: 20, count: 7))
+        let input = makeInput(minutes: Array(repeating: 0, count: 12) + [15, 20])
 
         let suggestions = engine.makeSuggestions(input: input)
 
-        XCTAssertEqual(suggestions.first?.kind, .trendGrowth)
-        XCTAssertTrue(suggestions.first?.text.contains("增加") == true
-                      || suggestions.first?.text.contains("提升") == true
-                      || suggestions.first?.text.contains("更加稳定") == true
-                      || suggestions.first?.text.contains("更加活跃") == true)
+        XCTAssertEqual(suggestions.first?.kind, .buildHistory)
+        XCTAssertTrue(suggestions.first?.text.contains("2") == true)
+        XCTAssertTrue(suggestions.first?.text.contains("35") == true)
     }
 
-    func testOvernightAdviceOverridesNormalNightAdvice() throws {
+    func testWeeklyDeclineProducesConcreteRecoveryAction() {
         let engine = makeEngine()
-        let days = makeDays(minutes: Array(repeating: 30, count: 5)) { _ in
-            var hours = Array(repeating: 0.0, count: 24)
-            hours[0] = 15
-            hours[1] = 15
-            return hours
-        }
-        let input = makeInput(days: days)
+        let input = makeInput(
+            minutes: Array(repeating: 20, count: 7) + Array(repeating: 5, count: 7)
+        )
 
         let suggestions = engine.makeSuggestions(input: input)
 
-        XCTAssertTrue(suggestions.map(\.kind).contains(.timeOvernight))
-        XCTAssertFalse(suggestions.map(\.kind).contains(.timeNight))
-        XCTAssertLessThanOrEqual(suggestions.filter { $0.kind.isTimeAdvice }.count, 1)
+        XCTAssertEqual(suggestions.first?.kind, .weeklyRecovery)
+        XCTAssertTrue(suggestions.first?.text.contains("35") == true)
+        XCTAssertTrue(suggestions.first?.text.contains("105") == true)
     }
 
-    func testEarlyMorningAdviceUsesDetectedTwoHourRange() throws {
+    func testConcentratedReadingIsSplitIntoThreeSuggestedDays() {
+        let engine = makeEngine()
+        let input = makeInput(
+            minutes: Array(repeating: 10, count: 7) + [0, 0, 0, 0, 0, 30, 30]
+        )
+
+        let suggestions = engine.makeSuggestions(input: input)
+
+        XCTAssertEqual(suggestions.first?.kind, .spreadReadingDays)
+        XCTAssertTrue(suggestions.first?.text.contains("3") == true)
+        XCTAssertTrue(suggestions.first?.text.contains("20") == true)
+    }
+
+    func testPreferredTimeUsesObservedTwoHourWindow() throws {
         let engine = makeEngine()
         let days = makeDays(minutes: Array(repeating: 30, count: 5)) { _ in
             var hours = Array(repeating: 0.0, count: 24)
@@ -231,16 +217,42 @@ final class ReadingAdviceEngineTests: XCTestCase {
 
         let suggestions = engine.makeSuggestions(input: input)
 
-        let advice = try XCTUnwrap(suggestions.first { $0.kind == .timeEarlyMorning })
-        XCTAssertTrue(advice.text.contains("06:00～08:00") || !advice.text.contains("{range}"))
+        let advice = try XCTUnwrap(suggestions.first { $0.kind == .preferredTime })
+        XCTAssertTrue(advice.text.contains("06:00–08:00"))
+    }
+
+    func testLateNightReadingProducesRestAdvice() throws {
+        let engine = makeEngine()
+        let days = makeDays(minutes: Array(repeating: 30, count: 5)) { _ in
+            var hours = Array(repeating: 0.0, count: 24)
+            hours[1] = 30
+            return hours
+        }
+
+        let suggestions = engine.makeSuggestions(input: makeInput(days: days))
+
+        let advice = try XCTUnwrap(suggestions.first { $0.kind == .lateNightReading })
+        XCTAssertTrue(advice.text.contains("00:00–05:00"))
+        XCTAssertFalse(suggestions.map(\.kind).contains(.preferredTime))
+    }
+
+    func testScatteredHoursUseTypicalReadingDayDuration() throws {
+        let engine = makeEngine()
+        let minutes = [10, 20, 25, 30, 40]
+        let days = makeDays(minutes: minutes) { index in
+            var hours = Array(repeating: 0.0, count: 24)
+            hours[index * 3] = Double(minutes[index])
+            return hours
+        }
+
+        let suggestions = engine.makeSuggestions(input: makeInput(days: days))
+
+        let advice = try XCTUnwrap(suggestions.first { $0.kind == .sustainableDuration })
+        XCTAssertTrue(advice.text.contains("25"))
     }
 
     private func makeEngine() -> ReadingAdviceEngine {
-        let suite = "reading-advice-engine-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        let selector = ReadingAdviceTemplateSelector(defaults: defaults, randomIndex: { _ in 0 })
-        return ReadingAdviceEngine(selector: selector, calendar: calendar)
+        ReadingAdviceEngine(calendar: calendar)
     }
 
     private func makeInput(minutes: [Int]) -> ReadingAdviceInput {
@@ -248,22 +260,8 @@ final class ReadingAdviceEngineTests: XCTestCase {
     }
 
     private func makeInput(days: [ReadingAdviceDay]) -> ReadingAdviceInput {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        let daily = Dictionary(uniqueKeysWithValues: days.map {
-            (formatter.string(from: $0.date), $0.minutes)
-        })
         return ReadingAdviceInput(
-            stats: ReadingStats(
-                totalReadingTimeSeconds: daily.values.reduce(0, +) * 60,
-                dailyReadingMinutes: daily
-            ),
             days: days,
-            books: [],
-            bookStats: [:],
             now: now
         )
     }
@@ -537,6 +535,29 @@ final class NativeListeningInterruptionPolicyTests: XCTestCase {
         XCTAssertFalse(
             NativeListeningInterruptionPolicy.shouldResume(isListening: false, isPaused: false)
         )
+    }
+}
+
+final class NativeReaderRestorationStoreTests: XCTestCase {
+    func testRestorationDefaultsOffAndDisablingClearsState() throws {
+        let suiteName = "NativeReaderRestorationStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(NativeReaderRestorationStore.isEnabled(defaults: defaults))
+        NativeReaderRestorationStore.save(bookID: "book-1", defaults: defaults)
+        XCTAssertNil(NativeReaderRestorationStore.bookID(defaults: defaults))
+
+        NativeReaderRestorationStore.setEnabled(true, defaults: defaults)
+        NativeReaderRestorationStore.save(bookID: "book-1", defaults: defaults)
+        XCTAssertEqual(NativeReaderRestorationStore.bookID(defaults: defaults), "book-1")
+
+        NativeReaderRestorationStore.clear(bookID: "book-2", defaults: defaults)
+        XCTAssertEqual(NativeReaderRestorationStore.bookID(defaults: defaults), "book-1")
+
+        NativeReaderRestorationStore.setEnabled(false, defaults: defaults)
+        XCTAssertFalse(NativeReaderRestorationStore.isEnabled(defaults: defaults))
+        XCTAssertNil(NativeReaderRestorationStore.bookID(defaults: defaults))
     }
 }
 

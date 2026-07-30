@@ -50,12 +50,12 @@ enum TransferStatus: String, Codable {
 
     var displayName: String {
         switch self {
-        case .pending: return "等待中"
-        case .connecting: return "连接中"
-        case .transferring: return "传输中"
-        case .completed: return "已完成"
-        case .failed: return "失败"
-        case .cancelled: return "已取消"
+        case .pending: return L("等待中")
+        case .connecting: return L("连接中")
+        case .transferring: return L("传输中")
+        case .completed: return L("已完成")
+        case .failed: return L("失败")
+        case .cancelled: return L("已取消")
         }
     }
 }

@@ -6,7 +6,7 @@ final class ReadingStatsViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "阅读统计"
+        title = L("阅读统计")
         buildInterface()
         reloadStatistics()
         NotificationCenter.default.addObserver(
@@ -62,14 +62,14 @@ final class ReadingStatsViewController: UIViewController {
         let bookStats = ReadingStatsRepository.shared.getBookStats()
 
         stackView.addArrangedSubview(makeSummaryGrid(items: [
-            ("总时长", "\(timeSummary.total) 分钟", "clock"),
-            ("总页数", "\(stats.totalPagesRead) 页", "doc.text"),
-            ("本周", "\(timeSummary.weekly) 分钟", "calendar"),
-            ("连续阅读", "\(analytics.currentStreak) 天", "flame")
+            (L("总时长"), LF("%d 分钟", timeSummary.total), "clock"),
+            (L("总页数"), LF("%d 页", stats.totalPagesRead), "doc.text"),
+            (L("本周"), LF("%d 分钟", timeSummary.weekly), "calendar"),
+            (L("连续阅读"), LF("%d 天", analytics.currentStreak), "flame")
         ]))
 
         stackView.addArrangedSubview(makeSection(
-            title: "阅读时段",
+            title: L("阅读时段"),
             subtitle: "",
             content: LVHourlyReadingHistoryView(repository: .shared)
         ))
@@ -77,23 +77,29 @@ final class ReadingStatsViewController: UIViewController {
         let weeklyItems = stats.weeklyReadingMinutes.keys.sorted().suffix(8).map { key in
             let value = stats.weeklyReadingMinutes[key] ?? 0
             return LVStatsBarChartView.Item(
-                label: key.replacingOccurrences(of: "-W", with: "周"),
+                label: key.replacingOccurrences(of: "-W", with: L("周")),
                 value: Double(value),
-                valueText: "\(value) 分"
+                valueText: LF("%d 分钟", value)
             )
         }
         stackView.addArrangedSubview(makeSection(
-            title: "周度趋势",
-            subtitle: "最近 8 个有记录的自然周",
+            title: L("周度趋势"),
+            subtitle: L("最近 8 个有记录的自然周"),
             content: LVStatsBarChartView(items: weeklyItems, color: .lvInfo)
         ))
 
         let formats = Dictionary(grouping: books, by: { $0.fileFormat.displayName })
-            .map { LVStatsBarChartView.Item(label: $0.key, value: Double($0.value.count), valueText: "\($0.value.count) 本") }
+            .map {
+                LVStatsBarChartView.Item(
+                    label: $0.key,
+                    value: Double($0.value.count),
+                    valueText: LF("%d 本", $0.value.count)
+                )
+            }
             .sorted { $0.value > $1.value }
         stackView.addArrangedSubview(makeSection(
-            title: "文件格式分布",
-            subtitle: "当前书架的内容组成",
+            title: L("文件格式分布"),
+            subtitle: L("当前书架的内容组成"),
             content: LVStatsBarChartView(items: formats, color: .lvAccent)
         ))
 
@@ -102,11 +108,11 @@ final class ReadingStatsViewController: UIViewController {
             .compactMap { id, value -> LVStatsBarChartView.Item? in
                 guard let book = books.first(where: { $0.id == id }) else { return nil }
                 let minutes = value.readingTimeSeconds / 60
-                return .init(label: book.title, value: Double(minutes), valueText: "\(minutes) 分")
+            return .init(label: book.title, value: Double(minutes), valueText: LF("%d 分钟", minutes))
             }
         stackView.addArrangedSubview(makeSection(
-            title: "常读书籍",
-            subtitle: "按累计阅读时长排序",
+            title: L("常读书籍"),
+            subtitle: L("按累计阅读时长排序"),
             content: LVStatsBarChartView(items: Array(topBooks), color: .lvPrimary)
         ))
 
@@ -177,7 +183,7 @@ final class ReadingStatsViewController: UIViewController {
     private func makeAdviceCard(_ suggestions: [String]) -> UIView {
         let card = makeCard()
         let title = UILabel()
-        title.text = "阅读建议"
+        title.text = L("阅读建议")
         title.font = .systemFont(ofSize: 20, weight: .semibold)
         title.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
         let stack = UIStackView(arrangedSubviews: [title])
@@ -260,8 +266,8 @@ final class LVHourlyReadingHistoryView: UIView {
     private func build() {
         previousButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         nextButton.setImage(UIImage(systemName: "chevron.right"), for: .normal)
-        previousButton.accessibilityLabel = "上一条阅读日期"
-        nextButton.accessibilityLabel = "下一条阅读日期"
+        previousButton.accessibilityLabel = L("上一条阅读日期")
+        nextButton.accessibilityLabel = L("下一条阅读日期")
         previousButton.addTarget(self, action: #selector(showPreviousDate), for: .touchUpInside)
         nextButton.addTarget(self, action: #selector(showNextDate), for: .touchUpInside)
         [previousButton, nextButton].forEach {
@@ -303,10 +309,13 @@ final class LVHourlyReadingHistoryView: UIView {
         let date = dates[selectedIndex]
         let displayedMinutes = repository.displayedHourlyMinutes(for: date)
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = Calendar.current.isDateInToday(date) ? "yyyy年M月d日 · 今天" : "yyyy年M月d日"
+        formatter.locale = .current
+        formatter.dateFormat = Calendar.current.isDateInToday(date) ? L("yyyy年M月d日 · 今天") : L("yyyy年M月d日")
         dateLabel.text = formatter.string(from: date)
-        totalLabel.text = "当日阅读总时间：\(repository.displayedReadingMinutes(for: date))分钟"
+        totalLabel.text = LF(
+            "当日阅读：%d 分钟",
+            repository.displayedReadingMinutes(for: date)
+        )
         chart.update(minutesByHour: displayedMinutes.map(Double.init))
         previousButton.isEnabled = selectedIndex > 0
         nextButton.isEnabled = selectedIndex < dates.count - 1
@@ -340,13 +349,13 @@ final class LVHourlyReadingChartView: UIView {
             + Array(repeating: 0.0, count: max(0, 24 - minutesByHour.count))
         super.init(frame: .zero)
         isAccessibilityElement = true
-        accessibilityLabel = "今日每小时阅读时长图表"
+        accessibilityLabel = L("今日每小时阅读时长图表")
         backgroundColor = .clear
         heightAnchor.constraint(equalToConstant: 240).isActive = true
         detailLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         detailLabel.textAlignment = .center
         detailLabel.textColor = LVBookshelfModuleStyle.accent
-        detailLabel.text = "点击数据点查看每小时阅读时长"
+        detailLabel.text = L("点击数据点查看每小时阅读时长")
         addSubview(detailLabel)
         detailLabel.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -365,7 +374,7 @@ final class LVHourlyReadingChartView: UIView {
         self.minutesByHour = Array(minutesByHour.prefix(24))
             + Array(repeating: 0.0, count: max(0, 24 - minutesByHour.count))
         selectedHour = nil
-        detailLabel.text = "点击数据点查看每小时阅读时长"
+        detailLabel.text = L("点击数据点查看每小时阅读时长")
         accessibilityValue = nil
         setNeedsDisplay()
     }
@@ -437,7 +446,7 @@ final class LVHourlyReadingChartView: UIView {
         selectedHour = hour
         let minutes = minutesByHour[hour]
         detailLabel.text = String(
-            format: "%02d:00–%02d:00 · %d 分钟",
+            format: L("%02d:00–%02d:00 · %d 分钟"),
             hour,
             (hour + 1) % 24,
             Int(minutes.rounded())
@@ -478,7 +487,7 @@ final class LVStatsBarChartView: UIView {
 
         guard !items.isEmpty else {
             let empty = UILabel()
-            empty.text = "暂无数据"
+            empty.text = L("暂无数据")
             empty.font = .systemFont(ofSize: 14)
             empty.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
             empty.textAlignment = .center

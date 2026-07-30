@@ -19,7 +19,7 @@ final class ImportProgressViewController: UIViewController {
     private let statusLabel = UILabel()
     private let fileNameLabel = UILabel()
     private let fileSizeLabel = UILabel()
-    private let cancelButton = LVButton(title: "取消", style: .outline)
+    private let cancelButton = LVButton(title: L("取消"), style: .outline)
 
     // MARK: - Callbacks
 
@@ -44,7 +44,7 @@ final class ImportProgressViewController: UIViewController {
         iconLabel.font = .systemFont(ofSize: 48)
         iconLabel.textAlignment = .center
 
-        titleLabel.text = "正在导入书籍..."
+        titleLabel.text = L("正在导入书籍...")
         titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         titleLabel.textColor = .lvTextPrimary
         titleLabel.textAlignment = .center
@@ -62,7 +62,7 @@ final class ImportProgressViewController: UIViewController {
         statusLabel.font = .systemFont(ofSize: 13)
         statusLabel.textColor = .lvTextSecondary
         statusLabel.textAlignment = .center
-        statusLabel.text = "正在准备..."
+        statusLabel.text = L("正在准备...")
 
         fileNameLabel.font = .systemFont(ofSize: 12)
         fileNameLabel.textColor = .lvTextTertiary

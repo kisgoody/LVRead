@@ -28,8 +28,8 @@ final class TransferDeviceListViewController: UIViewController {
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private var emptyView = LVEmptyStateView(
         icon: "📡",
-        title: "正在搜索附近设备...",
-        subtitle: "请确保两台设备已连接同一 Wi-Fi",
+        title: L("正在搜索附近设备..."),
+        subtitle: L("请确保两台设备已连接同一 Wi-Fi"),
         actionTitle: ""
     )
     private let scanButton = UIButton(type: .system)
@@ -37,7 +37,7 @@ final class TransferDeviceListViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "同网传输"
+        title = L("同网传输")
 
         tableView.delegate = self
         tableView.dataSource = self
@@ -45,7 +45,7 @@ final class TransferDeviceListViewController: UIViewController {
 
         emptyView.isHidden = true
 
-        scanButton.setTitle("🔄 重新搜索", for: .normal)
+        scanButton.setTitle(L("🔄 重新搜索"), for: .normal)
         scanButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
         scanButton.backgroundColor = .lvPrimary
         scanButton.setTitleColor(.white, for: .normal)
@@ -127,8 +127,8 @@ final class TransferDeviceListViewController: UIViewController {
                     self?.emptyView.removeFromSuperview()
                     let newEmptyView = LVEmptyStateView(
                         icon: "📡",
-                        title: "未发现附近设备",
-                        subtitle: "请确保两台设备已连接同一 Wi-Fi 且均打开 LVRead",
+                        title: L("未发现附近设备"),
+                        subtitle: L("请确保两台设备已连接同一 Wi-Fi 且均打开 LVRead"),
                         actionTitle: ""
                     )
                     self?.emptyView = newEmptyView

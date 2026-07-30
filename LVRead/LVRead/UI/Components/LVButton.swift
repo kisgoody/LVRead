@@ -118,6 +118,10 @@ final class LVButton: UIButton {
         titleLabel?.font = lvSize.font
     }
 
+    func refreshAppearance() {
+        applyStyle()
+    }
+
     override var isHighlighted: Bool {
         didSet {
             UIView.animate(withDuration: 0.15, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {

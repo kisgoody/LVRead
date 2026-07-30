@@ -288,9 +288,9 @@ struct ReadingAnalytics {
         let minutes = (stats.totalReadingTimeSeconds % 3600) / 60
         
         if hours > 0 {
-            return "\(hours)小时 \(minutes)分钟"
+            return LF("%d 小时 %d 分钟", hours, minutes)
         }
-        return "\(minutes)分钟"
+        return LF("%d 分钟", minutes)
     }
     
     var totalBooksRead: Int {

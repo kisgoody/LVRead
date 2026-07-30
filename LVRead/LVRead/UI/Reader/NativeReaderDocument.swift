@@ -28,7 +28,7 @@ private final class NativeSelectionHandleView: UIView {
         super.init(frame: .zero)
         backgroundColor = .clear
         isAccessibilityElement = true
-        accessibilityLabel = leading ? "选区起点" : "选区终点"
+        accessibilityLabel = leading ? L("选区起点") : L("选区终点")
     }
 
     @available(*, unavailable)
@@ -104,7 +104,7 @@ enum NativeDocumentPaginator {
         case cannotFit
 
         var errorDescription: String? {
-            self == .invalidSize ? "阅读区域尺寸无效" : "当前排版无法容纳正文"
+            self == .invalidSize ? L("阅读区域尺寸无效") : L("当前排版无法容纳正文")
         }
     }
 
@@ -262,7 +262,7 @@ final class NativeDocumentChapterPaginator {
     private enum ChapterError: LocalizedError {
         case indexOutOfRange
 
-        var errorDescription: String? { "章节索引超出范围" }
+        var errorDescription: String? { L("章节索引超出范围") }
     }
 }
 

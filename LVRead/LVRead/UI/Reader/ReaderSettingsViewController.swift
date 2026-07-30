@@ -177,11 +177,11 @@ final class ReaderSettingsViewController: UIViewController {
     private func buildSections() {
         switch mode {
         case .theme:
-            contentStack.addArrangedSubview(makeSettingRow(title: "阅读主题", control: makeThemeGrid()))
-            contentStack.addArrangedSubview(makeSettingRow(title: "护眼滤镜", control: makeEyeCareRow()))
+            contentStack.addArrangedSubview(makeSettingRow(title: L("阅读主题"), control: makeThemeGrid()))
+            contentStack.addArrangedSubview(makeSettingRow(title: L("护眼滤镜"), control: makeEyeCareRow()))
             contentStack.addArrangedSubview(makeBrightnessRow())
-            contentStack.addArrangedSubview(makeSettingRow(title: "生肖水印", control: makeZodiacPickerRow()))
-            contentStack.addArrangedSubview(makeSettingRow(title: "翻页方式", control: makeFlipModeRow()))
+            contentStack.addArrangedSubview(makeSettingRow(title: L("生肖水印"), control: makeZodiacPickerRow()))
+            contentStack.addArrangedSubview(makeSettingRow(title: L("翻页方式"), control: makeFlipModeRow()))
         case .layout:
             contentStack.addArrangedSubview(makeFontFamilyRow())
             contentStack.addArrangedSubview(makeFontSizeRow())
@@ -487,7 +487,7 @@ final class ReaderSettingsViewController: UIViewController {
 
     private func makeBrightnessRow() -> UIView {
         makeSliderRow(
-            title: "亮度",
+            title: L("亮度"),
             valueText: "\(Int(settings.brightness * 100))%",
             minText: "30%",
             maxText: "100%",
@@ -589,7 +589,7 @@ final class ReaderSettingsViewController: UIViewController {
 
     private func makeFontSizeRow() -> UIView {
         makeSliderRow(
-            title: "字号",
+            title: L("字号"),
             valueText: "\(settings.fontSize)",
             minText: "12",
             maxText: "28",
@@ -613,7 +613,7 @@ final class ReaderSettingsViewController: UIViewController {
 
     private func makeFontFamilyRow() -> UIView {
         let container = UIView()
-        let label = makeLabel("字体")
+        let label = makeLabel(L("字体"))
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
         label.widthAnchor.constraint(equalToConstant: 72).isActive = true
         let fonts = FontManager.shared.availableFonts
@@ -687,7 +687,7 @@ final class ReaderSettingsViewController: UIViewController {
 
     private func makeLineSpacingRow() -> UIView {
         makeSliderRow(
-            title: "行间距",
+            title: L("行间距"),
             valueText: String(format: "%.1f", settings.lineSpacing),
             minText: "1.0",
             maxText: "3.0",
@@ -712,7 +712,7 @@ final class ReaderSettingsViewController: UIViewController {
     private func makeParagraphSpacingRow() -> UIView {
         let value = settings.paragraphSpacing ?? settings.lineSpacing
         return makeSliderRow(
-            title: "段间距",
+            title: L("段间距"),
             valueText: String(format: "%.1f", value),
             minText: "1.0",
             maxText: "3.0",
@@ -737,7 +737,7 @@ final class ReaderSettingsViewController: UIViewController {
 
     private func makeMarginHorizontalRow() -> UIView {
         makeSliderRow(
-            title: "左右边距",
+            title: L("左右边距"),
             valueText: "\(Int(settings.pageMarginHorizontal))%",
             minText: "5%",
             maxText: "20%",
@@ -761,7 +761,7 @@ final class ReaderSettingsViewController: UIViewController {
 
     private func makeMarginVerticalRow() -> UIView {
         makeSliderRow(
-            title: "上下边距",
+            title: L("上下边距"),
             valueText: "\(Int(settings.pageMarginVertical))%",
             minText: "2%",
             maxText: "15%",
@@ -802,13 +802,13 @@ final class ReaderSettingsViewController: UIViewController {
             let btn = UIButton(type: .system)
             btn.tag = allAnimals.firstIndex(of: animal) ?? 0
             btn.accessibilityIdentifier = "zodiacButton"
-            btn.accessibilityLabel = animal.chineseName
+            btn.accessibilityLabel = animal.displayName
 
             // Show zodiac image as button content
             if let img = animal.loadImageCompat() {
                 btn.setImage(img.withRenderingMode(.alwaysOriginal), for: .normal)
             } else {
-                btn.setTitle(animal.chineseName, for: .normal)
+                btn.setTitle(animal.displayName, for: .normal)
                 btn.setTitleColor(primaryTextColor, for: .normal)
                 btn.titleLabel?.font = .systemFont(ofSize: 13)
             }

@@ -33,9 +33,9 @@ final class WebSyncViewController: UIViewController {
     private let statusLabel = UILabel()
     private let qrImageView = UIImageView()
     private let urlLabel = UILabel()
-    private let installButton = LVButton(title: "首次使用：安装安全证书", style: .primary)
-    private let copyButton = LVButton(title: "复制链接", style: .outline)
-    private let shareButton = LVButton(title: "分享链接", style: .outline)
+    private let installButton = LVButton(title: L("首次使用：安装安全证书"), style: .primary)
+    private let copyButton = LVButton(title: L("复制链接"), style: .outline)
+    private let shareButton = LVButton(title: L("分享链接"), style: .outline)
     private let tipLabel = UILabel()
     private let connectionButton = UIButton(type: .system)
 
@@ -56,7 +56,7 @@ final class WebSyncViewController: UIViewController {
         containerView.backgroundColor = .white
         containerView.layer.cornerRadius = 20
 
-        titleLabel.text = "📱 电脑端同步阅读"
+        titleLabel.text = L("📱 电脑端同步阅读")
         titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
         titleLabel.textColor = .lvTextPrimary
         titleLabel.textAlignment = .center
@@ -72,7 +72,7 @@ final class WebSyncViewController: UIViewController {
         qrImageView.layer.borderColor = UIColor(white: 0.9, alpha: 1).cgColor
         qrImageView.layer.cornerRadius = 8
 
-        urlLabel.text = "连接成功后显示访问地址"
+        urlLabel.text = L("连接成功后显示访问地址")
         urlLabel.font = .systemFont(ofSize: 11)
         urlLabel.textColor = .lvTextSecondary
         urlLabel.textAlignment = .center
@@ -83,7 +83,7 @@ final class WebSyncViewController: UIViewController {
         copyButton.addTarget(self, action: #selector(copyLink), for: .touchUpInside)
         shareButton.addTarget(self, action: #selector(shareLink), for: .touchUpInside)
 
-        tipLabel.text = "电脑与手机需连接同一 Wi-Fi\nApp 从后台返回后会自动恢复连接"
+        tipLabel.text = L("电脑与手机需连接同一 Wi-Fi\nApp 从后台返回后会自动恢复连接")
         tipLabel.font = .systemFont(ofSize: 12)
         tipLabel.textColor = .lvTextTertiary
         tipLabel.textAlignment = .center
@@ -92,7 +92,7 @@ final class WebSyncViewController: UIViewController {
         connectionButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
         connectionButton.layer.cornerRadius = 12
         connectionButton.addTarget(self, action: #selector(connectionTapped), for: .touchUpInside)
-        connectionButton.accessibilityHint = "打开或断开电脑同步服务"
+        connectionButton.accessibilityHint = L("打开或断开电脑同步服务")
 
         let buttonStack = UIStackView(arrangedSubviews: [copyButton, shareButton])
         buttonStack.axis = .horizontal
@@ -157,6 +157,13 @@ final class WebSyncViewController: UIViewController {
             name: .webSyncConnectionStateChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appThemeChanged),
+            name: .darkModeChanged,
+            object: nil
+        )
+        applyAppearance()
         updateConnectionState()
         if WebSyncServer.shared.connectionState != .disconnected {
             startConnection()
@@ -165,10 +172,16 @@ final class WebSyncViewController: UIViewController {
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        applyAppearance()
+        updateConnectionState()
+    }
+
     @objc private func copyLink() {
         guard let session else { return }
         UIPasteboard.general.string = session.readingURL.absoluteString
-        LVToast.show(message: "链接已复制!", style: .success)
+        LVToast.show(message: L("链接已复制!"), style: .success)
     }
 
     @objc private func shareLink() {
@@ -200,6 +213,22 @@ final class WebSyncViewController: UIViewController {
 
     @objc private func connectionStateChanged() { updateConnectionState() }
 
+    @objc private func appThemeChanged() {
+        applyAppearance()
+        updateConnectionState()
+    }
+
+    private func applyAppearance() {
+        let theme = DarkModeManager.shared.currentTheme
+        let textColor = UIColor(hex: theme.textColor)
+        containerView.backgroundColor = UIColor(hex: theme.panelColor)
+        titleLabel.textColor = textColor
+        urlLabel.textColor = textColor.withAlphaComponent(0.64)
+        tipLabel.textColor = textColor.withAlphaComponent(0.48)
+        qrImageView.layer.borderColor = textColor.withAlphaComponent(0.14).cgColor
+        [installButton, copyButton, shareButton].forEach { $0.refreshAppearance() }
+    }
+
     private func startConnection() {
         WebSyncServer.shared.start(with: book, page: page) { [weak self] result in
             guard let self else { return }
@@ -221,7 +250,7 @@ final class WebSyncViewController: UIViewController {
         let state = WebSyncServer.shared.connectionState
         statusLabel.text = "●  \(state.title)"
         connectionButton.setTitle(
-            state == .disconnected ? "打开同步" : "关闭同步",
+            state == .disconnected ? L("打开同步") : L("关闭同步"),
             for: .normal
         )
         let available = state != .disconnected && session != nil
@@ -273,7 +302,7 @@ final class CertificateSetupViewController: UIViewController {
     private let titleLabel = UILabel()
     private let systemControl = UISegmentedControl(items: ["macOS", "Windows"])
     private let instructionLabel = UILabel()
-    private let shareButton = LVButton(title: "发送根证书到电脑", style: .primary)
+    private let shareButton = LVButton(title: L("发送根证书到电脑"), style: .primary)
     private let closeButton = UIButton(type: .system)
 
     init(certificateURL: URL, hostName: String) {
@@ -289,13 +318,13 @@ final class CertificateSetupViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
 
-        titleLabel.text = "安装 LVRead 安全证书"
+        titleLabel.text = L("安装 LVRead 安全证书")
         titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
         titleLabel.textColor = .label
 
         closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
         closeButton.tintColor = .secondaryLabel
-        closeButton.accessibilityLabel = "关闭"
+        closeButton.accessibilityLabel = L("关闭")
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
 
         systemControl.selectedSegmentIndex = 0
