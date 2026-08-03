@@ -34,6 +34,7 @@
 "修改信息" = "Edit Info";
 "修改失败，请稍后重试" = "Couldn't update. Try again.";
 "修改评论" = "Edit Note";
+"修改" = "Edit";
 "全部" = "All";
 "关闭" = "Close";
 "关闭同步" = "Stop Sync";
@@ -44,6 +45,10 @@
 "分享链接" = "Share Link";
 "列表方式" = "List";
 "删除" = "Delete";
+"删除后无法恢复" = "This can’t be undone.";
+"删除当天记录" = "Delete This Day";
+"删除当天阅读记录" = "Delete Daily Record";
+"删除笔记" = "Delete Note";
 "加载失败" = "Couldn't Load";
 "原文件不存在，无法分享" = "Original file missing. Can't share.";
 "原文件不存在，请重新导入" = "Original file missing. Import it again.";
@@ -166,6 +171,7 @@
 "确定" = "OK";
 "确定删除 %d 本书？" = "Delete %d books?";
 "确定删除《%@》？" = "Delete “%@”?";
+"确定删除 %@ 的阅读统计吗？" = "Delete reading stats for %@?";
 "章节恢复失败，请重新导入" = "Chapter recovery failed. Import the book again.";
 "章节目录" = "Contents";
 "章节索引超出范围" = "Chapter index is out of range.";
@@ -435,3 +441,29 @@
 "近 14 天最常在 %@ 阅读。把这个时段作为固定阅读窗口，更容易形成习惯。" = "You read most often at %@ over the last 14 days. Use this as a regular reading window.";
 "近 14 天有 %d 天在 00:00–05:00 阅读，共 %d 分钟。如果影响休息，尝试把阅读提前到睡前更早的时段。" = "You read between 00:00 and 05:00 on %d days, for %d min total. If it affects your rest, move reading earlier.";
 "近 14 天每个阅读日通常约 %d 分钟。可以先把日常阅读时长设为 %d 分钟，稳定后再增加。" = "Your typical reading day is about %d min. Start with a steady %d-min daily target, then increase it.";
+
+/* Notes and reading statistics exchange */
+"导入或导出笔记" = "Import or export notes";
+"笔记导入与导出" = "Import & Export Notes";
+"统计导入与导出" = "Import & Export Stats";
+"导出 Markdown" = "Export Markdown";
+"暂无可导出的笔记" = "No notes to export";
+"笔记导出失败" = "Couldn't export notes";
+"已导入 %d 条笔记" = "Imported %d notes";
+"文件不符合 LVRead 笔记规范" = "This file isn't valid LVRead Notes Markdown.";
+"文件不符合 LVRead 阅读统计规范" = "This file isn't valid LVRead Reading Stats Markdown.";
+"文件不符合 LVRead 导入规范" = "This file isn't a supported LVRead Markdown file.";
+"笔记详情" = "Note Details";
+"原文" = "Original Text";
+"评论内容" = "Comment";
+"未保存原文" = "No original text saved";
+"🔖 书签" = "🔖 Bookmark";
+"✦ 摘录" = "✦ Excerpt";
+"● 评论" = "● Comment";
+"阅读统计导出失败" = "Couldn't export reading stats";
+"发现重复时间段" = "Overlapping Dates";
+"有 %d 天的统计记录重复，是否覆盖这些日期？" = "%d days overlap existing stats. Replace those dates?";
+"保留现有记录" = "Keep Existing";
+"覆盖重复日期" = "Replace Dates";
+"阅读统计导入成功" = "Reading stats imported";
+"无法读取导入文件" = "Couldn't read the imported file";

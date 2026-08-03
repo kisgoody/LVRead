@@ -1,4 +1,5 @@
 import UIKit
+import UniformTypeIdentifiers
 
 final class ReadingStatsViewController: UIViewController {
     private let scrollView = UIScrollView()
@@ -7,12 +8,24 @@ final class ReadingStatsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L("阅读统计")
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "ellipsis.circle"),
+            style: .plain,
+            target: self,
+            action: #selector(showExchangeActions)
+        )
         buildInterface()
         reloadStatistics()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(themeChanged),
             name: .darkModeChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(incomingMarkdown(_:)),
+            name: .lvReadStatsMarkdownReceived,
             object: nil
         )
     }
@@ -71,7 +84,9 @@ final class ReadingStatsViewController: UIViewController {
         stackView.addArrangedSubview(makeSection(
             title: L("阅读时段"),
             subtitle: "",
-            content: LVHourlyReadingHistoryView(repository: .shared)
+            content: LVHourlyReadingHistoryView(repository: .shared) { [weak self] date in
+                self?.confirmDeleteStatistics(on: date)
+            }
         ))
 
         let weeklyItems = stats.weeklyReadingMinutes.keys.sorted().suffix(8).map { key in
@@ -235,21 +250,221 @@ final class ReadingStatsViewController: UIViewController {
             content.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16)
         ])
     }
+
+    @objc private func showExchangeActions() {
+        let sheet = UIAlertController(title: L("统计导入与导出"), message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: L("导出 Markdown"), style: .default) { [weak self] _ in
+            self?.exportStats()
+        })
+        sheet.addAction(UIAlertAction(title: L("从本地文件导入"), style: .default) { [weak self] _ in
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.plainText], asCopy: true)
+            picker.delegate = self
+            self?.present(picker, animated: true)
+        })
+        sheet.addAction(UIAlertAction(title: L("取消"), style: .cancel))
+        if let popover = sheet.popoverPresentationController {
+            popover.barButtonItem = navigationItem.rightBarButtonItem
+        }
+        present(sheet, animated: true)
+    }
+
+    private func exportStats() {
+        do {
+            let archive = ReadingStatsRepository.shared.exportArchive()
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("LVRead-Reading-Stats.md")
+            try LVStatsMarkdown.encode(archive).write(to: url, atomically: true, encoding: .utf8)
+            let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            if let popover = activity.popoverPresentationController {
+                popover.barButtonItem = navigationItem.rightBarButtonItem
+            }
+            present(activity, animated: true)
+        } catch {
+            LVToast.show(message: L("阅读统计导出失败"), style: .error)
+        }
+    }
+
+    private func importStats(from url: URL) {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let archive = try LVStatsMarkdown.decode(String(contentsOf: url, encoding: .utf8))
+            let overlaps = ReadingStatsRepository.shared.overlappingDates(with: archive)
+            guard !overlaps.isEmpty else {
+                finishImport(archive, overwrite: false)
+                return
+            }
+            let alert = UIAlertController(
+                title: L("发现重复时间段"),
+                message: LF("有 %d 天的统计记录重复，是否覆盖这些日期？", overlaps.count),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: L("保留现有记录"), style: .default) { [weak self] _ in
+                self?.finishImport(archive, overwrite: false)
+            })
+            alert.addAction(UIAlertAction(title: L("覆盖重复日期"), style: .destructive) { [weak self] _ in
+                self?.finishImport(archive, overwrite: true)
+            })
+            alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
+            present(alert, animated: true)
+        } catch {
+            LVToast.show(message: L("文件不符合 LVRead 阅读统计规范"), style: .error)
+        }
+    }
+
+    private func finishImport(_ archive: LVReadingStatsArchive, overwrite: Bool) {
+        ReadingStatsRepository.shared.importArchive(archive, overwriteOverlaps: overwrite)
+        reloadStatistics()
+        LVToast.show(message: L("阅读统计导入成功"), style: .success)
+    }
+
+    private func confirmDeleteStatistics(on date: Date) {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateStyle = .medium
+        let alert = UIAlertController(
+            title: L("删除当天阅读记录"),
+            message: LF("确定删除 %@ 的阅读统计吗？", formatter.string(from: date)),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L("删除"), style: .destructive) { [weak self] _ in
+            ReadingStatsRepository.shared.deleteReadingRecords(on: date)
+            self?.reloadStatistics()
+        })
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
+        present(alert, animated: true)
+    }
+
+    @objc private func incomingMarkdown(_ notification: Notification) {
+        guard let url = notification.object as? URL else { return }
+        importStats(from: url)
+    }
+}
+
+extension ReadingStatsViewController: UIDocumentPickerDelegate {
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else { return }
+        importStats(from: url)
+    }
+}
+
+enum LVStatsMarkdown {
+    static func encode(_ archive: LVReadingStatsArchive) throws -> String {
+        let data = try JSONEncoder().encode(archive)
+        let dates = Set(archive.dailyMinutes.keys).union(archive.hourlySeconds.keys.map { String($0.prefix(10)) }).sorted()
+        let dailyRows = dates.map {
+            "| \($0) | \(archive.dailyMinutes[$0] ?? 0) | \(activeHours(on: $0, in: archive)) |"
+        }.joined(separator: "\n")
+        let hourlyRows = (0..<24).map { hour in
+            let seconds = archive.hourlySeconds.reduce(0) { result, item in
+                result + (Int(item.key.suffix(2)) == hour ? item.value : 0)
+            }
+            return "| \(String(format: "%02d:00–%02d:00", hour, (hour + 1) % 24)) | \(duration(seconds)) |"
+        }.joined(separator: "\n")
+        let dailyDetails = dates.map { date in
+            let rows = archive.hourlySeconds.keys.sorted().compactMap { key -> String? in
+                guard key.hasPrefix("\(date)-"), let seconds = archive.hourlySeconds[key] else { return nil }
+                let hour = Int(key.suffix(2)) ?? 0
+                return "| \(String(format: "%02d:00–%02d:00", hour, (hour + 1) % 24)) | \(duration(seconds)) | \(seconds) |"
+            }.joined(separator: "\n")
+            return """
+            ### \(date)
+
+            - 当日总时长 / Daily Total：\(archive.dailyMinutes[date] ?? 0) 分钟 / min
+
+            \(rows.isEmpty ? "_无小时明细 / No hourly details_" : "| 时段 / Period | 阅读时长 / Duration | 秒 / Seconds |\n| --- | ---: | ---: |\n\(rows)")
+            """
+        }.joined(separator: "\n\n")
+        let totalMinutes = archive.dailyMinutes.values.reduce(0, +)
+        return """
+        # LVRead 阅读统计 / Reading Stats
+
+        <!-- LVREAD-STATS:1 -->
+
+        ## 统计总览 / Overview
+
+        - 导出时间 / Exported：\(ISO8601DateFormatter().string(from: archive.exportedAt))
+        - 记录天数 / Days：\(dates.count)
+        - 阅读总时长 / Total Reading：\(totalMinutes) 分钟 / min
+        - 有记录的小时数 / Active Hour Records：\(archive.hourlySeconds.count)
+
+        ## 每日统计 / Daily Summary
+
+        | 日期 / Date | 阅读分钟 / Minutes | 活跃时段 / Active Periods |
+        | --- | ---: | ---: |
+        \(dailyRows)
+
+        ## 24 小时累计分布 / 24-Hour Distribution
+
+        | 时段 / Period | 阅读时长 / Duration |
+        | --- | ---: |
+        \(hourlyRows)
+
+        ## 逐日小时明细 / Hourly Details by Date
+
+        \(dailyDetails)
+
+        ---
+
+        ## LVRead 导入数据 / Import Data
+
+        > 以下数据用于 LVRead 识别和导入，请勿修改或删除。
+
+        ```lvread-stats-data
+        \(data.base64EncodedString())
+        ```
+        """
+    }
+
+    private static func activeHours(on date: String, in archive: LVReadingStatsArchive) -> Int {
+        archive.hourlySeconds.keys.filter { $0.hasPrefix("\(date)-") }.count
+    }
+
+    private static func duration(_ seconds: Int) -> String {
+        String(format: "%02d:%02d:%02d", seconds / 3_600, seconds / 60 % 60, seconds % 60)
+    }
+
+    static func decode(_ markdown: String) throws -> LVReadingStatsArchive {
+        let marker = "```lvread-stats-data\n"
+        guard markdown.contains("<!-- LVREAD-STATS:1 -->"),
+              let start = markdown.range(of: marker)?.upperBound,
+              let end = markdown.range(of: "\n```", range: start..<markdown.endIndex)?.lowerBound,
+              let data = Data(base64Encoded: String(markdown[start..<end])) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let archive = try JSONDecoder().decode(LVReadingStatsArchive.self, from: data)
+        let datePattern = #"^\d{4}-\d{2}-\d{2}$"#
+        let hourPattern = #"^\d{4}-\d{2}-\d{2}-([01]\d|2[0-3])$"#
+        let dailyDates = Set(archive.dailyMinutes.keys)
+        guard archive.format == "LVRead Reading Stats", archive.version == 1,
+              archive.dailyMinutes.allSatisfy({
+                  $0.key.range(of: datePattern, options: .regularExpression) != nil && $0.value >= 0
+              }),
+              archive.hourlySeconds.allSatisfy({
+                  $0.key.range(of: hourPattern, options: .regularExpression) != nil && $0.value >= 0
+              }),
+              archive.hourlySeconds.keys.allSatisfy({ dailyDates.contains(String($0.prefix(10))) }) else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        return archive
+    }
 }
 
 /// Browses every date that contains reading records without leaving the chart.
 final class LVHourlyReadingHistoryView: UIView {
     private let repository: ReadingStatsRepository
+    private let onDelete: (Date) -> Void
     private let dates: [Date]
     private var selectedIndex: Int
     private let previousButton = UIButton(type: .system)
     private let nextButton = UIButton(type: .system)
+    private let deleteButton = UIButton(type: .system)
     private let dateLabel = UILabel()
     private let totalLabel = UILabel()
     private let chart: LVHourlyReadingChartView
 
-    init(repository: ReadingStatsRepository) {
+    init(repository: ReadingStatsRepository, onDelete: @escaping (Date) -> Void) {
         self.repository = repository
+        self.onDelete = onDelete
         dates = repository.hourlyReadingDates()
         selectedIndex = max(dates.count - 1, 0)
         chart = LVHourlyReadingChartView(
@@ -275,6 +490,12 @@ final class LVHourlyReadingHistoryView: UIView {
             $0.widthAnchor.constraint(equalToConstant: 44).isActive = true
             $0.heightAnchor.constraint(equalToConstant: 44).isActive = true
         }
+        deleteButton.setTitle(L("删除当天记录"), for: .normal)
+        deleteButton.setImage(UIImage(systemName: "trash"), for: .normal)
+        deleteButton.tintColor = .lvError
+        deleteButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        deleteButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        deleteButton.addTarget(self, action: #selector(deleteSelectedDate), for: .touchUpInside)
 
         dateLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         dateLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
@@ -291,7 +512,7 @@ final class LVHourlyReadingHistoryView: UIView {
         navigator.alignment = .center
         navigator.distribution = .fill
 
-        let stack = UIStackView(arrangedSubviews: [navigator, chart])
+        let stack = UIStackView(arrangedSubviews: [navigator, chart, deleteButton])
         stack.axis = .vertical
         stack.spacing = 8
         addSubview(stack)
@@ -321,6 +542,8 @@ final class LVHourlyReadingHistoryView: UIView {
         nextButton.isEnabled = selectedIndex < dates.count - 1
         previousButton.alpha = previousButton.isEnabled ? 1 : 0.3
         nextButton.alpha = nextButton.isEnabled ? 1 : 0.3
+        deleteButton.isEnabled = repository.hasReadingRecords(on: date)
+        deleteButton.alpha = deleteButton.isEnabled ? 1 : 0.3
         accessibilityLabel = "\(dateLabel.text ?? "")，\(totalLabel.text ?? "")"
     }
 
@@ -334,6 +557,11 @@ final class LVHourlyReadingHistoryView: UIView {
         guard selectedIndex < dates.count - 1 else { return }
         selectedIndex += 1
         refreshDate()
+    }
+
+    @objc private func deleteSelectedDate() {
+        guard dates.indices.contains(selectedIndex) else { return }
+        onDelete(dates[selectedIndex])
     }
 }
 

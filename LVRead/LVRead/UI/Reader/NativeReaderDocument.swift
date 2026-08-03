@@ -12,6 +12,28 @@ struct NativeDocumentPage {
     var id: String { "\(chapterIndex):\(pageIndex):\(startOffset):\(endOffset)" }
 }
 
+enum NativeDocumentWindowResolver {
+    static func targetIndex(
+        in window: [NativeDocumentPage],
+        requestedTarget: Int,
+        preserving current: NativeDocumentPage?
+    ) -> Int? {
+        guard !window.isEmpty else { return nil }
+        let target = min(max(requestedTarget, 0), window.count - 1)
+        guard let current else { return target }
+        if let exact = window.firstIndex(where: { $0.id == current.id }) { return exact }
+
+        let candidate = window[target]
+        guard candidate.chapterIndex == current.chapterIndex else { return nil }
+        if candidate.image != nil || current.image != nil {
+            return candidate.pageIndex >= current.pageIndex ? target : nil
+        }
+        let containsCurrentAnchor = candidate.startOffset <= current.startOffset
+            && current.startOffset < max(candidate.endOffset, candidate.startOffset + 1)
+        return containsCurrentAnchor || candidate.startOffset >= current.startOffset ? target : nil
+    }
+}
+
 struct NativeTextSelection {
     let text: String
     /// UTF-16 range relative to the current page text.

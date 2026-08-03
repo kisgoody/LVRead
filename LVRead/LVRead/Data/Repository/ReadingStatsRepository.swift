@@ -8,13 +8,15 @@ final class ReadingStatsRepository {
     
     static let shared = ReadingStatsRepository()
     
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let statsKey = "reading_stats"
     private let bookStatsKey = "reading_stats_by_book"
     private let minuteRemainderKey = "reading_stats_minute_remainder_seconds"
     private let hourlySecondsKey = "reading_stats_hourly_seconds"
     
-    private init() {}
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
     
     // MARK: - Public API
     
@@ -147,6 +149,88 @@ final class ReadingStatsRepository {
         }
         return values
     }
+
+    func exportArchive() -> LVReadingStatsArchive {
+        LVReadingStatsArchive(
+            format: "LVRead Reading Stats",
+            version: 1,
+            exportedAt: Date(),
+            dailyMinutes: getStats().dailyReadingMinutes,
+            hourlySeconds: hourlySeconds()
+        )
+    }
+
+    func overlappingDates(with archive: LVReadingStatsArchive) -> [String] {
+        let existingDaily = Set(getStats().dailyReadingMinutes.keys)
+        let existingHourly = Set(hourlySeconds().keys.map { String($0.prefix(10)) })
+        let importedDaily = Set(archive.dailyMinutes.keys)
+        let importedHourly = Set(archive.hourlySeconds.keys.map { String($0.prefix(10)) })
+        return Array((existingDaily.union(existingHourly)).intersection(importedDaily.union(importedHourly))).sorted()
+    }
+
+    func importArchive(_ archive: LVReadingStatsArchive, overwriteOverlaps: Bool) {
+        let overlaps = Set(overlappingDates(with: archive))
+        var stats = getStats()
+        var minuteDelta = 0
+        for (dateKey, minutes) in archive.dailyMinutes where overwriteOverlaps || !overlaps.contains(dateKey) {
+            let oldValue = stats.dailyReadingMinutes[dateKey] ?? 0
+            stats.dailyReadingMinutes[dateKey] = max(0, minutes)
+            let delta = max(0, minutes) - oldValue
+            minuteDelta += delta
+            if let date = dateFromString(dateKey) {
+                let calendar = Calendar.current
+                let weekKey = "\(calendar.component(.year, from: date))-W\(calendar.component(.weekOfYear, from: date))"
+                let oldWeek = stats.weeklyReadingMinutes[weekKey] ?? 0
+                stats.weeklyReadingMinutes[weekKey] = max(0, oldWeek + delta)
+            }
+        }
+        stats.totalReadingTimeSeconds = max(0, stats.totalReadingTimeSeconds + minuteDelta * 60)
+        save(stats)
+
+        var hourly = hourlySeconds()
+        if overwriteOverlaps {
+            hourly = hourly.filter { !overlaps.contains(String($0.key.prefix(10))) }
+        }
+        for (key, seconds) in archive.hourlySeconds {
+            let dateKey = String(key.prefix(10))
+            if overwriteOverlaps || !overlaps.contains(dateKey) {
+                hourly[key] = max(0, seconds)
+            }
+        }
+        if let data = try? JSONEncoder().encode(hourly) {
+            defaults.set(data, forKey: hourlySecondsKey)
+        }
+    }
+
+    func hasReadingRecords(on date: Date) -> Bool {
+        let key = dateString(from: date)
+        return getStats().dailyReadingMinutes[key] != nil
+            || hourlySeconds().keys.contains { $0.hasPrefix("\(key)-") }
+    }
+
+    func deleteReadingRecords(on date: Date) {
+        let key = dateString(from: date)
+        var stats = getStats()
+        let dailyMinutes = stats.dailyReadingMinutes.removeValue(forKey: key) ?? 0
+        var hourly = hourlySeconds()
+        let hourlySecondsToDelete = hourly.reduce(0) { result, item in
+            result + (item.key.hasPrefix("\(key)-") ? item.value : 0)
+        }
+        hourly = hourly.filter { !$0.key.hasPrefix("\(key)-") }
+
+        let calendar = Calendar.current
+        let weekKey = "\(calendar.component(.year, from: date))-W\(calendar.component(.weekOfYear, from: date))"
+        if let weeklyMinutes = stats.weeklyReadingMinutes[weekKey] {
+            let remaining = max(0, weeklyMinutes - dailyMinutes)
+            stats.weeklyReadingMinutes[weekKey] = remaining == 0 ? nil : remaining
+        }
+        let secondsToDelete = hourlySecondsToDelete > 0 ? hourlySecondsToDelete : dailyMinutes * 60
+        stats.totalReadingTimeSeconds = max(0, stats.totalReadingTimeSeconds - secondsToDelete)
+        save(stats)
+        if let data = try? JSONEncoder().encode(hourly) {
+            defaults.set(data, forKey: hourlySecondsKey)
+        }
+    }
     
     /// Mark a book as finished
     func markBookFinished() {
@@ -267,6 +351,14 @@ final class ReadingStatsRepository {
         dateComponents.weekOfYear = week
         return calendar.date(from: dateComponents)
     }
+}
+
+struct LVReadingStatsArchive: Codable, Equatable {
+    let format: String
+    let version: Int
+    let exportedAt: Date
+    let dailyMinutes: [String: Int]
+    let hourlySeconds: [String: Int]
 }
 
 struct BookReadingStat: Codable, Equatable {

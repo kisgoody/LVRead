@@ -795,13 +795,6 @@ final class BookshelfViewController: UIViewController {
         localAction.setValue(UIImage(systemName: "doc.badge.plus"), forKey: "image")
         alert.addAction(localAction)
 
-        let transferAction = UIAlertAction(title: L("同网传输"), style: .default) { [weak self] _ in
-            let transferVC = TransferDeviceListViewController()
-            self?.navigationController?.pushViewController(transferVC, animated: true)
-        }
-        transferAction.setValue(UIImage(systemName: "wifi"), forKey: "image")
-        alert.addAction(transferAction)
-
         alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
 
         if let popover = alert.popoverPresentationController {

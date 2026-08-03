@@ -296,6 +296,89 @@ final class LVModuleSubtitleProviderTests: XCTestCase {
     }
 }
 
+final class MarkdownExchangeTests: XCTestCase {
+    func testNotesMarkdownRoundTripPreservesReconnectIdentity() throws {
+        let note = LVNoteRecord(
+            id: "note-1",
+            bookHash: "book-hash",
+            bookTitle: "Book",
+            bookAuthor: "Author",
+            chapterIndex: 2,
+            pageOffset: 8,
+            chapterTitle: "Chapter 3",
+            originalText: "Original",
+            comment: "Comment",
+            kind: .comment,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        let markdown = try LVNotesMarkdown.encode([note])
+        let decoded = try LVNotesMarkdown.decode(markdown)
+
+        XCTAssertEqual(decoded, [note])
+        XCTAssertEqual(decoded.first?.bookHash, "book-hash")
+        XCTAssertTrue(markdown.contains("### 原文 / Original Text"))
+        XCTAssertTrue(markdown.contains("> Original"))
+        XCTAssertTrue(markdown.contains("### 评论 / Comment"))
+        XCTAssertTrue(markdown.contains("| 书籍 / Book | Book |"))
+    }
+
+    func testStatsMarkdownRoundTripPreservesDateBuckets() throws {
+        let archive = LVReadingStatsArchive(
+            format: "LVRead Reading Stats",
+            version: 1,
+            exportedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            dailyMinutes: ["2026-07-31": 25],
+            hourlySeconds: ["2026-07-31-20": 1_500]
+        )
+
+        let markdown = try LVStatsMarkdown.encode(archive)
+        let decoded = try LVStatsMarkdown.decode(markdown)
+
+        XCTAssertEqual(decoded, archive)
+        XCTAssertTrue(markdown.contains("## 统计总览 / Overview"))
+        XCTAssertTrue(markdown.contains("## 24 小时累计分布 / 24-Hour Distribution"))
+        XCTAssertTrue(markdown.contains("| 20:00–21:00 | 00:25:00 |"))
+        XCTAssertTrue(markdown.contains("### 2026-07-31"))
+    }
+
+    func testRejectsOrdinaryMarkdownFiles() {
+        XCTAssertThrowsError(try LVNotesMarkdown.decode("# Notes"))
+        XCTAssertThrowsError(try LVStatsMarkdown.decode("# Stats"))
+    }
+}
+
+final class ReadingStatsDeletionTests: XCTestCase {
+    func testDeletingOneDayPreservesOtherDates() throws {
+        let suiteName = "ReadingStatsDeletionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let repository = ReadingStatsRepository(defaults: defaults)
+        repository.importArchive(
+            LVReadingStatsArchive(
+                format: "LVRead Reading Stats",
+                version: 1,
+                exportedAt: Date(),
+                dailyMinutes: ["2026-07-30": 15, "2026-07-31": 25],
+                hourlySeconds: ["2026-07-30-09": 900, "2026-07-31-20": 1_500]
+            ),
+            overwriteOverlaps: false
+        )
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        repository.deleteReadingRecords(on: try XCTUnwrap(formatter.date(from: "2026-07-31")))
+
+        let archive = repository.exportArchive()
+        XCTAssertNil(archive.dailyMinutes["2026-07-31"])
+        XCTAssertNil(archive.hourlySeconds["2026-07-31-20"])
+        XCTAssertEqual(archive.dailyMinutes["2026-07-30"], 15)
+        XCTAssertEqual(archive.hourlySeconds["2026-07-30-09"], 900)
+        XCTAssertEqual(repository.getStats().totalReadingTimeSeconds, 900)
+    }
+}
+
 final class BookRepositoryUpdateTests: XCTestCase {
     func testRenamingBookPreservesChaptersAndFilePath() throws {
         let repository = BookRepository.shared

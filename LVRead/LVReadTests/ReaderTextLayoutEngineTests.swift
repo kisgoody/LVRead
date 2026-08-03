@@ -259,4 +259,63 @@ final class ReaderTextLayoutEngineTests: XCTestCase {
         XCTAssertEqual(size.height - pathRect.maxY, insets.top, accuracy: 0.001)
         XCTAssertEqual(pathRect.width, size.width - insets.left - insets.right, accuracy: 0.001)
     }
+
+    func testNativeWindowRejectsStaleBackwardReload() {
+        let current = NativeDocumentPage(
+            chapterIndex: 4,
+            pageIndex: 3,
+            chapterTitle: "第五章",
+            startOffset: 300,
+            endOffset: 400,
+            text: "当前页",
+            image: nil
+        )
+        let staleWindow = [
+            NativeDocumentPage(
+                chapterIndex: 0,
+                pageIndex: 0,
+                chapterTitle: "第一章",
+                startOffset: 0,
+                endOffset: 100,
+                text: "旧页面",
+                image: nil
+            )
+        ]
+
+        XCTAssertNil(
+            NativeDocumentWindowResolver.targetIndex(
+                in: staleWindow,
+                requestedTarget: 0,
+                preserving: current
+            )
+        )
+        XCTAssertEqual(
+            NativeDocumentWindowResolver.targetIndex(
+                in: staleWindow,
+                requestedTarget: 0,
+                preserving: nil
+            ),
+            0
+        )
+
+        let repaginatedWindow = [
+            NativeDocumentPage(
+                chapterIndex: 4,
+                pageIndex: 2,
+                chapterTitle: "第五章",
+                startOffset: 250,
+                endOffset: 350,
+                text: "重新分页后的当前页",
+                image: nil
+            )
+        ]
+        XCTAssertEqual(
+            NativeDocumentWindowResolver.targetIndex(
+                in: repaginatedWindow,
+                requestedTarget: 0,
+                preserving: current
+            ),
+            0
+        )
+    }
 }

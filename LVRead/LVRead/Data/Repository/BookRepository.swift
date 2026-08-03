@@ -34,6 +34,12 @@ final class BookRepository {
         guard let book = getById(bookId) else {
             return .failure(.fileNotFound)
         }
+
+        LVNoteRecordStore.shared.archive(
+            book: book,
+            bookmarks: getBookmarks(for: bookId),
+            highlights: getHighlights(for: bookId)
+        )
         
         var fileDeleteError: Error?
         
@@ -261,6 +267,11 @@ final class BookRepository {
         db.execute("DELETE FROM highlights WHERE id = ?;", params: [highlightId])
     }
 
+    @discardableResult
+    func updateHighlightNote(_ highlightId: String, note: String) -> Bool {
+        db.execute("UPDATE highlights SET note = ? WHERE id = ?;", params: [note, highlightId])
+    }
+
     func getHighlights(for bookId: String) -> [Highlight] {
         let rows = db.query(
             "SELECT * FROM highlights WHERE book_id = ? ORDER BY created_at DESC;",
@@ -352,6 +363,104 @@ final class BookRepository {
         case .fileSize: return "file_size \(dir)"
         case .custom: return "custom_order ASC"
         }
+    }
+}
+
+// MARK: - Notes retained independently from bookshelf records
+
+struct LVNoteRecord: Codable, Equatable, Identifiable {
+    enum Kind: String, Codable { case bookmark, excerpt, comment }
+
+    let id: String
+    let bookHash: String
+    let bookTitle: String
+    let bookAuthor: String
+    let chapterIndex: Int
+    let pageOffset: Int
+    let chapterTitle: String
+    let originalText: String
+    let comment: String?
+    let kind: Kind
+    let createdAt: Date
+}
+
+final class LVNoteRecordStore {
+    static let shared = LVNoteRecordStore()
+    private let key = "lv_note_archive_v1"
+    private let defaults = UserDefaults.standard
+
+    private init() {}
+
+    func records() -> [LVNoteRecord] {
+        guard let data = defaults.data(forKey: key),
+              let values = try? JSONDecoder().decode([LVNoteRecord].self, from: data) else {
+            return []
+        }
+        return values
+    }
+
+    func save(_ imported: [LVNoteRecord]) {
+        var values = Dictionary(uniqueKeysWithValues: records().map { ($0.id, $0) })
+        imported.forEach { values[$0.id] = $0 }
+        persist(Array(values.values))
+    }
+
+    func delete(id: String) {
+        persist(records().filter { $0.id != id })
+    }
+
+    func updateComment(id: String, comment: String) {
+        let values = records().map { record in
+            guard record.id == id else { return record }
+            return LVNoteRecord(
+                id: record.id, bookHash: record.bookHash, bookTitle: record.bookTitle,
+                bookAuthor: record.bookAuthor, chapterIndex: record.chapterIndex,
+                pageOffset: record.pageOffset, chapterTitle: record.chapterTitle,
+                originalText: record.originalText, comment: comment, kind: record.kind,
+                createdAt: record.createdAt
+            )
+        }
+        persist(values)
+    }
+
+    func archive(book: Book, bookmarks: [Bookmark], highlights: [Highlight]) {
+        let bookmarkRecords = bookmarks.map {
+            LVNoteRecord(
+                id: $0.id,
+                bookHash: book.fileHash,
+                bookTitle: book.title,
+                bookAuthor: book.author,
+                chapterIndex: $0.chapterIndex,
+                pageOffset: $0.pageOffset,
+                chapterTitle: $0.chapterTitle,
+                originalText: $0.snippet,
+                comment: nil,
+                kind: .bookmark,
+                createdAt: $0.createdAt
+            )
+        }
+        let highlightRecords = highlights.map {
+            LVNoteRecord(
+                id: $0.id,
+                bookHash: book.fileHash,
+                bookTitle: book.title,
+                bookAuthor: book.author,
+                chapterIndex: $0.chapterIndex,
+                pageOffset: $0.pageOffset,
+                chapterTitle: BookRepository.shared.getChapters(for: book.id)[safe: $0.chapterIndex]?.title
+                    ?? LF("第 %d 章", $0.chapterIndex + 1),
+                originalText: $0.text,
+                comment: $0.note,
+                kind: $0.isComment ? .comment : .excerpt,
+                createdAt: $0.createdAt
+            )
+        }
+        save(bookmarkRecords + highlightRecords)
+    }
+
+    private func persist(_ values: [LVNoteRecord]) {
+        guard let data = try? JSONEncoder().encode(values) else { return }
+        defaults.set(data, forKey: key)
     }
 }
 

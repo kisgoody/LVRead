@@ -84,6 +84,36 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     private func handleIncomingFile(_ url: URL) {
+        if url.pathExtension.lowercased() == "md" {
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url),
+                  let markdown = String(data: data, encoding: .utf8) else {
+                LVToast.show(message: L("无法读取导入文件"), style: .error)
+                return
+            }
+            let notification: Notification.Name
+            let destination: UIViewController
+            if markdown.contains("<!-- LVREAD-NOTES:1 -->") {
+                notification = .lvReadMarkdownReceived
+                destination = NotesViewController()
+            } else if markdown.contains("<!-- LVREAD-STATS:1 -->") {
+                notification = .lvReadStatsMarkdownReceived
+                destination = ReadingStatsViewController()
+            } else {
+                LVToast.show(message: L("文件不符合 LVRead 导入规范"), style: .error)
+                return
+            }
+            let localURL = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
+            try? data.write(to: localURL, options: .atomic)
+            if let navigation = window?.rootViewController as? UINavigationController {
+                navigation.pushViewController(destination, animated: false)
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: notification, object: localURL)
+                }
+            }
+            return
+        }
         BookImportManager.shared.importFile(from: url) { result in
             switch result {
             case .success:
@@ -99,4 +129,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 extension Notification.Name {
     static let bookImported = Notification.Name("bookImported")
+    static let lvReadMarkdownReceived = Notification.Name("lvReadMarkdownReceived")
+    static let lvReadStatsMarkdownReceived = Notification.Name("lvReadStatsMarkdownReceived")
 }

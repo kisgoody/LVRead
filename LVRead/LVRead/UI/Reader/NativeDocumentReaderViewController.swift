@@ -906,10 +906,25 @@ final class NativeDocumentReaderViewController: UIViewController {
             return
         }
         suppressWindowRefresh = true
-        let previousPageID = currentPage?.id
+        let previousPage = currentPage
         let previousIntraPageOffset = navigationMode == .continuousVertical
             ? continuousScrollView.contentOffset.y - continuousOffset(forPageAt: currentIndex)
             : 0
+        guard let resolvedTarget = NativeDocumentWindowResolver.targetIndex(
+            in: window,
+            requestedTarget: target,
+            preserving: preserveCurrentPage ? previousPage : nil
+        ) else {
+            suppressWindowRefresh = false
+            guard let previousPage else { return }
+            loadWindow(
+                chapterIndex: previousPage.chapterIndex,
+                pageIndex: previousPage.pageIndex,
+                characterOffset: previousPage.startOffset,
+                showSkeleton: false
+            )
+            return
+        }
         let cachedPages = window.map {
             PageData(
                 pageIndex: $0.pageIndex,
@@ -922,9 +937,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         }
         PageCacheManager.shared.cachePages(cachedPages, bookId: book.id, centerPage: target)
         pages = window
-        currentIndex = preserveCurrentPage
-            ? previousPageID.flatMap { id in window.firstIndex(where: { $0.id == id }) } ?? target
-            : target
+        currentIndex = resolvedTarget
         if navigationMode == .continuousVertical {
             renderContinuousWindow(target: currentIndex, intraPageOffset: previousIntraPageOffset)
         } else if let controllers = pageControllers(at: currentIndex) {
