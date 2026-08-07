@@ -12,6 +12,7 @@ final class ReadingStatsModelTests: XCTestCase {
         XCTAssertEqual(stats.totalBooksRead, 0)
         XCTAssertEqual(stats.totalReadingTimeSeconds, 0)
         XCTAssertEqual(stats.totalPagesRead, 0)
+        XCTAssertEqual(stats.totalCharactersRead, 0)
         XCTAssertTrue(stats.dailyReadingMinutes.isEmpty)
         XCTAssertTrue(stats.weeklyReadingMinutes.isEmpty)
     }
@@ -21,12 +22,14 @@ final class ReadingStatsModelTests: XCTestCase {
             totalBooksRead: 5,
             totalReadingTimeSeconds: 7200,
             totalPagesRead: 350,
+            totalCharactersRead: 105_000,
             dailyReadingMinutes: ["2026-06-27": 30],
             weeklyReadingMinutes: ["2026-W26": 120]
         )
         XCTAssertEqual(stats.totalBooksRead, 5)
         XCTAssertEqual(stats.totalReadingTimeSeconds, 7200)
         XCTAssertEqual(stats.totalPagesRead, 350)
+        XCTAssertEqual(stats.totalCharactersRead, 105_000)
         XCTAssertEqual(stats.dailyReadingMinutes["2026-06-27"], 30)
         XCTAssertEqual(stats.weeklyReadingMinutes["2026-W26"], 120)
     }
@@ -59,13 +62,22 @@ final class ReadingStatsModelTests: XCTestCase {
         let stats = ReadingStats(
             totalBooksRead: 3,
             totalReadingTimeSeconds: 5400,
-            totalPagesRead: 120
+            totalPagesRead: 120,
+            totalCharactersRead: 36_000
         )
         let data = try JSONEncoder().encode(stats)
         let decoded = try JSONDecoder().decode(ReadingStats.self, from: data)
         XCTAssertEqual(decoded.totalBooksRead, 3)
         XCTAssertEqual(decoded.totalReadingTimeSeconds, 5400)
         XCTAssertEqual(decoded.totalPagesRead, 120)
+        XCTAssertEqual(decoded.totalCharactersRead, 36_000)
+    }
+
+    func testReadingStatsWithoutCharacterCountRemainsDecodable() throws {
+        let data = Data(#"{"totalBooksRead":1,"totalReadingTimeSeconds":60,"totalPagesRead":2,"dailyReadingMinutes":{},"weeklyReadingMinutes":{}}"#.utf8)
+        let decoded = try JSONDecoder().decode(ReadingStats.self, from: data)
+
+        XCTAssertEqual(decoded.totalCharactersRead, 0)
     }
 }
 
@@ -118,6 +130,277 @@ final class ReadingStatsRepositoryTests: XCTestCase {
         )
 
         XCTAssertEqual(repo.hourlyReadingMinutes()[12], before + 2, accuracy: 0.01)
+    }
+
+    func testPageReadIsRecordedByDayAndHour() throws {
+        let suiteName = "ReadingStatsPageBreakdownTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let repository = ReadingStatsRepository(defaults: defaults)
+        let calendar = Calendar.current
+        let date = try XCTUnwrap(calendar.date(bySettingHour: 20, minute: 15, second: 0, of: Date()))
+
+        repository.recordPageRead(bookId: "page-breakdown-book", characters: 128, at: date)
+
+        XCTAssertEqual(repository.displayedReadingPages(for: date), 1)
+        XCTAssertEqual(repository.displayedHourlyPages(for: date)[20], 1)
+        XCTAssertEqual(repository.getStats().totalPagesRead, 1)
+        XCTAssertEqual(repository.displayedReadingCharacters(for: date), 128)
+        XCTAssertEqual(repository.displayedHourlyCharacters(for: date)[20], 128)
+        XCTAssertEqual(repository.getStats().totalCharactersRead, 128)
+        XCTAssertEqual(repository.getBookStats()["page-breakdown-book"]?.pagesRead, 1)
+        XCTAssertEqual(repository.getBookStats()["page-breakdown-book"]?.charactersRead, 128)
+        XCTAssertEqual(ReadingStatsRepository.readableCharacterCount(in: " 中文 A\nB "), 4)
+    }
+
+    func testWordCountUsesChineseCharactersAndEnglishWords() {
+        let text = "中文，测试！ hello world state-of-the-art don't U.S.A. 1,000 3.14 😀 <b>tag</b>\u{0007}"
+
+        XCTAssertEqual(ReadingStatsRepository.readableCharacterCount(in: text), 12)
+    }
+
+    func testReadingPaceUsesEffectiveSecondsAndRequiresOneMinute() {
+        XCTAssertEqual(ReadingPace.wordsPerMinute(words: 8_420, effectiveSeconds: 1_920), 263)
+        XCTAssertNil(ReadingPace.wordsPerMinute(words: 200, effectiveSeconds: 59))
+        XCTAssertNil(ReadingPace.wordsPerMinute(words: 0, effectiveSeconds: 120))
+    }
+
+    func testReadingPaceSummaryUsesAlignedPaceSeconds() throws {
+        let suiteName = "ReadingPaceSummaryTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let repository = ReadingStatsRepository(defaults: defaults)
+        let date = try XCTUnwrap(
+            Calendar.current.date(from: DateComponents(year: 2026, month: 8, day: 6, hour: 20))
+        )
+
+        repository.recordPageRead(bookId: "pace-book", characters: 600, at: date)
+        repository.recordActiveInterval(
+            bookId: "pace-book",
+            from: date,
+            to: date.addingTimeInterval(120),
+            pages: 0,
+            countsTowardPace: true
+        )
+
+        let summary = repository.readingPaceSummary(for: date)
+        XCTAssertEqual(summary.effectiveSeconds, 120)
+        XCTAssertEqual(summary.paceSeconds, 120)
+        XCTAssertEqual(summary.words, 600)
+        XCTAssertEqual(summary.wordsPerMinute, 300)
+        XCTAssertEqual(repository.getBookStats()["pace-book"]?.paceReadingTimeSeconds, 120)
+    }
+
+    func testReadingOverviewSupportsAllRecentSevenDaysAndToday() throws {
+        let suiteName = "ReadingOverviewRangeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let repository = ReadingStatsRepository(defaults: defaults)
+        let calendar = Calendar.current
+        let today = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 7, hour: 12))
+        )
+        let recentDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -3, to: today))
+        let oldDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -10, to: today))
+
+        for (date, seconds, pages, words) in [
+            (oldDate, 60, 1, 100),
+            (recentDate, 120, 2, 400),
+            (today, 180, 3, 900)
+        ] {
+            for _ in 0..<pages {
+                repository.recordPageRead(
+                    bookId: "overview-book",
+                    characters: words / pages,
+                    at: date
+                )
+            }
+            repository.recordActiveInterval(
+                bookId: "overview-book",
+                from: date,
+                to: date.addingTimeInterval(TimeInterval(seconds)),
+                pages: 0,
+                countsTowardPace: true
+            )
+        }
+
+        let all = repository.readingPaceSummary(lastDays: nil, endingAt: today)
+        let recent = repository.readingPaceSummary(lastDays: 7, endingAt: today)
+        let todaySummary = repository.readingPaceSummary(for: today)
+
+        XCTAssertEqual(all, ReadingPaceSummary(effectiveSeconds: 360, paceSeconds: 360, pages: 6, words: 1_400))
+        XCTAssertEqual(recent, ReadingPaceSummary(effectiveSeconds: 300, paceSeconds: 300, pages: 5, words: 1_300))
+        XCTAssertEqual(todaySummary, ReadingPaceSummary(effectiveSeconds: 180, paceSeconds: 180, pages: 3, words: 900))
+    }
+
+    func testReadingPacePointsStartAtTodayWhenEarlierHistoryHasNoPaceData() throws {
+        let suiteName = "ReadingPacePointsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let repository = ReadingStatsRepository(defaults: defaults)
+        let calendar = Calendar.current
+        let oldDate = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 10))
+        )
+        let today = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 7, hour: 12))
+        )
+
+        repository.recordActiveInterval(
+            bookId: "history-without-pace",
+            from: oldDate,
+            to: oldDate.addingTimeInterval(120),
+            pages: 0,
+            countsTowardPace: false
+        )
+
+        let points = repository.readingPacePoints(lastDays: nil, endingAt: today)
+
+        XCTAssertEqual(points.map(\.date), [calendar.startOfDay(for: today)])
+        XCTAssertNil(points.first?.summary.wordsPerMinute)
+    }
+
+    func testDeletingDayAlsoUpdatesBookPaceTotals() throws {
+        let suiteName = "ReadingPaceBookDeletionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let repository = ReadingStatsRepository(defaults: defaults)
+        let date = try XCTUnwrap(
+            Calendar.current.date(from: DateComponents(year: 2026, month: 8, day: 6, hour: 20))
+        )
+
+        repository.recordPageRead(bookId: "pace-book", characters: 600, at: date)
+        repository.recordActiveInterval(
+            bookId: "pace-book",
+            from: date,
+            to: date.addingTimeInterval(120),
+            pages: 0,
+            countsTowardPace: true
+        )
+        repository.deleteReadingRecords(on: date)
+
+        let book = try XCTUnwrap(repository.getBookStats()["pace-book"])
+        XCTAssertEqual(book.readingTimeSeconds, 0)
+        XCTAssertEqual(book.paceReadingTimeSeconds, 0)
+        XCTAssertEqual(book.pagesRead, 0)
+        XCTAssertEqual(book.charactersRead, 0)
+    }
+
+    func testLegacyCharacterCountsAreResetWhenWordCountRuleChanges() throws {
+        let suiteName = "ReadingStatsWordCountMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            try JSONEncoder().encode(ReadingStats(totalPagesRead: 8, totalCharactersRead: 2_400)),
+            forKey: "reading_stats"
+        )
+        defaults.set(
+            try JSONEncoder().encode(["2026-08-01": 2_400]),
+            forKey: "reading_stats_daily_characters"
+        )
+
+        let repository = ReadingStatsRepository(defaults: defaults)
+
+        XCTAssertEqual(repository.getStats().totalPagesRead, 8)
+        XCTAssertEqual(repository.getStats().totalCharactersRead, 0)
+        XCTAssertTrue(repository.exportArchive().dailyCharacters.isEmpty)
+    }
+
+    func testStatisticsOlderThanThirtyDaysRemainExportable() throws {
+        let suiteName = "ReadingStatsFullHistoryTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let repository = ReadingStatsRepository(defaults: defaults)
+        let oldDay = try XCTUnwrap(Calendar.current.date(byAdding: .year, value: -2, to: Date()))
+        let oldDate = try XCTUnwrap(
+            Calendar.current.date(bySettingHour: 12, minute: 10, second: 0, of: oldDay)
+        )
+
+        repository.recordPageRead(bookId: "old-book", characters: 256, at: oldDate)
+        repository.recordActiveInterval(
+            bookId: "old-book",
+            from: oldDate,
+            to: oldDate.addingTimeInterval(90),
+            pages: 0
+        )
+
+        let archive = repository.exportArchive()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dateKey = formatter.string(from: oldDate)
+        let hourKey = dateKey + "-" + String(format: "%02d", Calendar.current.component(.hour, from: oldDate))
+        XCTAssertEqual(archive.dailyPages[dateKey], 1)
+        XCTAssertEqual(archive.dailyCharacters[dateKey], 256)
+        XCTAssertEqual(archive.hourlySeconds[hourKey], 90)
+        XCTAssertEqual(archive.totalPagesRead, 1)
+        XCTAssertEqual(archive.totalCharactersRead, 256)
+        XCTAssertEqual(archive.totalReadingSeconds, 90)
+    }
+
+    func testEffectiveReadingIntervalStopsAtTwoMinutesOfInactivity() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let lastActivity = start.addingTimeInterval(30)
+
+        XCTAssertEqual(
+            EffectiveReadingPolicy.intervalEnd(
+                start: start,
+                lastActivity: lastActivity,
+                now: start.addingTimeInterval(300)
+            ),
+            start.addingTimeInterval(150)
+        )
+        XCTAssertEqual(
+            EffectiveReadingPolicy.intervalEnd(
+                start: start,
+                lastActivity: lastActivity,
+                now: start.addingTimeInterval(60)
+            ),
+            start.addingTimeInterval(60)
+        )
+    }
+
+    func testReadingTimeDistributionSupportsRecentSevenDaysAndAll() throws {
+        let suiteName = "ReadingTimeDistributionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let repository = ReadingStatsRepository(defaults: defaults)
+        let endDate = try XCTUnwrap(Calendar.current.date(from: DateComponents(year: 2026, month: 7, day: 31, hour: 12)))
+        repository.importArchive(
+            LVReadingStatsArchive(
+                format: "LVRead Reading Stats",
+                version: 1,
+                exportedAt: endDate,
+                dailyMinutes: ["2026-07-20": 10, "2026-07-31": 25],
+                hourlySeconds: ["2026-07-20-09": 600, "2026-07-31-20": 1_500],
+                dailyPages: ["2026-07-20": 3, "2026-07-31": 12],
+                hourlyPages: ["2026-07-20-09": 3, "2026-07-31-20": 12],
+                dailyCharacters: ["2026-07-20": 900, "2026-07-31": 3_600],
+                hourlyCharacters: ["2026-07-20-09": 900, "2026-07-31-20": 3_600]
+            ),
+            overwriteOverlaps: false
+        )
+
+        let recent = repository.readingTimeDistribution(lastDays: 7, endingAt: endDate)
+        let all = repository.readingTimeDistribution(lastDays: nil, endingAt: endDate)
+
+        XCTAssertEqual(recent.minutes[9], 0, accuracy: 0.01)
+        XCTAssertEqual(recent.minutes[20], 25, accuracy: 0.01)
+        XCTAssertEqual(recent.pages[20], 12)
+        XCTAssertEqual(recent.characters[20], 3_600)
+        XCTAssertEqual(all.minutes[9], 10, accuracy: 0.01)
+        XCTAssertEqual(all.pages[9], 3)
+        XCTAssertEqual(all.characters[9], 900)
+        XCTAssertTrue(repository.hasReadingTimeDistributionBeyondSevenDays(endingAt: endDate))
+
+        repository.deleteReadingRecords(on: endDate)
+        let afterDeletion = repository.readingTimeDistribution(lastDays: nil, endingAt: endDate)
+
+        XCTAssertEqual(afterDeletion.minutes[20], 0, accuracy: 0.01)
+        XCTAssertEqual(afterDeletion.pages[20], 0)
+        XCTAssertEqual(afterDeletion.characters[20], 0)
+        XCTAssertEqual(afterDeletion.minutes[9], 10, accuracy: 0.01)
+        XCTAssertEqual(afterDeletion.pages[9], 3)
+        XCTAssertEqual(afterDeletion.characters[9], 900)
     }
     
     func testMarkBookFinished() throws {
@@ -192,7 +475,7 @@ final class ReadingAdviceEngineTests: XCTestCase {
         XCTAssertTrue(suggestions.first?.text.contains("105") == true)
     }
 
-    func testConcentratedReadingIsSplitIntoThreeSuggestedDays() {
+    func testConcentratedReadingDescribesDistributionWithoutPrescribingSchedule() {
         let engine = makeEngine()
         let input = makeInput(
             minutes: Array(repeating: 10, count: 7) + [0, 0, 0, 0, 0, 30, 30]
@@ -201,8 +484,8 @@ final class ReadingAdviceEngineTests: XCTestCase {
         let suggestions = engine.makeSuggestions(input: input)
 
         XCTAssertEqual(suggestions.first?.kind, .spreadReadingDays)
-        XCTAssertTrue(suggestions.first?.text.contains("3") == true)
-        XCTAssertTrue(suggestions.first?.text.contains("20") == true)
+        XCTAssertTrue(suggestions.first?.text.contains("2 个阅读日") == true)
+        XCTAssertFalse(suggestions.first?.text.contains("每次") == true)
     }
 
     func testPreferredTimeUsesObservedTwoHourWindow() throws {
@@ -236,9 +519,9 @@ final class ReadingAdviceEngineTests: XCTestCase {
         XCTAssertFalse(suggestions.map(\.kind).contains(.preferredTime))
     }
 
-    func testScatteredHoursUseTypicalReadingDayDuration() throws {
+    func testVariableDailyDurationReportsPersonalBaselineAndPeak() throws {
         let engine = makeEngine()
-        let minutes = [10, 20, 25, 30, 40]
+        let minutes = [10, 20, 25, 90, 120]
         let days = makeDays(minutes: minutes) { index in
             var hours = Array(repeating: 0.0, count: 24)
             hours[index * 3] = Double(minutes[index])
@@ -249,6 +532,59 @@ final class ReadingAdviceEngineTests: XCTestCase {
 
         let advice = try XCTUnwrap(suggestions.first { $0.kind == .sustainableDuration })
         XCTAssertTrue(advice.text.contains("25"))
+        XCTAssertTrue(advice.text.contains("120"))
+        XCTAssertFalse(advice.text.contains("目标"))
+    }
+
+    func testIncompleteCurrentDayIsExcluded() {
+        let engine = makeEngine()
+        var days = makeDays(minutes: Array(repeating: 20, count: 14)) { _ in
+            var hours = Array(repeating: 0.0, count: 24)
+            hours[19] = 20
+            return hours
+        }
+        days.append(
+            ReadingAdviceDay(
+                date: now,
+                minutes: 600,
+                hourlyMinutes: Array(repeating: 60, count: 24)
+            )
+        )
+
+        let suggestions = engine.makeSuggestions(input: makeInput(days: days))
+
+        XCTAssertFalse(suggestions.map(\.kind).contains(.lateNightReading))
+        XCTAssertFalse(suggestions.map(\.text).joined().contains("600"))
+    }
+
+    func testBriefHourlyRecordsDoNotCreatePreferredWindow() {
+        let engine = makeEngine()
+        let days = makeDays(minutes: Array(repeating: 20, count: 5)) { _ in
+            var hours = Array(repeating: 0.0, count: 24)
+            hours[8] = 4
+            return hours
+        }
+
+        let suggestions = engine.makeSuggestions(input: makeInput(days: days))
+
+        XCTAssertFalse(suggestions.map(\.kind).contains(.preferredTime))
+    }
+
+    func testAdviceIsLimitedAndDoesNotPrescribeReadingMethod() {
+        let engine = makeEngine()
+        let days = makeDays(minutes: [20, 30, 40, 90, 120]) { _ in
+            var hours = Array(repeating: 0.0, count: 24)
+            hours[1] = 30
+            return hours
+        }
+
+        let suggestions = engine.makeSuggestions(input: makeInput(days: days))
+        let text = suggestions.map(\.text).joined()
+
+        XCTAssertLessThanOrEqual(suggestions.count, 2)
+        XCTAssertFalse(text.contains("读 10 分钟"))
+        XCTAssertFalse(text.contains("拆成 3 次"))
+        XCTAssertFalse(text.contains("每天至少"))
     }
 
     private func makeEngine() -> ReadingAdviceEngine {
@@ -271,7 +607,7 @@ final class ReadingAdviceEngineTests: XCTestCase {
         hours: (Int) -> [Double]
     ) -> [ReadingAdviceDay] {
         minutes.enumerated().compactMap { index, value in
-            let offset = minutes.count - index - 1
+            let offset = minutes.count - index
             guard let date = calendar.date(byAdding: .day, value: -offset, to: now) else { return nil }
             return ReadingAdviceDay(date: date, minutes: value, hourlyMinutes: hours(index))
         }
@@ -324,22 +660,90 @@ final class MarkdownExchangeTests: XCTestCase {
     }
 
     func testStatsMarkdownRoundTripPreservesDateBuckets() throws {
+        let exportedAt = try XCTUnwrap(
+            Calendar.current.date(from: DateComponents(year: 2026, month: 7, day: 31, hour: 21))
+        )
         let archive = LVReadingStatsArchive(
             format: "LVRead Reading Stats",
             version: 1,
-            exportedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            exportedAt: exportedAt,
             dailyMinutes: ["2026-07-31": 25],
-            hourlySeconds: ["2026-07-31-20": 1_500]
+            hourlySeconds: ["2026-07-31-20": 1_500],
+            hourlyPaceSeconds: ["2026-07-31-20": 1_500],
+            dailyPages: ["2026-07-31": 12],
+            hourlyPages: ["2026-07-31-20": 12],
+            dailyCharacters: ["2026-07-31": 3_600],
+            hourlyCharacters: ["2026-07-31-20": 3_600]
         )
 
-        let markdown = try LVStatsMarkdown.encode(archive)
+        let markdown = try LVStatsMarkdown.encode(
+            archive,
+            fileFormats: [
+                .init(name: "EPUB", bookCount: 3),
+                .init(name: "TXT", bookCount: 1)
+            ],
+            frequentBooks: [
+                .init(
+                    identifier: "book-hash",
+                    title: "Book | One",
+                    readingTimeSeconds: 5_400,
+                    paceReadingTimeSeconds: 3_000,
+                    pagesRead: 42,
+                    charactersRead: 12_600
+                )
+            ]
+        )
         let decoded = try LVStatsMarkdown.decode(markdown)
 
         XCTAssertEqual(decoded, archive)
         XCTAssertTrue(markdown.contains("## 统计总览 / Overview"))
+        XCTAssertTrue(markdown.contains("### 阅读概览 / Reading Overview"))
+        XCTAssertTrue(markdown.contains("| 全部 / All | 00:25:00 | 144 字/分钟 | 12 | 3600 |"))
+        XCTAssertTrue(markdown.contains("| 近7日 / Last 7 Days | 00:25:00 | 144 字/分钟 | 12 | 3600 |"))
+        XCTAssertTrue(markdown.contains("| 今日 / Today | 00:25:00 | 144 字/分钟 | 12 | 3600 |"))
+        XCTAssertTrue(markdown.contains("连续阅读 / Current Streak：1 天 / days"))
+        XCTAssertTrue(markdown.contains("## 统计规则 / Statistics Rules"))
+        XCTAssertTrue(markdown.contains("| 日期 / Date | 阅读有效时长 / Effective Reading | 阅读页数 / Pages | 阅读字数 / Word Count | 阅读节奏 / Reading Pace | 活跃时段 / Active Periods |"))
+        XCTAssertTrue(markdown.contains("| 2026-07-31 | 00:25:00 | 12 | 3600 | 144 字/分钟 | 1 |"))
         XCTAssertTrue(markdown.contains("## 24 小时累计分布 / 24-Hour Distribution"))
-        XCTAssertTrue(markdown.contains("| 20:00–21:00 | 00:25:00 |"))
+        XCTAssertTrue(markdown.contains("| 20:00–21:00 | 00:25:00 | 12 | 3600 | 144 字/分钟 |"))
+        XCTAssertTrue(markdown.contains("当日阅读页数 / Daily Pages：12 页 / pages"))
+        XCTAssertTrue(markdown.contains("当日阅读字数 / Daily Word Count：3600 字 / words"))
         XCTAssertTrue(markdown.contains("### 2026-07-31"))
+        XCTAssertTrue(markdown.contains("## 文件格式分布 / File Format Distribution"))
+        XCTAssertTrue(markdown.contains("| EPUB | 3 |"))
+        XCTAssertTrue(markdown.contains("## 常读书籍 / Frequently Read Books"))
+        XCTAssertTrue(markdown.contains("| 书籍标识 / Book ID | 书籍名称 / Book Title |"))
+        XCTAssertTrue(markdown.contains("| 1 | book-hash | Book \\| One | 01:30:00 | 42 | 12600 | 252 字/分钟 |"))
+        let hash = "06622f85020982e764bdec38951cea793094765dc3a5b7e1ccf2e4305229db71"
+        XCTAssertEqual(
+            LVStatsMarkdown.readableBookTitle(
+                storedTitle: hash,
+                fileHash: hash,
+                metadataTitle: "真正的书籍名称"
+            ),
+            "真正的书籍名称"
+        )
+    }
+
+    func testStatsMarkdownWithoutPageFieldsRemainsImportable() throws {
+        struct LegacyArchive: Encodable {
+            let format = "LVRead Reading Stats"
+            let version = 1
+            let exportedAt = Date(timeIntervalSince1970: 1_700_000_000)
+            let dailyMinutes = ["2026-07-31": 25]
+            let hourlySeconds = ["2026-07-31-20": 1_500]
+        }
+        let payload = try JSONEncoder().encode(LegacyArchive()).base64EncodedString()
+        let markdown = "<!-- LVREAD-STATS:1 -->\n```lvread-stats-data\n\(payload)\n```"
+
+        let decoded = try LVStatsMarkdown.decode(markdown)
+
+        XCTAssertTrue(decoded.dailyPages.isEmpty)
+        XCTAssertTrue(decoded.hourlyPages.isEmpty)
+        XCTAssertTrue(decoded.dailyCharacters.isEmpty)
+        XCTAssertTrue(decoded.hourlyCharacters.isEmpty)
+        XCTAssertTrue(decoded.hourlyPaceSeconds.isEmpty)
     }
 
     func testRejectsOrdinaryMarkdownFiles() {
@@ -360,7 +764,12 @@ final class ReadingStatsDeletionTests: XCTestCase {
                 version: 1,
                 exportedAt: Date(),
                 dailyMinutes: ["2026-07-30": 15, "2026-07-31": 25],
-                hourlySeconds: ["2026-07-30-09": 900, "2026-07-31-20": 1_500]
+                hourlySeconds: ["2026-07-30-09": 900, "2026-07-31-20": 1_500],
+                hourlyPaceSeconds: ["2026-07-30-09": 900, "2026-07-31-20": 1_500],
+                dailyPages: ["2026-07-30": 4, "2026-07-31": 6],
+                hourlyPages: ["2026-07-30-09": 4, "2026-07-31-20": 6],
+                dailyCharacters: ["2026-07-30": 1_200, "2026-07-31": 1_800],
+                hourlyCharacters: ["2026-07-30-09": 1_200, "2026-07-31-20": 1_800]
             ),
             overwriteOverlaps: false
         )
@@ -373,9 +782,21 @@ final class ReadingStatsDeletionTests: XCTestCase {
         let archive = repository.exportArchive()
         XCTAssertNil(archive.dailyMinutes["2026-07-31"])
         XCTAssertNil(archive.hourlySeconds["2026-07-31-20"])
+        XCTAssertNil(archive.hourlyPaceSeconds["2026-07-31-20"])
+        XCTAssertNil(archive.dailyPages["2026-07-31"])
+        XCTAssertNil(archive.hourlyPages["2026-07-31-20"])
+        XCTAssertNil(archive.dailyCharacters["2026-07-31"])
+        XCTAssertNil(archive.hourlyCharacters["2026-07-31-20"])
         XCTAssertEqual(archive.dailyMinutes["2026-07-30"], 15)
         XCTAssertEqual(archive.hourlySeconds["2026-07-30-09"], 900)
+        XCTAssertEqual(archive.hourlyPaceSeconds["2026-07-30-09"], 900)
+        XCTAssertEqual(archive.dailyPages["2026-07-30"], 4)
+        XCTAssertEqual(archive.hourlyPages["2026-07-30-09"], 4)
+        XCTAssertEqual(archive.dailyCharacters["2026-07-30"], 1_200)
+        XCTAssertEqual(archive.hourlyCharacters["2026-07-30-09"], 1_200)
         XCTAssertEqual(repository.getStats().totalReadingTimeSeconds, 900)
+        XCTAssertEqual(repository.getStats().totalPagesRead, 4)
+        XCTAssertEqual(repository.getStats().totalCharactersRead, 1_200)
     }
 }
 

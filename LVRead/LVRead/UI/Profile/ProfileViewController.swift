@@ -7,11 +7,8 @@ final class ProfileViewController: UIViewController {
     private let stackView = UIStackView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
-    private let todayMetricLabel = UILabel()
-    private let totalTimeMetricLabel = UILabel()
-    private let pagesMetricLabel = UILabel()
+    private let overviewMetricsView = LVReadingOverviewMetricsView()
     private let streakMetricLabel = UILabel()
-    private let adviceLabel = UILabel()
     private let nightSwitch = UISwitch()
     private let restoreReadingSwitch = UISwitch()
     private let goalLabel = UILabel()
@@ -62,7 +59,6 @@ final class ProfileViewController: UIViewController {
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         stackView.addArrangedSubview(makeStatsCard())
-        stackView.addArrangedSubview(makeAdviceCard())
         stackView.addArrangedSubview(makePreferencesCard())
         stackView.addArrangedSubview(makeAboutCard())
         moduleNavigation.onSelect = { [weak self] module in self?.showMainModule(module) }
@@ -89,91 +85,22 @@ final class ProfileViewController: UIViewController {
         ])
     }
 
-    private func makeMetricsGrid() -> UIView {
-        let firstRow = UIStackView(arrangedSubviews: [
-            makeMetric(valueLabel: todayMetricLabel, title: L("今日阅读")),
-            makeMetric(valueLabel: totalTimeMetricLabel, title: L("累计时长"))
-        ])
-        let secondRow = UIStackView(arrangedSubviews: [
-            makeMetric(valueLabel: pagesMetricLabel, title: L("累计页数")),
-            makeMetric(valueLabel: streakMetricLabel, title: L("连续阅读"))
-        ])
-        [firstRow, secondRow].forEach {
-            $0.axis = .horizontal
-            $0.spacing = 8
-            $0.distribution = .fillEqually
-        }
-        let stack = UIStackView(arrangedSubviews: [firstRow, divider(), secondRow])
-        stack.axis = .vertical
-        stack.spacing = 8
-        return stack
-    }
-
-    private func makeMetric(valueLabel: UILabel, title: String) -> UIView {
-        let container = UIView()
-        valueLabel.font = .systemFont(ofSize: 20, weight: .bold)
-        valueLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
-        valueLabel.textAlignment = .center
-        valueLabel.adjustsFontSizeToFitWidth = true
-        valueLabel.minimumScaleFactor = 0.7
-        let caption = UILabel()
-        caption.text = title
-        caption.font = .systemFont(ofSize: 12)
-        caption.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
-        caption.textAlignment = .center
-        let stack = UIStackView(arrangedSubviews: [valueLabel, caption])
-        stack.axis = .vertical
-        stack.spacing = 4
-        stack.alignment = .fill
-        container.addSubview(stack)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
-            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8)
-        ])
-        return container
-    }
-
-    private func makeAdviceCard() -> UIView {
-        let card = UIView()
-        LVBookshelfModuleStyle.applyCard(to: card)
-        let marker = UIView()
-        marker.backgroundColor = UIColor(hex: "#C2933D")
-        let heading = UILabel()
-        heading.text = L("阅读建议")
-        heading.font = .systemFont(ofSize: 14, weight: .bold)
-        heading.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
-        adviceLabel.font = .systemFont(ofSize: 14)
-        adviceLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
-        adviceLabel.numberOfLines = 0
-        let stack = UIStackView(arrangedSubviews: [heading, adviceLabel])
-        stack.axis = .vertical
-        stack.spacing = 4
-        [marker, stack].forEach {
-            card.addSubview($0)
-            $0.translatesAutoresizingMaskIntoConstraints = false
-        }
-        NSLayoutConstraint.activate([
-            marker.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            marker.topAnchor.constraint(equalTo: card.topAnchor),
-            marker.bottomAnchor.constraint(equalTo: card.bottomAnchor),
-            marker.widthAnchor.constraint(equalToConstant: 4),
-            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            stack.leadingAnchor.constraint(equalTo: marker.trailingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12)
-        ])
-        return card
-    }
-
     private func makeStatsCard() -> UIView {
         let card = makeCard()
-        let heading = makeHeading(L("阅读概览"))
+        let heading = makeHeading("\(L("阅读概览")) · \(L("今日"))")
+        heading.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        streakMetricLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        streakMetricLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+        streakMetricLabel.textAlignment = .right
+        streakMetricLabel.adjustsFontSizeToFitWidth = true
+        streakMetricLabel.minimumScaleFactor = 0.8
+        let header = UIStackView(arrangedSubviews: [heading, UIView(), streakMetricLabel])
+        header.axis = .horizontal
+        header.alignment = .center
+        header.spacing = 8
 
         let button = UIButton(type: .system)
-        button.setTitle(L("查看详细趋势与建议"), for: .normal)
+        button.setTitle(L("查看详细阅读统计"), for: .normal)
         button.setImage(UIImage(systemName: "chart.bar.xaxis"), for: .normal)
         LVBookshelfModuleStyle.applyAccent(to: button)
         button.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
@@ -182,7 +109,7 @@ final class ProfileViewController: UIViewController {
         button.addTarget(self, action: #selector(showStats), for: .touchUpInside)
 
         let content = UIStackView(arrangedSubviews: [
-            heading, makeMetricsGrid(), divider(), button
+            header, overviewMetricsView, divider(), button
         ])
         content.axis = .vertical
         content.spacing = 12
@@ -214,7 +141,7 @@ final class ProfileViewController: UIViewController {
         goalStepper.maximumValue = 180
         goalStepper.stepValue = 10
         goalStepper.addTarget(self, action: #selector(goalChanged), for: .valueChanged)
-        let goalRow = makeRow(title: L("每日目标"), subtitle: L("用于生成阅读建议"), control: goalStepper)
+        let goalRow = makeRow(title: L("每日目标"), subtitle: L("用于展示每日阅读进度"), control: goalStepper)
         goalLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
         LVBookshelfModuleStyle.applyAccent(to: goalLabel)
 
@@ -312,15 +239,11 @@ final class ProfileViewController: UIViewController {
         let stats = statsRepository.getStats()
         let analytics = ReadingAnalytics(stats: stats)
         let todayMinutes = statsRepository.displayedReadingMinutes(for: Date())
-        todayMetricLabel.text = LF("%d 分钟", todayMinutes)
-        totalTimeMetricLabel.text = analytics.totalReadingTimeFormatted
-        pagesMetricLabel.text = "\(stats.totalPagesRead)"
-        streakMetricLabel.text = LF("%d 天", analytics.currentStreak)
+        let todayPace = statsRepository.readingPaceSummary(for: Date())
+        overviewMetricsView.update(with: todayPace)
+        streakMetricLabel.text = LF("连续阅读 %d 天", analytics.currentStreak)
         let savedGoal = UserDefaults.standard.integer(forKey: Keys.dailyGoalMinutes)
         let goal = savedGoal > 0 ? savedGoal : 30
-        let suggestions = ReadingAdviceEngine.shared.suggestions()
-        adviceLabel.text = suggestions.map { "• \($0.text)" }.joined(separator: "\n\n")
-        adviceLabel.accessibilityLabel = suggestions.map(\.text).joined(separator: "；")
         nightSwitch.isOn = DarkModeManager.shared.isDarkMode
         restoreReadingSwitch.isOn = NativeReaderRestorationStore.isEnabled()
         goalStepper.value = Double(savedGoal > 0 ? savedGoal : 30)

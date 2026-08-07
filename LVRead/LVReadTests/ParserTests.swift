@@ -11,8 +11,10 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(FileFormat.epub, FileFormat(rawValue: "EPUB"))
         XCTAssertEqual(FileFormat.txt, FileFormat(rawValue: "TXT"))
         XCTAssertEqual(FileFormat.pdf, FileFormat(rawValue: "PDF"))
-        XCTAssertEqual(FileFormat.mobi, FileFormat(rawValue: "MOBI"))
-        XCTAssertEqual(FileFormat.azw3, FileFormat(rawValue: "AZW3"))
+        XCTAssertNil(FileFormat(rawValue: "MOBI"))
+        XCTAssertNil(FileFormat(rawValue: "AZW3"))
+        XCTAssertNil(BookImportManager.shared.detectFormat(URL(fileURLWithPath: "/tmp/book.mobi")))
+        XCTAssertNil(BookImportManager.shared.detectFormat(URL(fileURLWithPath: "/tmp/book.azw3")))
     }
     
     func testFileFormatDisplayNames() throws {
@@ -126,13 +128,13 @@ final class ParserTests: XCTestCase {
     func testReadingSettingsDefault() throws {
         let settings = ReadingSettings.default
         
-        XCTAssertEqual(settings.fontSize, 23)
+        XCTAssertEqual(settings.fontSize, 24)
         XCTAssertEqual(settings.fontFamily, "系统默认")
-        XCTAssertEqual(settings.lineSpacing, 1.3)
+        XCTAssertEqual(settings.lineSpacing, 1.2)
         XCTAssertEqual(settings.paragraphSpacing, 1.5)
         XCTAssertEqual(settings.pageMarginHorizontal, 7.0)
         XCTAssertEqual(settings.brightness, 1.0)
-        XCTAssertEqual(settings.pageFlipMode, .cover)
+        XCTAssertEqual(settings.pageFlipMode, .simulation)
         XCTAssertEqual(settings.nightMode, false)
         XCTAssertEqual(settings.autoReadEnabled, false)
         XCTAssertEqual(settings.autoReadSpeed, 5)
@@ -156,13 +158,13 @@ final class ParserTests: XCTestCase {
         
         XCTAssertEqual(settings.fontSize, 24)
         XCTAssertEqual(settings.fontFamily, "宋体")
-        XCTAssertEqual(ReadingSettings.default.fontSize, 23) // Original unchanged
+        XCTAssertEqual(ReadingSettings.default.fontSize, 24) // Original unchanged
     }
 
     // MARK: - ReadingTheme Tests
     
     func testReadingThemeProperties() throws {
-        XCTAssertEqual(ReadingTheme.white.backgroundColor, "#FFFFFF")
+        XCTAssertEqual(ReadingTheme.white.backgroundColor, "#F7F7F5")
         XCTAssertEqual(ReadingTheme.white.textColor, "#1A1A1A")
         XCTAssertEqual(ReadingTheme.oled.backgroundColor, "#000000")
         XCTAssertEqual(ReadingTheme.warmYellow.textColor, "#3D3226")

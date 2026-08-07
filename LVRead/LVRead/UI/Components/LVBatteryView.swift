@@ -68,16 +68,16 @@ final class LVBatteryView: UIView {
         outlineLayer.path = bodyPath.cgPath
 
         // Positive nub (right side)
-        let nubH = h * 0.35
+        let nubH = h * 0.26
         let nubY = (h - nubH) / 2
-        let nubRect = CGRect(x: bodyW, y: nubY, width: 3.5, height: nubH)
-        let nubPath = UIBezierPath(roundedRect: nubRect, cornerRadius: 1)
+        let nubRect = CGRect(x: bodyW, y: nubY, width: 2.5, height: nubH)
+        let nubPath = UIBezierPath(roundedRect: nubRect, cornerRadius: 0.75)
         nubLayer.path = nubPath.cgPath
 
         // Positive cap (smaller rectangle at the very right)
-        let capH = h * 0.20
+        let capH = h * 0.14
         let capY = (h - capH) / 2
-        let capRect = CGRect(x: bodyW + 1, y: capY, width: 1.5, height: capH)
+        let capRect = CGRect(x: bodyW + 0.75, y: capY, width: 1, height: capH)
         let capPath = UIBezierPath(roundedRect: capRect, cornerRadius: 0.5)
         capLayer.path = capPath.cgPath
 

@@ -211,8 +211,6 @@ final class BookListCell: UITableViewCell {
         case .txt: formatOffset = 0
         case .epub: formatOffset = 1
         case .pdf: formatOffset = 2
-        case .mobi: formatOffset = 3
-        case .azw3: formatOffset = 4
         }
         let titleValue = book.title.unicodeScalars.reduce(0) { $0 + Int($1.value) }
         let palette = palettes[(titleValue + formatOffset) % palettes.count]

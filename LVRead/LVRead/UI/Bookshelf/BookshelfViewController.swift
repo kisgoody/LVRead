@@ -35,6 +35,7 @@ final class BookshelfViewController: UIViewController {
     private var favoriteOnly = false
     private var isInitialLoad = true
     private var pendingCoverBook: Book?
+    private var preparingReader: NativeDocumentReaderViewController?
 
     // MARK: - UI Components
 
@@ -133,7 +134,9 @@ final class BookshelfViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if transitionCoordinator?.viewController(forKey: .to) is ContinuousReaderViewController {
+        let destination = transitionCoordinator?.viewController(forKey: .to)
+        if destination is ContinuousReaderViewController ||
+            destination is NativeDocumentReaderViewController {
             return
         }
         navigationController?.setNavigationBarHidden(false, animated: animated)
@@ -842,7 +845,7 @@ final class BookshelfViewController: UIViewController {
 
     private func presentFilePicker() {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [
-            .epub, .plainText, .pdf, .data
+            .epub, .plainText, .pdf
         ], asCopy: true)
         picker.allowsMultipleSelection = true
         picker.delegate = self
@@ -1040,8 +1043,23 @@ final class BookshelfViewController: UIViewController {
                 return
             }
         }
+        guard preparingReader == nil, let navigationController else { return }
         let readerVC = NativeDocumentReaderViewController(book: book)
-        navigationController?.pushViewController(readerVC, animated: true)
+        preparingReader = readerVC
+        readerVC.prepareForPresentation(
+            in: navigationController.view.bounds,
+            safeAreaInsets: navigationController.view.safeAreaInsets
+        ) { [weak self, weak readerVC] result in
+            guard let self, self.preparingReader === readerVC else { return }
+            self.preparingReader = nil
+            switch result {
+            case .success:
+                guard let readerVC else { return }
+                navigationController.pushViewController(readerVC, animated: true)
+            case .failure(let error):
+                LVToast.show(message: error.localizedDescription, style: .error)
+            }
+        }
     }
 
     private func openWebSync(for book: Book) {

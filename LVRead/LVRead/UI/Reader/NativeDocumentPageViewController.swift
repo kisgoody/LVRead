@@ -179,13 +179,18 @@ final class NativeDocumentPageViewController: UIViewController {
         view.backgroundColor = pageBackground
         canvas.backgroundColor = pageBackground
         let foreground = UIColor(hex: settings.readingTheme.textColor)
-        let backConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: backConfiguration), for: .normal)
+        backButton.setImage(
+            UIImage(
+                systemName: "chevron.left",
+                withConfiguration: NativeDocumentTypography.headerSymbolConfiguration
+            ),
+            for: .normal
+        )
         backButton.tintColor = foreground
         backButton.accessibilityLabel = L("返回")
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         chapterLabel.text = page.chapterTitle
-        chapterLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        chapterLabel.font = NativeDocumentTypography.headerFont
         chapterLabel.textAlignment = .right
         chapterLabel.textColor = foreground
         chapterLabel.lineBreakMode = .byTruncatingTail

@@ -3,6 +3,21 @@ import XCTest
 
 final class ReaderTextLayoutEngineTests: XCTestCase {
 
+    func testEveryEnglishFontPaginatesEnglishText() throws {
+        let content = String(repeating: "Alice was beginning to get very tired of sitting by her sister. ", count: 80)
+        for option in FontManager.shared.options(for: .english) where !option.id.hasPrefix("custom:") {
+            var settings = ReadingSettings.default
+            settings.fontFamily = option.id
+            let ranges = try ReaderTextLayoutEngine.pageRanges(
+                content: content,
+                pageSize: CGSize(width: 390, height: 700),
+                settings: settings
+            )
+            XCTAssertFalse(ranges.isEmpty, "English font failed: \(option.id)")
+            XCTAssertEqual(ranges.last?.endOffset, (content as NSString).length)
+        }
+    }
+
     func testTextRectIsHorizontallyCentered() {
         var settings = ReadingSettings.default
         settings.pageMarginHorizontal = 10
@@ -258,6 +273,27 @@ final class ReaderTextLayoutEngineTests: XCTestCase {
         XCTAssertEqual(pathRect.minY, insets.bottom, accuracy: 0.001)
         XCTAssertEqual(size.height - pathRect.maxY, insets.top, accuracy: 0.001)
         XCTAssertEqual(pathRect.width, size.width - insets.left - insets.right, accuracy: 0.001)
+    }
+
+    func testContinuousPageSpacingFollowsLineAndParagraphSettings() {
+        var settings = ReadingSettings.default
+        settings.lineSpacing = 1.4
+        settings.paragraphSpacing = 2.0
+        let font = FontManager.shared.font(
+            named: settings.fontFamily,
+            size: CGFloat(settings.fontSize)
+        )
+
+        XCTAssertEqual(
+            NativeDocumentTypography.continuousPageSpacing(after: "正文", settings: settings),
+            font.lineHeight * 0.4,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            NativeDocumentTypography.continuousPageSpacing(after: "正文\n", settings: settings),
+            font.lineHeight,
+            accuracy: 0.001
+        )
     }
 
     func testNativeWindowRejectsStaleBackwardReload() {

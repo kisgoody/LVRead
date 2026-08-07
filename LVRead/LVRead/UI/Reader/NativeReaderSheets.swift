@@ -142,6 +142,7 @@ final class NativeReaderLookupViewController: UIViewController {
 enum ReaderNavigationMode: String, CaseIterable {
     case simulation
     case horizontal
+    case horizontalCover
     case vertical
     case continuousVertical
     case none
@@ -149,8 +150,9 @@ enum ReaderNavigationMode: String, CaseIterable {
     var title: String {
         switch self {
         case .simulation: return L("仿真")
-        case .horizontal: return L("左右")
-        case .vertical: return L("上下")
+        case .horizontal: return L("左右平移")
+        case .horizontalCover: return L("左右覆盖")
+        case .vertical: return L("上下覆盖")
         case .continuousVertical: return L("滚屏")
         case .none: return L("无动画")
         }
@@ -158,7 +160,7 @@ enum ReaderNavigationMode: String, CaseIterable {
 
     static func load() -> ReaderNavigationMode {
         let value = UserDefaults.standard.string(forKey: "native_reader_navigation_mode")
-        return ReaderNavigationMode(rawValue: value ?? "") ?? .horizontal
+        return ReaderNavigationMode(rawValue: value ?? "") ?? .simulation
     }
 
     func save() {
@@ -319,6 +321,7 @@ final class NativeReaderSettingsSheet: UIViewController {
     var onChange: ((ReadingSettings, ReaderNavigationMode) -> Void)?
     private var settings: ReadingSettings
     private var mode: ReaderNavigationMode
+    private var fontCategory: FontManager.Category
     private let section: Section
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
@@ -338,6 +341,7 @@ final class NativeReaderSettingsSheet: UIViewController {
     init(settings: ReadingSettings, mode: ReaderNavigationMode, section: Section) {
         self.settings = settings
         self.mode = mode
+        fontCategory = FontManager.shared.category(for: settings.fontFamily)
         self.section = section
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
@@ -427,13 +431,29 @@ final class NativeReaderSettingsSheet: UIViewController {
     }
 
     private func rebuildContent() {
+        let previousThemeOffsetX = themeScrollView?.contentOffset.x
         stack.arrangedSubviews.forEach {
             stack.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
         section == .theme ? buildTheme() : buildLayout()
         DispatchQueue.main.async { [weak self] in
-            self?.scrollSelectedOptionIntoView()
+            guard let self else { return }
+            self.view.layoutIfNeeded()
+            if let previousThemeOffsetX, let scroll = self.themeScrollView {
+                let maxOffsetX = max(
+                    scroll.contentSize.width - scroll.bounds.width + scroll.adjustedContentInset.right,
+                    -scroll.adjustedContentInset.left
+                )
+                scroll.setContentOffset(
+                    CGPoint(
+                        x: min(max(previousThemeOffsetX, -scroll.adjustedContentInset.left), maxOffsetX),
+                        y: scroll.contentOffset.y
+                    ),
+                    animated: false
+                )
+            }
+            self.scrollSelectedOptionIntoView()
         }
     }
 
@@ -458,7 +478,8 @@ final class NativeReaderSettingsSheet: UIViewController {
             title: L("翻页方式"),
             items: ReaderNavigationMode.allCases.map(\.title),
             selectedIndex: ReaderNavigationMode.allCases.firstIndex(of: mode) ?? 1,
-            action: #selector(modeChoiceTapped(_:))
+            action: #selector(modeChoiceTapped(_:)),
+            compact: true
         ))
     }
 
@@ -560,13 +581,36 @@ final class NativeReaderSettingsSheet: UIViewController {
     }
 
     private func fontSection() -> UIView {
-        let row = baseRow(height: 64)
-        row.addArrangedSubview(rowLabel(L("字体")))
+        let container = UIStackView()
+        container.axis = .vertical
+        container.spacing = 12
+        container.layoutMargins = UIEdgeInsets(top: 16, left: 24, bottom: 16, right: 24)
+        container.isLayoutMarginsRelativeArrangement = true
+
+        let title = UILabel()
+        title.text = L("字体")
+        title.font = .systemFont(ofSize: 16, weight: .medium)
+        title.textColor = textColor
+        let categoryButtons = UIStackView()
+        categoryButtons.axis = .horizontal
+        categoryButtons.spacing = 8
+        FontManager.Category.allCases.forEach { category in
+            categoryButtons.addArrangedSubview(fontCategoryButton(category))
+        }
+
+        let spacer = UIView()
+        let header = UIStackView(arrangedSubviews: [title, spacer, categoryButtons])
+        header.axis = .horizontal
+        header.alignment = .center
+        header.spacing = 8
+        container.addArrangedSubview(header)
+
         let scroll = UIScrollView()
         fontScrollView = scroll
         scroll.showsHorizontalScrollIndicator = false
         let chips = UIStackView()
         chips.axis = .horizontal
+        chips.alignment = .center
         chips.spacing = 8
         scroll.addSubview(chips)
         [scroll, chips].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
@@ -577,38 +621,56 @@ final class NativeReaderSettingsSheet: UIViewController {
             chips.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             chips.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)
         ])
-        FontManager.shared.availableFonts.enumerated().forEach { index, fontName in
-            chips.addArrangedSubview(fontChip(title: fontName, tag: index))
+        FontManager.shared.options(for: fontCategory).enumerated().forEach { index, option in
+            chips.addArrangedSubview(fontChip(option: option, tag: index))
         }
-        row.addArrangedSubview(scroll)
-        return divided(row)
+        scroll.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        container.addArrangedSubview(scroll)
+        return divided(container)
     }
 
-    private func choiceSection(title: String, items: [String], selectedIndex: Int, action: Selector) -> UIView {
+    private func choiceSection(
+        title: String,
+        items: [String],
+        selectedIndex: Int,
+        action: Selector,
+        compact: Bool = false
+    ) -> UIView {
         let container = sectionStack(title: title)
         let rows = UIStackView()
         rows.axis = .vertical
         rows.spacing = 8
-        for start in stride(from: 0, to: items.count, by: 3) {
+        let columnCount = compact ? max(items.count, 1) : 3
+        for start in stride(from: 0, to: items.count, by: columnCount) {
             let row = UIStackView()
             row.axis = .horizontal
-            row.spacing = 8
+            row.spacing = compact ? 4 : 8
             row.distribution = .fillEqually
-            for index in start..<min(start + 3, items.count) {
+            for index in start..<min(start + columnCount, items.count) {
                 let selected = index == selectedIndex
                 let button = UIButton(type: .system)
                 button.tag = index
                 button.setTitle(items[index], for: .normal)
-                button.setImage(selected ? UIImage(systemName: "checkmark.circle.fill") : nil, for: .normal)
-                button.titleLabel?.font = .systemFont(ofSize: 14, weight: selected ? .semibold : .regular)
+                button.setImage(!compact && selected ? UIImage(systemName: "checkmark.circle.fill") : nil, for: .normal)
+                button.titleLabel?.font = .systemFont(
+                    ofSize: compact ? 12 : 14,
+                    weight: selected ? .semibold : .regular
+                )
+                button.titleLabel?.adjustsFontSizeToFitWidth = compact
+                button.titleLabel?.minimumScaleFactor = 0.85
                 button.tintColor = selected ? accent : subtleTextColor
                 button.setTitleColor(selected ? accent : textColor, for: .normal)
                 button.backgroundColor = selected ? accent.withAlphaComponent(0.16) : panelColor
-                button.layer.cornerRadius = 12
+                button.layer.cornerRadius = compact ? 8 : 12
                 button.layer.borderWidth = 1
                 button.layer.borderColor = (selected ? accent : dividerColor).cgColor
                 button.accessibilityTraits = selected ? [.button, .selected] : .button
-                button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+                button.contentEdgeInsets = UIEdgeInsets(
+                    top: 0,
+                    left: compact ? 2 : 8,
+                    bottom: 0,
+                    right: compact ? 2 : 8
+                )
                 button.addTarget(self, action: action, for: .touchUpInside)
                 button.heightAnchor.constraint(equalToConstant: 44).isActive = true
                 row.addArrangedSubview(button)
@@ -740,20 +802,54 @@ final class NativeReaderSettingsSheet: UIViewController {
         return control
     }
 
-    private func fontChip(title: String, tag: Int) -> UIButton {
+    private func fontChip(option: FontManager.Option, tag: Int) -> UIButton {
         let button = UIButton(type: .system)
         button.tag = tag
-        button.setTitle(title, for: .normal)
-        button.titleLabel?.font = FontManager.shared.font(named: title, size: 14)
-        button.setTitleColor(settings.fontFamily == title ? accent : textColor, for: .normal)
-        button.backgroundColor = settings.fontFamily == title ? accent.withAlphaComponent(0.12) : panelColor
+        button.setTitle(option.title, for: .normal)
+        button.titleLabel?.font = FontManager.shared.font(named: option.id, size: 14)
         button.layer.cornerRadius = 12
         button.layer.borderWidth = 1
-        button.layer.borderColor = (settings.fontFamily == title ? accent : dividerColor).cgColor
         button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
         button.heightAnchor.constraint(equalToConstant: 36).isActive = true
         button.widthAnchor.constraint(greaterThanOrEqualToConstant: 72).isActive = true
         button.addTarget(self, action: #selector(fontTapped(_:)), for: .touchUpInside)
+        applyFontChipStyle(button, option: option)
+        return button
+    }
+
+    private func applyFontChipStyle(_ button: UIButton, option: FontManager.Option) {
+        let selected = FontManager.shared.isSelected(settings.fontFamily, option: option)
+        button.setTitleColor(selected ? accent : textColor, for: .normal)
+        button.backgroundColor = selected ? accent.withAlphaComponent(0.12) : panelColor
+        button.layer.borderColor = (selected ? accent : dividerColor).cgColor
+        button.accessibilityTraits = selected ? [.button, .selected] : .button
+    }
+
+    private func refreshFontChipStyles() {
+        guard let chips = fontScrollView?.subviews.compactMap({ $0 as? UIStackView }).first else { return }
+        let options = FontManager.shared.options(for: fontCategory)
+        for (index, view) in chips.arrangedSubviews.enumerated() {
+            guard options.indices.contains(index), let button = view as? UIButton else { continue }
+            applyFontChipStyle(button, option: options[index])
+        }
+    }
+
+    private func fontCategoryButton(_ category: FontManager.Category) -> UIControl {
+        let selected = category == fontCategory
+        let button = NativeFontCategoryTagControl(
+            title: category == .chinese ? "中" : "英",
+            selected: selected,
+            accentColor: accent,
+            textColor: subtleTextColor,
+            backgroundColor: panelColor,
+            borderColor: dividerColor
+        )
+        button.tag = category.rawValue
+        button.accessibilityLabel = category == .chinese ? L("中文字体") : L("英文字体")
+        button.accessibilityTraits = selected ? [.button, .selected] : .button
+        button.widthAnchor.constraint(equalToConstant: 52).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        button.addTarget(self, action: #selector(fontCategoryTapped(_:)), for: .touchUpInside)
         return button
     }
 
@@ -769,7 +865,9 @@ final class NativeReaderSettingsSheet: UIViewController {
            let scroll = themeScrollView {
             scrollOption(at: index, in: scroll)
         }
-        if let index = FontManager.shared.availableFonts.firstIndex(of: settings.fontFamily),
+        if let index = FontManager.shared.options(for: fontCategory).firstIndex(where: {
+            FontManager.shared.isSelected(settings.fontFamily, option: $0)
+        }),
            let scroll = fontScrollView {
             scrollOption(at: index, in: scroll)
         }
@@ -778,10 +876,13 @@ final class NativeReaderSettingsSheet: UIViewController {
     private func scrollOption(at index: Int, in scrollView: UIScrollView) {
         guard let stack = scrollView.subviews.compactMap({ $0 as? UIStackView }).first,
               stack.arrangedSubviews.indices.contains(index) else { return }
-        let frame = stack.arrangedSubviews[index].convert(
-            stack.arrangedSubviews[index].bounds,
-            to: scrollView
-        ).insetBy(dx: -12, dy: 0)
+        let item = stack.arrangedSubviews[index]
+        let frame = item.convert(item.bounds, to: scrollView)
+        let visibleMinX = scrollView.contentOffset.x + scrollView.adjustedContentInset.left
+        let visibleMaxX = scrollView.contentOffset.x
+            + scrollView.bounds.width
+            - scrollView.adjustedContentInset.right
+        guard frame.minX < visibleMinX || frame.maxX > visibleMaxX else { return }
         scrollView.scrollRectToVisible(frame, animated: false)
     }
 
@@ -803,11 +904,18 @@ final class NativeReaderSettingsSheet: UIViewController {
     }
 
     @objc private func fontTapped(_ sender: UIButton) {
-        let fonts = FontManager.shared.availableFonts
-        guard fonts.indices.contains(sender.tag) else { return }
-        settings.fontFamily = fonts[sender.tag]
+        let options = FontManager.shared.options(for: fontCategory)
+        guard options.indices.contains(sender.tag) else { return }
+        settings.fontFamily = options[sender.tag].id
         notify()
-        rebuildContent()
+        refreshFontChipStyles()
+    }
+
+    @objc private func fontCategoryTapped(_ sender: UIControl) {
+        guard let category = FontManager.Category(rawValue: sender.tag) else { return }
+        fontCategory = category
+        // Avoid removing the control hierarchy while UIKit is still dispatching its touch event.
+        DispatchQueue.main.async { [weak self] in self?.rebuildContent() }
     }
 
     @objc private func brightnessChanged(_ sender: UISlider) {
@@ -831,6 +939,56 @@ final class NativeReaderSettingsSheet: UIViewController {
         notify()
         rebuildContent()
     }
+}
+
+/// 字体语言分类标签：保留 44pt 触控高度，内部使用更紧凑的横向胶囊外观。
+private final class NativeFontCategoryTagControl: UIControl {
+    private let pillView = UIView()
+    private let titleLabel = UILabel()
+
+    override var isHighlighted: Bool {
+        didSet { pillView.alpha = isHighlighted ? 0.65 : 1 }
+    }
+
+    init(
+        title: String,
+        selected: Bool,
+        accentColor: UIColor,
+        textColor: UIColor,
+        backgroundColor: UIColor,
+        borderColor: UIColor
+    ) {
+        super.init(frame: .zero)
+
+        isAccessibilityElement = true
+        pillView.isUserInteractionEnabled = false
+        pillView.backgroundColor = selected ? accentColor.withAlphaComponent(0.16) : backgroundColor
+        pillView.layer.cornerRadius = 10
+        pillView.layer.borderWidth = selected ? 1.5 : 1
+        pillView.layer.borderColor = (selected ? accentColor : borderColor).cgColor
+
+        titleLabel.text = title
+        titleLabel.font = .systemFont(ofSize: 13, weight: selected ? .semibold : .medium)
+        titleLabel.textColor = selected ? accentColor : textColor
+        titleLabel.textAlignment = .center
+        titleLabel.isAccessibilityElement = false
+
+        addSubview(pillView)
+        pillView.addSubview(titleLabel)
+        [pillView, titleLabel].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+        NSLayoutConstraint.activate([
+            pillView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            pillView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pillView.widthAnchor.constraint(equalToConstant: 48),
+            pillView.heightAnchor.constraint(equalToConstant: 32),
+            titleLabel.leadingAnchor.constraint(equalTo: pillView.leadingAnchor, constant: 8),
+            titleLabel.trailingAnchor.constraint(equalTo: pillView.trailingAnchor, constant: -8),
+            titleLabel.centerYAnchor.constraint(equalTo: pillView.centerYAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 private final class NativeReaderValueStepper: UIView {
