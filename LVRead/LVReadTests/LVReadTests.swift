@@ -185,28 +185,6 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("var(--reader-bg)"))
         XCTAssertTrue(html.contains("readerFontFamily"))
         XCTAssertFalse(html.contains("fitReadingText"))
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-        XCTAssertTrue(html.contains("Number(d.fontSize)||24"))
-        XCTAssertTrue(html.contains("Number(d.lineSpacing)||1.2"))
-=======
-        XCTAssertTrue(html.contains("(Number(d.fontSize)||23)*1.12"))
-        XCTAssertTrue(html.contains("(Number(d.lineSpacing)||1.3)+.2"))
->>>>>>> parent of be44238 (添加覆盖翻页、重构阅读统计)
-=======
-        XCTAssertTrue(html.contains("(Number(d.fontSize)||23)*1.12"))
-        XCTAssertTrue(html.contains("(Number(d.lineSpacing)||1.3)+.2"))
->>>>>>> parent of be44238 (添加覆盖翻页、重构阅读统计)
-=======
-        XCTAssertTrue(html.contains("(Number(d.fontSize)||23)*1.12"))
-        XCTAssertTrue(html.contains("(Number(d.lineSpacing)||1.3)+.2"))
->>>>>>> parent of be44238 (添加覆盖翻页、重构阅读统计)
-=======
-        XCTAssertTrue(html.contains("(Number(d.fontSize)||23)*1.12"))
-        XCTAssertTrue(html.contains("(Number(d.lineSpacing)||1.3)+.2"))
->>>>>>> parent of be44238 (添加覆盖翻页、重构阅读统计)
         XCTAssertTrue(html.contains("{cache:'no-store'}"))
         XCTAssertTrue(html.contains("new WebSocket"))
         XCTAssertTrue(html.contains("reconnectTimer=setTimeout(connectWebSocket,3000)"))
