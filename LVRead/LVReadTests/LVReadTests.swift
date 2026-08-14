@@ -67,11 +67,11 @@ final class LVReadTests: XCTestCase {
     func testDefaultReadingSettings() throws {
         let settings = ReadingSettings.default
         
-        XCTAssertEqual(settings.fontSize, 24)
+        XCTAssertEqual(settings.fontSize, 23)
         XCTAssertEqual(settings.fontFamily, "系统默认")
-        XCTAssertEqual(settings.lineSpacing, 1.2)
+        XCTAssertEqual(settings.lineSpacing, 1.3)
         XCTAssertEqual(settings.paragraphSpacing, 1.5)
-        XCTAssertEqual(settings.pageFlipMode, .simulation)
+        XCTAssertEqual(settings.pageFlipMode, .cover)
     }
 
     func testReadingSettingsCodable() throws {
@@ -89,7 +89,7 @@ final class LVReadTests: XCTestCase {
     // MARK: - ReadingTheme Tests
 
     func testReadingThemeColors() throws {
-        XCTAssertEqual(ReadingTheme.white.backgroundColor, "#F7F7F5")
+        XCTAssertEqual(ReadingTheme.white.backgroundColor, "#FFFFFF")
         XCTAssertEqual(ReadingTheme.oled.backgroundColor, "#000000")
         XCTAssertEqual(ReadingTheme.warmYellow.textColor, "#3D3226")
     }
@@ -118,24 +118,6 @@ final class LVReadTests: XCTestCase {
         XCTAssertNotEqual(system, song)
         XCTAssertNotEqual(song, fang)
         XCTAssertNotEqual(fang, kai)
-    }
-
-    func testReaderFontCategoriesUseStableIdentifiers() {
-        let manager = FontManager.shared
-        let chinese = manager.options(for: .chinese)
-        let english = manager.options(for: .english)
-
-        XCTAssertEqual(chinese.first?.id, "system-zh")
-        XCTAssertEqual(english.first?.id, "system-en")
-        XCTAssertTrue(chinese.contains { $0.id == "pingfang-sc" })
-        XCTAssertTrue(chinese.contains { $0.id == "pingfang-tc" })
-        XCTAssertTrue(english.contains { $0.id == "sf-pro" })
-        XCTAssertTrue(english.contains { $0.id == "new-york" })
-        XCTAssertEqual(manager.category(for: "系统默认"), .chinese)
-        XCTAssertEqual(manager.category(for: "system-en"), .english)
-        XCTAssertEqual(manager.category(for: "new-york"), .english)
-        XCTAssertEqual(manager.font(named: "pingfang-tc", size: 20).pointSize, 20)
-        XCTAssertEqual(manager.font(named: "sf-pro", size: 20).pointSize, 20)
     }
 
     // MARK: - Web Sync Certificate Tests
@@ -203,8 +185,13 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("var(--reader-bg)"))
         XCTAssertTrue(html.contains("readerFontFamily"))
         XCTAssertFalse(html.contains("fitReadingText"))
+<<<<<<< HEAD
         XCTAssertTrue(html.contains("Number(d.fontSize)||24"))
         XCTAssertTrue(html.contains("Number(d.lineSpacing)||1.2"))
+=======
+        XCTAssertTrue(html.contains("(Number(d.fontSize)||23)*1.12"))
+        XCTAssertTrue(html.contains("(Number(d.lineSpacing)||1.3)+.2"))
+>>>>>>> parent of be44238 (添加覆盖翻页、重构阅读统计)
         XCTAssertTrue(html.contains("{cache:'no-store'}"))
         XCTAssertTrue(html.contains("new WebSocket"))
         XCTAssertTrue(html.contains("reconnectTimer=setTimeout(connectWebSocket,3000)"))

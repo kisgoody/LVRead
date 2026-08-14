@@ -39,7 +39,7 @@ final class ReadingAdviceEngine {
 
     func suggestions(now: Date = Date()) -> [ReadingAdvice] {
         let repository = ReadingStatsRepository.shared
-        let days = (1...14).reversed().compactMap { offset -> ReadingAdviceDay? in
+        let days = (0..<14).reversed().compactMap { offset -> ReadingAdviceDay? in
             guard let date = calendar.date(byAdding: .day, value: -offset, to: now) else {
                 return nil
             }
@@ -58,7 +58,7 @@ final class ReadingAdviceEngine {
     }
 
     func makeSuggestions(input: ReadingAdviceInput) -> [ReadingAdvice] {
-        let recentDays = days(in: 1...14, input: input)
+        let recentDays = days(in: 0...13, input: input)
         let recentMinutes = recentDays.reduce(0) { $0 + $1.minutes }
         let recentActiveDays = recentDays.filter { $0.minutes > 0 }.count
 
@@ -66,7 +66,7 @@ final class ReadingAdviceEngine {
             return [
                 ReadingAdvice(
                     kind: .dataInsufficient,
-                    text: L("完成一次阅读后，这里会根据阅读有效时长、频率和常用时段给出习惯建议。")
+                    text: L("完成一次阅读后，这里会根据阅读时长、频率和常用时段给出习惯建议。")
                 )
             ]
         }
@@ -83,7 +83,7 @@ final class ReadingAdviceEngine {
     }
 
     private func primaryAdvice(input: ReadingAdviceInput) -> ReadingAdvice {
-        let recentDays = days(in: 1...14, input: input)
+        let recentDays = days(in: 0...13, input: input)
         let recentMinutes = recentDays.reduce(0) { $0 + $1.minutes }
         let recentActiveDays = recentDays.filter { $0.minutes > 0 }.count
         guard recentActiveDays >= 3 else {
@@ -94,14 +94,14 @@ final class ReadingAdviceEngine {
             return ReadingAdvice(
                 kind: .resumeReading,
                 text: LF(
-                    "阅读记录已中断 %d 天，近期的阅读连续性发生了变化。可以留意接下来的阅读频率。",
+                    "阅读记录已中断 %d 天。今天在一个容易坚持的时段读 10 分钟，先恢复频率。",
                     inactiveDays
                 )
             )
         }
 
-        let currentDays = days(in: 1...7, input: input)
-        let previousDays = days(in: 8...14, input: input)
+        let currentDays = days(in: 0...6, input: input)
+        let previousDays = days(in: 7...13, input: input)
         let currentMinutes = currentDays.reduce(0) { $0 + $1.minutes }
         let previousMinutes = previousDays.reduce(0) { $0 + $1.minutes }
         let currentActiveDays = currentDays.filter { $0.minutes > 0 }.count
@@ -110,7 +110,7 @@ final class ReadingAdviceEngine {
             return ReadingAdvice(
                 kind: .weeklyRecovery,
                 text: LF(
-                    "近 7 个完整日阅读 %d 分钟，比此前 7 日少 %d 分钟，近期阅读频率或时长有所下降。",
+                    "近 7 天阅读 %d 分钟，比前 7 天少 %d 分钟。先安排一次 10 分钟阅读，重新启动。",
                     currentMinutes,
                     previousMinutes - currentMinutes
                 )
@@ -118,12 +118,14 @@ final class ReadingAdviceEngine {
         }
 
         if currentMinutes >= 40, currentActiveDays <= 2 {
+            let suggestedMinutes = max(10, Int(ceil(Double(currentMinutes) / 3.0)))
             return ReadingAdvice(
                 kind: .spreadReadingDays,
                 text: LF(
-                    "近 7 个完整日的 %d 分钟集中在 %d 个阅读日，阅读时间分布较集中。可以留意这种节奏是否影响休息。",
+                    "近 7 天的 %d 分钟集中在 %d 天。下周拆成 3 次，每次约 %d 分钟会更容易持续。",
                     currentMinutes,
-                    currentActiveDays
+                    currentActiveDays,
+                    suggestedMinutes
                 )
             )
         }
@@ -132,7 +134,7 @@ final class ReadingAdviceEngine {
         return ReadingAdvice(
             kind: .keepRhythm,
             text: LF(
-                "近 7 个完整日阅读 %d 天，共 %d 分钟，平均每个阅读日 %d 分钟，当前阅读节奏较稳定。",
+                "近 7 天阅读 %d 天，共 %d 分钟，平均每个阅读日 %d 分钟。继续保持这个频率。",
                 currentActiveDays,
                 currentMinutes,
                 average
@@ -144,7 +146,7 @@ final class ReadingAdviceEngine {
         ReadingAdvice(
             kind: .buildHistory,
             text: LF(
-                "近 14 个完整日有 %d 个阅读日，共 %d 分钟。当前记录较少，暂不判断长期阅读习惯。",
+                "近 14 天有 %d 个阅读日，共 %d 分钟。再完成一次 10 分钟阅读后，建议会更准确。",
                 activeDays,
                 minutes
             )
@@ -153,18 +155,16 @@ final class ReadingAdviceEngine {
 
     private func preferredTimeAdvice(days: [ReadingAdviceDay]) -> ReadingAdvice? {
         let validDays = days.filter { $0.hourlyMinutes.count >= 24 }
-        let totalMinutes = validDays.reduce(0.0) { result, day in
-            result + day.hourlyMinutes.reduce(0) { $0 + filteredHour($1) }
-        }
+        let totalMinutes = validDays.reduce(0.0) { $0 + $1.hourlyMinutes.reduce(0, +) }
         guard totalMinutes >= 60 else { return nil }
 
         let windows = (0..<24).map { start -> (start: Int, minutes: Double, days: Int) in
             let next = (start + 1) % 24
             let minutes = validDays.reduce(0.0) {
-                $0 + filteredHour($1.hourlyMinutes[start]) + filteredHour($1.hourlyMinutes[next])
+                $0 + max($1.hourlyMinutes[start], 0) + max($1.hourlyMinutes[next], 0)
             }
             let activeDays = validDays.filter {
-                filteredHour($0.hourlyMinutes[start]) + filteredHour($0.hourlyMinutes[next]) > 0
+                $0.hourlyMinutes[start] + $0.hourlyMinutes[next] > 0
             }.count
             return (start, minutes, activeDays)
         }
@@ -179,33 +179,31 @@ final class ReadingAdviceEngine {
         )
         return ReadingAdvice(
             kind: .preferredTime,
-            text: LF("近 14 个完整日最常在 %@ 阅读，这已经是相对稳定的常用阅读时段。", range)
+            text: LF("近 14 天最常在 %@ 阅读。把这个时段作为固定阅读窗口，更容易形成习惯。", range)
         )
     }
 
     private func secondaryHabitAdvice(days: [ReadingAdviceDay]) -> ReadingAdvice? {
         lateNightAdvice(days: days)
-            ?? sustainableDurationAdvice(days: days)
             ?? preferredTimeAdvice(days: days)
+            ?? sustainableDurationAdvice(days: days)
     }
 
     private func lateNightAdvice(days: [ReadingAdviceDay]) -> ReadingAdvice? {
         let validDays = days.filter { $0.hourlyMinutes.count >= 24 }
-        let total = validDays.reduce(0.0) { result, day in
-            result + day.hourlyMinutes.reduce(0) { $0 + filteredHour($1) }
-        }
+        let total = validDays.reduce(0.0) { $0 + $1.hourlyMinutes.reduce(0, +) }
         guard total >= 60 else { return nil }
         let lateNightMinutes = validDays.reduce(0.0) { result, day in
-            result + day.hourlyMinutes[0..<5].reduce(0) { $0 + filteredHour($1) }
+            result + day.hourlyMinutes[0..<5].reduce(0, +)
         }
         let lateNightDays = validDays.filter {
-            $0.hourlyMinutes[0..<5].contains { filteredHour($0) > 0 }
+            $0.hourlyMinutes[0..<5].reduce(0, +) > 0
         }.count
         guard lateNightDays >= 3, lateNightMinutes / total >= 0.30 else { return nil }
         return ReadingAdvice(
             kind: .lateNightReading,
             text: LF(
-                "近 14 个完整日有 %d 天在 00:00–05:00 阅读，共 %d 分钟。如果已经影响休息，可以关注深夜阅读时间的变化。",
+                "近 14 天有 %d 天在 00:00–05:00 阅读，共 %d 分钟。如果影响休息，尝试把阅读提前到睡前更早的时段。",
                 lateNightDays,
                 Int(lateNightMinutes.rounded())
             )
@@ -216,24 +214,15 @@ final class ReadingAdviceEngine {
         let values = days.map(\.minutes).filter { $0 > 0 }.sorted()
         guard values.count >= 3 else { return nil }
         let median = values[values.count / 2]
-        let deviations = values.map { abs($0 - median) }.sorted()
-        let mad = deviations[deviations.count / 2]
-        let maximum = values.last ?? median
-        guard mad >= max(30, median / 2) || maximum - median >= max(30, median * 3 / 4) else {
-            return nil
-        }
+        let suggested = max(10, Int((Double(median) / 5.0).rounded()) * 5)
         return ReadingAdvice(
             kind: .sustainableDuration,
             text: LF(
-                "近 14 个完整日每个阅读日通常约 %d 分钟，单日最高 %d 分钟，阅读有效时长波动较大。可以留意高强度阅读后是否影响休息。",
+                "近 14 天每个阅读日通常约 %d 分钟。可以先把日常阅读时长设为 %d 分钟，稳定后再增加。",
                 median,
-                maximum
+                suggested
             )
         )
-    }
-
-    private func filteredHour(_ minutes: Double) -> Double {
-        minutes >= 5 ? minutes : 0
     }
 
     private func inactiveDayCount(input: ReadingAdviceInput) -> Int? {
@@ -248,18 +237,13 @@ final class ReadingAdviceEngine {
     }
 
     private func days(in offsets: ClosedRange<Int>, input: ReadingAdviceInput) -> [ReadingAdviceDay] {
-        input.days.compactMap { day in
+        input.days.filter { day in
             let offset = calendar.dateComponents(
                 [.day],
                 from: calendar.startOfDay(for: day.date),
                 to: calendar.startOfDay(for: input.now)
             ).day ?? Int.max
-            guard offsets.contains(offset) else { return nil }
-            return ReadingAdviceDay(
-                date: day.date,
-                minutes: max(day.minutes, 0),
-                hourlyMinutes: day.hourlyMinutes.map { max($0, 0) }
-            )
+            return offsets.contains(offset)
         }
     }
 }

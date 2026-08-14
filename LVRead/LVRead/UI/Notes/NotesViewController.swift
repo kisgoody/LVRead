@@ -77,15 +77,10 @@ final class NotesViewController: UIViewController {
         subtitleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         subtitleLabel.numberOfLines = 2
 
-        actionsButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
-        actionsButton.setPreferredSymbolConfiguration(.init(pointSize: 17, weight: .bold), forImageIn: .normal)
+        actionsButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
         actionsButton.accessibilityLabel = L("导入或导出笔记")
         actionsButton.addTarget(self, action: #selector(showExchangeActions), for: .touchUpInside)
-        actionsButton.layer.cornerRadius = 22
-        actionsButton.layer.borderWidth = 1
-        actionsButton.layer.shadowOffset = CGSize(width: 0, height: 8)
-        actionsButton.layer.shadowRadius = 18
-        actionsButton.layer.shadowOpacity = 0.06
+        actionsButton.tintColor = LVBookshelfModuleStyle.accent
 
         searchBar.placeholder = L("搜索书名、章节、摘录或批注")
         searchBar.searchBarStyle = .minimal
@@ -232,10 +227,6 @@ final class NotesViewController: UIViewController {
         searchBar.tintColor = LVBookshelfModuleStyle.accent
         LVBookshelfModuleStyle.refreshCards(in: view)
         LVBookshelfModuleStyle.refreshAccents(in: view)
-        actionsButton.tintColor = LVBookshelfModuleStyle.accent
-        actionsButton.backgroundColor = LVBookshelfModuleStyle.cardBackground
-        actionsButton.layer.borderColor = LVBookshelfModuleStyle.divider.cgColor
-        actionsButton.layer.shadowColor = (DarkModeManager.shared.isDarkMode ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
         applyFilterAppearance()
         tableView.reloadData()
     }
@@ -457,15 +448,11 @@ private final class LVNoteCardCell: UITableViewCell {
     }
 }
 
-private final class NoteDetailViewController: UIViewController, UIGestureRecognizerDelegate {
+private final class NoteDetailViewController: UIViewController {
     private var record: LVNoteRecord
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
-    private let navigationBackButton = UIButton(type: .system)
-    private let navigationActionsButton = UIButton(type: .system)
-    private weak var previousInteractivePopGestureDelegate: UIGestureRecognizerDelegate?
-    private weak var commentTextView: UITextView?
-    private weak var commentEditButton: UIButton?
+    private weak var commentBodyLabel: UILabel?
     private weak var returnButton: UIButton?
 
     init(record: LVNoteRecord) {
@@ -489,13 +476,6 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
-        applyNavigationAppearance()
-        enableInteractivePopGesture()
-    }
-
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        restoreInteractivePopGestureDelegate()
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
@@ -509,19 +489,12 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
 
         let kind = makeKindLabel()
 
-        let bookTitle = UILabel()
-        bookTitle.text = record.bookTitle
-        bookTitle.font = .systemFont(ofSize: 20, weight: .bold)
-        bookTitle.textColor = LVBookshelfModuleStyle.primaryText
-        bookTitle.numberOfLines = 0
-        bookTitle.adjustsFontForContentSizeCategory = true
-
-        let chapterTitle = UILabel()
-        chapterTitle.text = record.chapterTitle
-        chapterTitle.font = .systemFont(ofSize: 14, weight: .medium)
-        chapterTitle.textColor = LVBookshelfModuleStyle.secondaryText
-        chapterTitle.numberOfLines = 0
-        chapterTitle.adjustsFontForContentSizeCategory = true
+        let header = UILabel()
+        header.text = "\(record.bookTitle) · \(record.chapterTitle)"
+        header.font = .systemFont(ofSize: 20, weight: .bold)
+        header.textColor = LVBookshelfModuleStyle.primaryText
+        header.numberOfLines = 0
+        header.adjustsFontForContentSizeCategory = true
 
         let metadata = UILabel()
         metadata.text = [record.bookAuthor, Self.dateFormatter.string(from: record.createdAt)]
@@ -532,36 +505,40 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
         metadata.numberOfLines = 0
         metadata.adjustsFontForContentSizeCategory = true
 
-        let heading = UIStackView(arrangedSubviews: [kind, bookTitle, chapterTitle, metadata])
+        let heading = UIStackView(arrangedSubviews: [kind, header, metadata])
         heading.axis = .vertical
         heading.spacing = 8
 
-        let originalBody = makeBodyLabel(record.originalText)
-        let originalAction: UIButton? = BookRepository.shared.getByHash(record.bookHash) == nil
-            ? nil
-            : makeReturnButton()
         let original = makeSection(
             icon: "text.quote",
             title: L("原文"),
-            body: originalBody,
-            trailingView: originalAction
+            text: record.originalText
         )
         stackView.addArrangedSubview(heading)
-        stackView.addArrangedSubview(original)
+        stackView.addArrangedSubview(original.view)
 
         if record.kind == .comment,
            let comment = record.comment?.trimmingCharacters(in: .whitespacesAndNewlines),
            !comment.isEmpty {
-            let textView = makeCommentTextView(comment)
-            let editButton = makeCommentEditButton()
-            commentTextView = textView
-            commentEditButton = editButton
-            stackView.addArrangedSubview(makeSection(
-                icon: "text.bubble",
-                title: L("评论内容"),
-                body: textView,
-                trailingView: editButton
-            ))
+            let section = makeSection(icon: "text.bubble", title: L("评论内容"), text: comment)
+            commentBodyLabel = section.body
+            stackView.addArrangedSubview(section.view)
+        }
+
+        if BookRepository.shared.getByHash(record.bookHash) != nil {
+            let button = UIButton(type: .system)
+            button.setTitle(L("回到原文"), for: .normal)
+            button.setImage(UIImage(systemName: "book.pages"), for: .normal)
+            button.semanticContentAttribute = .forceLeftToRight
+            button.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
+            button.layer.cornerRadius = 12
+            button.titleLabel?.font = .systemFont(ofSize: 14, weight: .bold)
+            button.accessibilityHint = L("打开书籍并定位到这条笔记")
+            button.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
+            button.addTarget(self, action: #selector(returnToOriginal), for: .touchUpInside)
+            returnButton = button
+            applyReturnButtonStyle()
+            stackView.addArrangedSubview(button)
         }
 
         view.addSubview(scrollView)
@@ -573,7 +550,7 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
+            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 32),
             stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
             stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -32),
@@ -594,12 +571,7 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
         return label
     }
 
-    private func makeSection(
-        icon: String,
-        title: String,
-        body: UIView,
-        trailingView: UIView? = nil
-    ) -> UIView {
+    private func makeSection(icon: String, title: String, text: String) -> (view: UIView, body: UILabel) {
         let card = UIView()
         LVBookshelfModuleStyle.applyCard(to: card)
 
@@ -614,237 +586,95 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
         titleLabel.adjustsFontForContentSizeCategory = true
         LVBookshelfModuleStyle.applyAccent(to: titleLabel)
 
-        var headerViews: [UIView] = [iconView, titleLabel, UIView()]
-        var actionSpacer: UIView?
-        if trailingView != nil {
-            let spacer = UIView()
-            actionSpacer = spacer
-            headerViews.append(spacer)
-        }
-        let sectionHeader = UIStackView(arrangedSubviews: headerViews)
+        let sectionHeader = UIStackView(arrangedSubviews: [iconView, titleLabel, UIView()])
         sectionHeader.axis = .horizontal
         sectionHeader.alignment = .center
         sectionHeader.spacing = 8
+
+        let body = UILabel()
+        body.text = text.isEmpty ? L("未保存原文") : text
+        body.font = .systemFont(ofSize: 14)
+        body.textColor = LVBookshelfModuleStyle.primaryText
+        body.numberOfLines = 0
+        body.adjustsFontForContentSizeCategory = true
 
         let stack = UIStackView(arrangedSubviews: [sectionHeader, body])
         stack.axis = .vertical
         stack.spacing = 16
         card.addSubview(stack)
-        if let trailingView { card.addSubview(trailingView) }
         stack.translatesAutoresizingMaskIntoConstraints = false
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        var constraints = [
+        NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
             stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
             stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
             iconView.widthAnchor.constraint(equalToConstant: 20),
             iconView.heightAnchor.constraint(equalToConstant: 20)
-        ]
-        if let trailingView, let actionSpacer {
-            trailingView.translatesAutoresizingMaskIntoConstraints = false
-            constraints.append(contentsOf: [
-                actionSpacer.widthAnchor.constraint(equalTo: trailingView.widthAnchor),
-                trailingView.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-                trailingView.centerYAnchor.constraint(equalTo: sectionHeader.centerYAnchor)
-            ])
-        }
-        NSLayoutConstraint.activate(constraints)
-        return card
-    }
-
-    private func makeBodyLabel(_ text: String) -> UILabel {
-        let label = UILabel()
-        label.text = text.isEmpty ? L("未保存原文") : text
-        label.font = .systemFont(ofSize: 14)
-        label.textColor = LVBookshelfModuleStyle.primaryText
-        label.numberOfLines = 0
-        label.adjustsFontForContentSizeCategory = true
-        return label
-    }
-
-    private func makeReturnButton() -> UIButton {
-        let button = UIButton(type: .system)
-        button.setTitle(L("回到原文"), for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
-        button.accessibilityHint = L("打开书籍并定位到这条笔记")
-        button.addTarget(self, action: #selector(returnToOriginal), for: .touchUpInside)
-        button.heightAnchor.constraint(equalToConstant: 44).isActive = true
-        button.setContentHuggingPriority(.required, for: .horizontal)
-        returnButton = button
-        applyCardActionStyles()
-        return button
-    }
-
-    private func makeCommentTextView(_ text: String) -> UITextView {
-        let textView = UITextView()
-        textView.text = text
-        textView.font = .systemFont(ofSize: 14)
-        textView.textColor = LVBookshelfModuleStyle.primaryText
-        textView.backgroundColor = .clear
-        textView.isEditable = false
-        textView.isScrollEnabled = false
-        textView.adjustsFontForContentSizeCategory = true
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
-        textView.accessibilityLabel = L("评论内容")
-        return textView
-    }
-
-    private func makeCommentEditButton() -> UIButton {
-        let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "bubble.and.pencil"), for: .normal)
-        button.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold),
-            forImageIn: .normal
-        )
-        button.tintColor = LVBookshelfModuleStyle.accent
-        button.accessibilityLabel = L("修改")
-        button.addTarget(self, action: #selector(editComment), for: .touchUpInside)
-        button.widthAnchor.constraint(equalToConstant: 44).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 44).isActive = true
-        return button
+        ])
+        return (card, body)
     }
 
     private func configureActions() {
-        configureNavigationButton(
-            navigationBackButton,
-            symbol: "chevron.left",
-            accessibilityLabel: L("返回")
-        )
-        navigationBackButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-        navigationItem.leftBarButtonItem = makeTransparentBarItem(navigationBackButton)
-
-        configureNavigationButton(
-            navigationActionsButton,
-            symbol: "trash",
-            accessibilityLabel: L("删除笔记")
-        )
-        navigationActionsButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 15, weight: .regular),
-            forImageIn: .normal
-        )
-        navigationActionsButton.addTarget(self, action: #selector(confirmDelete), for: .touchUpInside)
-        navigationItem.rightBarButtonItem = makeTransparentBarItem(navigationActionsButton)
-        applyNavigationAppearance()
-    }
-
-    private func configureNavigationButton(
-        _ button: UIButton,
-        symbol: String,
-        accessibilityLabel: String
-    ) {
-        button.setImage(UIImage(systemName: symbol), for: .normal)
-        button.backgroundColor = .clear
-        button.accessibilityLabel = accessibilityLabel
-        button.widthAnchor.constraint(equalToConstant: 44).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 44).isActive = true
-    }
-
-    private func makeTransparentBarItem(_ button: UIButton) -> UIBarButtonItem {
-        let item = UIBarButtonItem(customView: button)
-        if #available(iOS 26.0, *) {
-            item.hidesSharedBackground = true
-            item.sharesBackground = false
+        var actions: [UIAction] = []
+        if record.kind == .comment {
+            actions.append(UIAction(title: L("修改"), image: UIImage(systemName: "pencil")) { [weak self] _ in
+                self?.editComment()
+            })
         }
-        return item
+        actions.append(UIAction(title: L("删除"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+            self?.confirmDelete()
+        })
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "ellipsis.circle"),
+            menu: UIMenu(children: actions)
+        )
+        navigationItem.rightBarButtonItem?.accessibilityLabel = L("更多操作")
     }
 
-    private func applyNavigationAppearance() {
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = LVBookshelfModuleStyle.pageBackground
-        appearance.shadowColor = .clear
-        appearance.titleTextAttributes = [.foregroundColor: LVBookshelfModuleStyle.primaryText]
-        navigationController?.navigationBar.standardAppearance = appearance
-        navigationController?.navigationBar.scrollEdgeAppearance = appearance
-        navigationController?.navigationBar.compactAppearance = appearance
-        navigationBackButton.tintColor = LVBookshelfModuleStyle.primaryText
-        navigationActionsButton.tintColor = LVBookshelfModuleStyle.primaryText
-    }
-
-    @objc private func backTapped() {
-        navigationController?.popViewController(animated: true)
-    }
-
-    private func enableInteractivePopGesture() {
-        guard let gesture = navigationController?.interactivePopGestureRecognizer else { return }
-        if gesture.delegate !== self {
-            previousInteractivePopGestureDelegate = gesture.delegate
-        }
-        gesture.delegate = self
-        gesture.isEnabled = true
-    }
-
-    private func restoreInteractivePopGestureDelegate() {
-        guard let gesture = navigationController?.interactivePopGestureRecognizer,
-              gesture.delegate === self else { return }
-        gesture.delegate = previousInteractivePopGestureDelegate
-    }
-
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        (navigationController?.viewControllers.count ?? 0) > 1
-    }
-
-    private func applyCardActionStyles() {
+    private func applyReturnButtonStyle() {
         let accent = LVBookshelfModuleStyle.accent
-        returnButton?.backgroundColor = .clear
-        returnButton?.setTitleColor(accent, for: .normal)
-        commentEditButton?.backgroundColor = .clear
-        commentEditButton?.tintColor = accent
-        commentTextView?.textColor = LVBookshelfModuleStyle.primaryText
+        returnButton?.backgroundColor = accent
+        returnButton?.tintColor = accent.contrastingTextColor
+        returnButton?.setTitleColor(accent.contrastingTextColor, for: .normal)
     }
 
-    @objc private func editComment() {
-        guard let textView = commentTextView else { return }
-        if textView.isEditable {
-            saveComment(textView.text)
-            return
+    private func editComment() {
+        let alert = UIAlertController(title: L("修改评论"), message: nil, preferredStyle: .alert)
+        alert.addTextField { [weak self] in
+            $0.text = self?.record.comment
+            $0.placeholder = L("评论不能为空，最多1000字")
         }
-        textView.isEditable = true
-        textView.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        textView.layer.cornerRadius = 8
-        textView.layer.borderWidth = 1
-        textView.layer.borderColor = LVBookshelfModuleStyle.divider.cgColor
-        textView.backgroundColor = LVBookshelfModuleStyle.pageBackground
-        commentEditButton?.setImage(UIImage(systemName: "checkmark"), for: .normal)
-        commentEditButton?.accessibilityLabel = L("保存")
-        textView.becomeFirstResponder()
+        alert.addAction(UIAlertAction(title: L("保存"), style: .default) { [weak self, weak alert] _ in
+            guard let self,
+                  let value = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else {
+                LVToast.show(message: L("评论内容不能为空"), style: .error)
+                return
+            }
+            let comment = String(value.prefix(1000))
+            if let book = BookRepository.shared.getByHash(self.record.bookHash),
+               BookRepository.shared.getHighlights(for: book.id).contains(where: { $0.id == self.record.id }) {
+                BookRepository.shared.updateHighlightNote(self.record.id, note: comment)
+            } else {
+                LVNoteRecordStore.shared.updateComment(id: self.record.id, comment: comment)
+            }
+            self.record = LVNoteRecord(
+                id: self.record.id, bookHash: self.record.bookHash, bookTitle: self.record.bookTitle,
+                bookAuthor: self.record.bookAuthor, chapterIndex: self.record.chapterIndex,
+                pageOffset: self.record.pageOffset, chapterTitle: self.record.chapterTitle,
+                originalText: self.record.originalText, comment: comment, kind: self.record.kind,
+                createdAt: self.record.createdAt
+            )
+            self.commentBodyLabel?.text = comment
+            NotificationCenter.default.post(name: NSNotification.Name("LVReadSettingsChanged"), object: nil)
+            LVToast.show(message: L("评论已保存"), style: .success)
+        })
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
+        present(alert, animated: true)
     }
 
-    private func saveComment(_ text: String) {
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else {
-            LVToast.show(message: L("评论内容不能为空"), style: .error)
-            return
-        }
-        let comment = String(value.prefix(1000))
-        if let book = BookRepository.shared.getByHash(record.bookHash),
-           BookRepository.shared.getHighlights(for: book.id).contains(where: { $0.id == record.id }) {
-            BookRepository.shared.updateHighlightNote(record.id, note: comment)
-        } else {
-            LVNoteRecordStore.shared.updateComment(id: record.id, comment: comment)
-        }
-        record = LVNoteRecord(
-            id: record.id, bookHash: record.bookHash, bookTitle: record.bookTitle,
-            bookAuthor: record.bookAuthor, chapterIndex: record.chapterIndex,
-            pageOffset: record.pageOffset, chapterTitle: record.chapterTitle,
-            originalText: record.originalText, comment: comment, kind: record.kind,
-            createdAt: record.createdAt
-        )
-        commentTextView?.text = comment
-        commentTextView?.isEditable = false
-        commentTextView?.resignFirstResponder()
-        commentTextView?.textContainerInset = .zero
-        commentTextView?.layer.borderWidth = 0
-        commentTextView?.backgroundColor = .clear
-        commentEditButton?.setImage(UIImage(systemName: "bubble.and.pencil"), for: .normal)
-        commentEditButton?.accessibilityLabel = L("修改")
-        NotificationCenter.default.post(name: NSNotification.Name("LVReadSettingsChanged"), object: nil)
-        LVToast.show(message: L("评论已保存"), style: .success)
-    }
-
-    @objc private func confirmDelete() {
+    private func confirmDelete() {
         let alert = UIAlertController(title: L("删除笔记"), message: L("删除后无法恢复"), preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: L("删除"), style: .destructive) { [weak self] _ in
             guard let self else { return }
@@ -877,12 +707,7 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
         view.backgroundColor = LVBookshelfModuleStyle.pageBackground
         LVBookshelfModuleStyle.refreshCards(in: view)
         LVBookshelfModuleStyle.refreshAccents(in: view)
-        applyCardActionStyles()
-        if commentTextView?.isEditable == true {
-            commentTextView?.layer.borderColor = LVBookshelfModuleStyle.divider.cgColor
-            commentTextView?.backgroundColor = LVBookshelfModuleStyle.pageBackground
-        }
-        applyNavigationAppearance()
+        applyReturnButtonStyle()
     }
 
     private static let dateFormatter: DateFormatter = {

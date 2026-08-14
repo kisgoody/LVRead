@@ -34,6 +34,8 @@ enum FileFormat: String, Codable, CaseIterable {
     case epub = "EPUB"
     case txt = "TXT"
     case pdf = "PDF"
+    case mobi = "MOBI"
+    case azw3 = "AZW3"
 
     var displayName: String { rawValue.uppercased() }
     
@@ -42,6 +44,7 @@ enum FileFormat: String, Codable, CaseIterable {
         case .epub: return "#FF5E3A"
         case .pdf: return "#7B2FFF"
         case .txt: return "#00D4AA"
+        case .mobi, .azw3: return "#F59E0B"
         }
     }
 
@@ -52,6 +55,7 @@ enum FileFormat: String, Codable, CaseIterable {
         case .epub: return "book.closed.fill"
         case .pdf: return "doc.text.fill"
         case .txt: return "doc.plaintext.fill"
+        case .mobi, .azw3: return "books.vertical.fill"
         }
     }
 }

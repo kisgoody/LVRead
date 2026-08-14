@@ -928,18 +928,14 @@ v1.2 规划特色功能：根据时间段自动切换主题配色。
 
 #### 10.1.8 阅读统计模型（ReadingStats）
 
-> 阅读有效时长、有效阅读字数、阅读节奏、统计页面、删除同步及 Markdown 全量导入导出规则，以 `docs/requirements/ios/profile-stats.md` 为唯一详细口径。阅读节奏按“有效阅读字数 × 60 ÷ 同口径有效阅读秒数”计算，旧阅读时间不得与新字数混算。
-
 ```json
 {
   "statsId": "string (UUID v4)",
   "bookId": "string",
   "date": "string (yyyy-MM-dd)",
-  "effectiveDurationSeconds": "int",
-  "paceDurationSeconds": "int，与有效字数同口径",
-  "effectiveWordCount": "int",
+  "durationSeconds": "int",
+  "wordCount": "int",
   "pageCount": "int",
-  "readingPace": "derived: effectiveWordCount * 60 / paceDurationSeconds",
   "sessionCount": "int",
   "firstReadAt": "long (Unix ms)",
   "lastReadAt": "long (Unix ms)",

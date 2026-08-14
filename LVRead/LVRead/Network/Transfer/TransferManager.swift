@@ -453,11 +453,11 @@ extension TransferManager: TCPTransferServerDelegate {
         let booksDir = BookImportManager.shared.booksDirectory
         let format = pendingBookFormats[bookId] ?? "EPUB"
         let ext = format.lowercased()
-        guard ["epub", "txt", "pdf"].contains(ext) else {
-            failTask(with: LVError.formatUnsupported)
-            return
+        var fileName = "received_\(bookId).\(ext)"
+        // Validate extension: if unknown, try to detect from assembled data
+        if !["epub", "txt", "pdf", "mobi", "azw3"].contains(ext) {
+            fileName = "received_\(bookId).epub"
         }
-        let fileName = "received_\(bookId).\(ext)"
         let filePath = (booksDir() as NSString).appendingPathComponent(fileName)
 
         do {

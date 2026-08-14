@@ -61,8 +61,6 @@ private final class NativeSelectionHandleView: UIView {
 enum NativeDocumentTypography {
     static let topReadingStatusHeight: CGFloat = 44
     static let bottomReadingStatusHeight: CGFloat = 24
-    static let headerFont = UIFont.systemFont(ofSize: 13, weight: .medium)
-    static let headerSymbolConfiguration = UIImage.SymbolConfiguration(font: headerFont)
 
     static func absoluteLineOrigin(_ origin: CGPoint, pathOrigin: CGPoint) -> CGPoint {
         CGPoint(x: origin.x + pathOrigin.x, y: origin.y + pathOrigin.y)
@@ -109,17 +107,6 @@ enum NativeDocumentTypography {
     static func continuousInsets(size: CGSize, settings: ReadingSettings) -> UIEdgeInsets {
         let horizontal = CGFloat(min(max(settings.pageMarginHorizontal, 5), 20)) * size.width / 100
         return UIEdgeInsets(top: 0, left: horizontal, bottom: 0, right: horizontal)
-    }
-
-    static func continuousPageSpacing(after text: String, settings: ReadingSettings) -> CGFloat {
-        let font = FontManager.shared.font(
-            named: settings.fontFamily,
-            size: CGFloat(min(max(settings.fontSize, 12), 32))
-        )
-        let multiplier = text.last?.isNewline == true
-            ? settings.paragraphSpacing ?? settings.lineSpacing
-            : settings.lineSpacing
-        return font.lineHeight * CGFloat(max(0, multiplier - 1))
     }
 
     /// CoreText 使用左下角原点；UIKit 的 bottom inset 必须映射为路径的 y。

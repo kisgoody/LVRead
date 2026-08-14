@@ -32,20 +32,20 @@ struct ReadingSettings: Codable, Equatable, Hashable {
 
     static let `default` = ReadingSettings(
         fontFamily: "系统默认",
-        fontSize: 24,
+        fontSize: 23,
         fontWeight: 400,
-        lineSpacing: 1.2,
+        lineSpacing: 1.3,
         paragraphSpacing: 1.5,
         pageMarginHorizontal: 7.0,
         pageMarginVertical: 2.0,
-        backgroundColor: "#FFFDF8",
+        backgroundColor: "#F5F2EC",
         backgroundImagePath: Optional<String>.none,
         backgroundImageOpacity: 0.3,
         brightness: 1.0,
         zodiacWatermark: ZodiacAnimal.currentYearZodiac(),
         eyeCareFilter: EyeCareFilter.none,
         nightMode: false,
-        pageFlipMode: PageFlipMode.simulation,
+        pageFlipMode: PageFlipMode.cover,
         autoReadEnabled: false,
         autoReadSpeed: 5,
         readingTheme: ReadingTheme.bookshelf,
@@ -125,15 +125,15 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
 
     var backgroundColor: String {
         switch self {
-        case .white: return "#F7F7F5"
-        case .warmYellow: return "#F4E5C8"
-        case .mint: return "#DCEFE1"
-        case .latte: return "#E7D2BA"
-        case .bookshelf: return "#FFFDF8"
+        case .white: return "#FFFFFF"
+        case .warmYellow: return "#FBF0D9"
+        case .mint: return "#E8F5E9"
+        case .latte: return "#EFE3D3"
+        case .bookshelf: return "#F5F2EC"
         case .bookshelfNight: return "#1A1410"
         case .midnight: return "#1A1D2E"
         case .oled: return "#000000"
-        case .custom: return "#F7F7F5"
+        case .custom: return "#FFFFFF"
         }
     }
 
@@ -166,15 +166,15 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
 
     var panelColor: String {
         switch self {
-        case .white: return "#FFFFFF"
-        case .warmYellow: return "#FBF0D9"
-        case .mint: return "#E8F5E9"
-        case .latte: return "#EFE3D3"
-        case .bookshelf: return "#F5F2EC"
+        case .white: return "#F7F7F5"
+        case .warmYellow: return "#F4E5C8"
+        case .mint: return "#DCEFE1"
+        case .latte: return "#E7D2BA"
+        case .bookshelf: return "#FFFDF8"
         case .bookshelfNight: return "#20231F"
         case .midnight: return "#24283A"
         case .oled: return "#111111"
-        case .custom: return "#FFFFFF"
+        case .custom: return "#F7F7F5"
         }
     }
 

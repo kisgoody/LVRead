@@ -8,11 +8,6 @@ enum PageFlipDirection {
     case prev
 }
 
-enum CoverFlipAxis {
-    case horizontal
-    case vertical
-}
-
 /// Interactive state for gesture-driven page flips.
 final class PageFlipState {
     weak var containerView: UIView?
@@ -28,10 +23,6 @@ final class PageFlipState {
 
     // Legacy (reserved for backward compatibility)
     var curlBackSnapshot: UIView?
-
-    // Cover transition
-    var coverAxis: CoverFlipAxis = .horizontal
-    var coverShadow: CAGradientLayer?
 
     // Paper curl renderer
     var paperHostView: UIView?
@@ -59,14 +50,12 @@ final class PageFlipState {
         curlShadow?.removeFromSuperlayer()
         curlPeekLayer?.removeFromSuperview()
         curlBackSnapshot?.removeFromSuperview()
-        coverShadow?.removeFromSuperlayer()
         curlStrips = nil
         curlBackSnapshots = nil
         curlSnapshot = nil
         curlShadow = nil
         curlPeekLayer = nil
         curlBackSnapshot = nil
-        coverShadow = nil
         paperAnimator = nil
         paperFrontSlices = nil
         paperBackSlices = nil

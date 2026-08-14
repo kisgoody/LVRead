@@ -1,7 +1,0 @@
-interface:
-  display_name: "LVRead Motion"
-  short_description: "Add restrained native UIKit motion to LVRead UI"
-  default_prompt: "Use $lvread-motion to implement appropriate animation for this LVRead UI change."
-
-policy:
-  allow_implicit_invocation: true

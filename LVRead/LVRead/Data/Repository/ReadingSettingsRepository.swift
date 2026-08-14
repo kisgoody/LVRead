@@ -11,11 +11,8 @@ final class ReadingSettingsRepository {
 
     func load() -> ReadingSettings {
         guard let data = defaults.data(forKey: settingsKey),
-              var settings = try? JSONDecoder().decode(ReadingSettings.self, from: data) else {
+              let settings = try? JSONDecoder().decode(ReadingSettings.self, from: data) else {
             return .default
-        }
-        if settings.readingTheme != .custom {
-            settings.backgroundColor = settings.readingTheme.backgroundColor
         }
         return settings
     }

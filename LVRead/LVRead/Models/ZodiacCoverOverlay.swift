@@ -60,6 +60,7 @@ final class ZodiacCoverOverlay {
             case .epub: colors = [UIColor.lvPrimary.cgColor, UIColor.lvPrimaryLight.cgColor]
             case .pdf: colors = [UIColor.lvSecondary.cgColor, UIColor.lvSecondaryLight.cgColor]
             case .txt: colors = [UIColor.lvAccent.cgColor, UIColor.lvAccentLight.cgColor]
+            case .mobi, .azw3: colors = [UIColor.categoryNovelStart.cgColor, UIColor.categoryNovelEnd.cgColor]
             }
             let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1])!
             ctx.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])

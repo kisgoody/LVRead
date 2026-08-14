@@ -455,18 +455,8 @@ final class ReaderSettingsViewController: UIViewController {
     }
 
     private func scrollThemeToSelection(animated: Bool) {
-        guard let index = Self.themeChoices.firstIndex(of: settings.readingTheme),
-              let scrollView = themeScrollView,
-              let stack = scrollView.subviews.compactMap({ $0 as? UIStackView }).first,
-              stack.arrangedSubviews.indices.contains(index) else { return }
-        let item = stack.arrangedSubviews[index]
-        let frame = item.convert(item.bounds, to: scrollView)
-        let visibleMinX = scrollView.contentOffset.x + scrollView.adjustedContentInset.left
-        let visibleMaxX = scrollView.contentOffset.x
-            + scrollView.bounds.width
-            - scrollView.adjustedContentInset.right
-        guard frame.minX < visibleMinX || frame.maxX > visibleMaxX else { return }
-        scrollView.scrollRectToVisible(frame, animated: animated)
+        guard let index = Self.themeChoices.firstIndex(of: settings.readingTheme) else { return }
+        scrollToItem(index: index, itemWidth: 58, spacing: 14, in: themeScrollView, animated: animated)
     }
 
     // MARK: - Eye Care
@@ -671,10 +661,7 @@ final class ReaderSettingsViewController: UIViewController {
         button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
         button.widthAnchor.constraint(greaterThanOrEqualToConstant: 86).isActive = true
         button.addTarget(self, action: #selector(fontButtonTapped(_:)), for: .touchUpInside)
-        updateFontButton(
-            button,
-            selected: FontManager.shared.isSelected(settings.fontFamily, displayName: title)
-        )
+        updateFontButton(button, selected: title == settings.fontFamily)
         return button
     }
 

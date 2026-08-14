@@ -68,14 +68,13 @@ enum PageFlipAnimator {
                 container: container, state: state
             )
         case .cover:
-            CoverAnimator.beginInteractive(
-                from: current,
-                to: next,
-                direction: direction,
-                axis: .horizontal,
-                container: container,
-                state: state
+            // Cover: next slides OVER current — must be above in z-order
+            let w = container.bounds.width
+            let isForward = direction == .next
+            next.transform = CGAffineTransform(
+                translationX: isForward ? w : -w, y: 0
             )
+            container.insertSubview(next, aboveSubview: current)
         case .slide:
             // Slide: pages push each other — next is revealed from below
             let w = container.bounds.width
