@@ -625,6 +625,10 @@ final class WebSyncServer {
             case ("GET", "/api/page/current"):
                 self.serveCurrentPage(to: connection)
 
+            case ("GET", "/api/pages/cache"):
+                let pageUnit = queryParams["unit"] == "2" ? 2 : 1
+                self.servePageCache(pageUnit: pageUnit, to: connection)
+
             case ("GET", "/api/chapters"):
                 self.serveChapters(to: connection)
 
@@ -652,6 +656,14 @@ final class WebSyncServer {
                     connection: connection,
                     direction: queryParams["direction"] ?? "",
                     bookId: requestBookId
+                )
+
+            case ("POST", "/api/progress/sync"):
+                self.handleProgressSync(
+                    connection: connection,
+                    bookId: requestBookId,
+                    chapterIndex: Int(queryParams["chapterIndex"] ?? ""),
+                    pageIndex: Int(queryParams["pageIndex"] ?? "")
                 )
 
             case ("POST", "/api/settings"):
@@ -1029,6 +1041,108 @@ final class WebSyncServer {
             return
         }
 
+        commitRemoteProgress(target, previous: page, bookId: bookId, forward: forward)
+        sendJSONResponse(
+            ["success": true, "direction": direction, "updated": true],
+            to: connection
+        )
+    }
+
+    private func servePageCache(pageUnit: Int, to connection: NWConnection) {
+        guard let book = currentBook, let current = currentPageSnapshot else {
+            sendJSONResponse(["error": "No current page"], to: connection)
+            return
+        }
+
+        var pagesBefore: [PageSnapshot] = []
+        var pagesAfter: [PageSnapshot] = []
+        var reachedBeginning = false
+        var reachedEnd = false
+        var cursor = current
+
+        for _ in 0..<(12 * pageUnit) {
+            do {
+                cursor = try resolvedTurnSnapshot(from: cursor, forward: false, bookId: book.id)
+                pagesBefore.insert(cursor, at: 0)
+            } catch RemoteTurnError.beginningOfBook {
+                reachedBeginning = true
+                break
+            } catch {
+                break
+            }
+        }
+
+        cursor = current
+        for _ in 0..<(32 * pageUnit) {
+            do {
+                cursor = try resolvedTurnSnapshot(from: cursor, forward: true, bookId: book.id)
+                pagesAfter.append(cursor)
+            } catch RemoteTurnError.endOfBook {
+                reachedEnd = true
+                break
+            } catch {
+                break
+            }
+        }
+
+        let pages = pagesBefore + [current] + pagesAfter
+        sendJSONResponse(
+            [
+                "bookId": book.id,
+                "bookTitle": book.title,
+                "pageUnit": pageUnit,
+                "chapterCount": max(BookRepository.shared.getChapters(for: book.id).count, 1),
+                "anchorOffset": pagesBefore.count,
+                "reachedBeginning": reachedBeginning,
+                "reachedEnd": reachedEnd,
+                "pages": pages.map(pageResponse)
+            ],
+            to: connection
+        )
+    }
+
+    private func handleProgressSync(
+        connection: NWConnection,
+        bookId: String,
+        chapterIndex: Int?,
+        pageIndex: Int?
+    ) {
+        guard let previous = currentPageSnapshot,
+              let chapterIndex,
+              let pageIndex,
+              chapterIndex >= 0,
+              pageIndex >= 0 else {
+            sendJSONResponse(["success": false, "error": "invalid_progress"], to: connection)
+            return
+        }
+
+        do {
+            let target = try resolvedSnapshot(
+                chapterIndex: chapterIndex,
+                pageIndex: pageIndex,
+                bookId: bookId,
+                layout: previous.layout
+            )
+            let forward = (target.chapterIndex, target.pageIndex) >= (previous.chapterIndex, previous.pageIndex)
+            commitRemoteProgress(target, previous: previous, bookId: bookId, forward: forward)
+            sendJSONResponse(
+                ["success": true, "updated": target != previous, "page": pageResponse(target)],
+                to: connection
+            )
+        } catch {
+            sendJSONResponse(
+                ["success": false, "error": RemoteTurnError.pageLoadFailed.rawValue],
+                to: connection
+            )
+        }
+    }
+
+    private func commitRemoteProgress(
+        _ target: PageSnapshot,
+        previous: PageSnapshot,
+        bookId: String,
+        forward: Bool
+    ) {
         currentPageSnapshot = target
         currentPageIndex = target.pageIndex
         storeSnapshot(target, for: bookId)
@@ -1049,7 +1163,7 @@ final class WebSyncServer {
             progressPercent: percent,
             bookId: bookId
         )
-
+        guard target != previous else { return }
         DispatchQueue.main.async {
             NotificationCenter.default.post(
                 name: .webSyncPageTurnRequested,
@@ -1062,10 +1176,6 @@ final class WebSyncServer {
                 ]
             )
         }
-        sendJSONResponse(
-            ["success": true, "direction": direction, "updated": true],
-            to: connection
-        )
     }
 
     private func resolvedTurnSnapshot(
@@ -1149,6 +1259,78 @@ final class WebSyncServer {
             chapterIndex += forward ? 1 : -1
         }
         throw forward ? RemoteTurnError.endOfBook : RemoteTurnError.beginningOfBook
+    }
+
+    private func resolvedSnapshot(
+        chapterIndex: Int,
+        pageIndex: Int,
+        bookId: String,
+        layout: PageLayoutSnapshot?
+    ) throws -> PageSnapshot {
+        guard let book = currentBook, book.id == bookId else {
+            throw RemoteTurnError.pageLoadFailed
+        }
+        let cache = PageCacheManager.shared
+        if let cached = cache.getPage(
+            bookId: bookId,
+            chapterIndex: chapterIndex,
+            pageIndex: pageIndex
+        ) {
+            let total = max(
+                cache.getCachedPageIndices(bookId: bookId, chapterIndex: chapterIndex).count,
+                pageIndex + 1
+            )
+            return snapshot(from: cached, totalPages: total, layout: layout)
+        }
+        guard book.fileFormat != .pdf else { throw RemoteTurnError.pageLoadFailed }
+
+        var chapters = BookRepository.shared.getChapters(for: bookId)
+        if chapters.isEmpty {
+            chapters = [Chapter(bookId: bookId, title: "正文", orderIndex: 0)]
+        }
+        guard chapters.indices.contains(chapterIndex) else {
+            throw RemoteTurnError.pageLoadFailed
+        }
+        let resolvedLayout = layout ?? PageLayoutSnapshot(
+            size: UIScreen.main.bounds.size,
+            safeAreaInsets: .zero,
+            usesContinuousInsets: false
+        )
+        let settings = ReadingSettingsRepository.shared.load()
+        let paginator = NativeDocumentChapterPaginator(
+            book: book,
+            chapters: chapters,
+            size: resolvedLayout.size,
+            safeAreaInsets: resolvedLayout.usesContinuousInsets ? .zero : resolvedLayout.safeAreaInsets,
+            textInsets: resolvedLayout.usesContinuousInsets
+                ? NativeDocumentTypography.continuousInsets(size: resolvedLayout.size, settings: settings)
+                : nil,
+            settings: settings
+        )
+        let pages = try paginator.pages(at: chapterIndex)
+        guard pages.indices.contains(pageIndex) else { throw RemoteTurnError.pageLoadFailed }
+        let cachedPages = pages.map {
+            PageData(
+                pageIndex: $0.pageIndex,
+                startCharOffset: $0.startOffset,
+                endCharOffset: $0.endOffset,
+                content: $0.text,
+                chapterTitle: $0.chapterTitle,
+                chapterIndex: $0.chapterIndex
+            )
+        }
+        cache.cachePages(cachedPages, bookId: bookId, centerPage: pageIndex)
+        return snapshot(from: pages[pageIndex], totalPages: pages.count, layout: resolvedLayout)
+    }
+
+    private func pageResponse(_ page: PageSnapshot) -> [String: Any] {
+        [
+            "pageIndex": page.pageIndex,
+            "content": page.content,
+            "chapterTitle": page.chapterTitle,
+            "chapterIndex": page.chapterIndex,
+            "totalPages": page.totalPages
+        ]
     }
 
     private func snapshot(
@@ -1266,6 +1448,10 @@ final class WebSyncServer {
     }
 
     func webReaderHTML() -> String {
+        if let url = Bundle.main.url(forResource: "WebReader", withExtension: "html"),
+           let html = try? String(contentsOf: url, encoding: .utf8) {
+            return html
+        }
         return """
         <!DOCTYPE html>
         <html lang="zh-CN">

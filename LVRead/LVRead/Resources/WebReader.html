@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>LVRead - 电脑端同步阅读</title>
+  <style>
+    :root {
+      --reader-bg: #fffdf8;
+      --reader-text: #24211d;
+      --reader-accent: #236d67;
+      --reader-panel: #f3f4f2;
+      --reader-control: #fffdf8;
+      --reader-font-size: 26px;
+      --reader-line-height: 1.5;
+      --reader-paragraph-spacing: .55em;
+      --reader-font-family: "Songti SC", "STSong", serif;
+      --book-width: min(1180px, calc(100vw - 64px));
+      --book-height: min(736px, calc(100dvh - 200px));
+      --left-book-thickness: 3px;
+      --right-book-thickness: 27px;
+      --curl: 0;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      display: flex;
+      flex-direction: column;
+      color: var(--reader-text);
+      background: var(--reader-panel);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button { font: inherit; }
+    .topbar {
+      height: 64px;
+      flex: 0 0 64px;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      background: var(--reader-control);
+      border-bottom: 1px solid color-mix(in srgb, var(--reader-text) 12%, transparent);
+      z-index: 20;
+    }
+    .topbar-left, .topbar-right, .brand, .status, .mode-control { display: flex; align-items: center; }
+    .topbar-left { min-width: 0; gap: 16px; }
+    .topbar-right { gap: 16px; }
+    .brand { gap: 8px; color: var(--reader-accent); font-size: 20px; font-weight: 750; }
+    .brand-mark { position: relative; width: 24px; height: 24px; }
+    .brand-mark::before, .brand-mark::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      width: 10px;
+      height: 19px;
+      background: var(--reader-accent);
+    }
+    .brand-mark::before { left: 1px; border-radius: 2px 6px 2px 2px; transform: skewY(7deg); }
+    .brand-mark::after { right: 1px; border-radius: 6px 2px 2px 2px; transform: skewY(-7deg); }
+    .book-title {
+      max-width: 34vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 15px;
+      opacity: .78;
+    }
+    .chapter-meta { max-width: 18vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; opacity: .72; }
+    .status { gap: 8px; font-size: 12px; white-space: nowrap; opacity: .82; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #c94a45; }
+    .status.connected .status-dot { background: var(--reader-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--reader-accent) 14%, transparent); }
+    .mode-control {
+      height: 44px;
+      padding: 4px;
+      border: 1px solid color-mix(in srgb, var(--reader-text) 12%, transparent);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--reader-text) 7%, var(--reader-control));
+    }
+    .mode-option {
+      min-width: 72px;
+      height: 34px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 8px;
+      color: var(--reader-text);
+      background: transparent;
+      cursor: pointer;
+    }
+    .mode-option.selected { color: var(--reader-control); background: var(--reader-accent); }
+    .mode-option:focus-visible, .nav-button:focus-visible { outline: 2px solid var(--reader-accent); outline-offset: 2px; }
+
+    .reader-shell { flex: 1; min-height: 0; padding: 24px 24px 16px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+    .book-stage {
+      position: relative;
+      width: var(--book-width);
+      height: var(--book-height);
+      min-height: min(360px, calc(100dvh - 200px));
+      perspective: 2200px;
+      perspective-origin: 50% 45%;
+      user-select: none;
+      touch-action: pan-y;
+    }
+    .reader-shell.mode-spread .book-stage::before {
+      content: "";
+      position: absolute;
+      z-index: 0;
+      top: -10px;
+      bottom: -15px;
+      left: calc(-5px - var(--left-book-thickness));
+      right: calc(-5px - var(--right-book-thickness));
+      border: 2px solid color-mix(in srgb, var(--reader-text) 28%, var(--reader-bg));
+      border-radius: 18px;
+      box-shadow:
+        0 5px 0 color-mix(in srgb, var(--reader-text) 16%, var(--reader-bg)),
+        0 14px 28px color-mix(in srgb, #000 16%, transparent);
+      pointer-events: none;
+    }
+    .book {
+      position: absolute;
+      inset: 0;
+      transform-style: preserve-3d;
+      filter: drop-shadow(0 18px 30px color-mix(in srgb, #000 18%, transparent));
+      z-index: 2;
+    }
+    .book-thickness {
+      position: absolute;
+      z-index: 1;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      border: 1px solid color-mix(in srgb, var(--reader-text) 18%, var(--reader-bg));
+      background: repeating-linear-gradient(
+        to right,
+        color-mix(in srgb, var(--reader-bg) 88%, var(--reader-text)) 0 2px,
+        color-mix(in srgb, var(--reader-text) 28%, var(--reader-bg)) 2px 3px
+      );
+      box-shadow: inset 0 0 5px color-mix(in srgb, var(--reader-text) 20%, transparent);
+      transition: width .22s ease-out;
+      pointer-events: none;
+    }
+    .left-book-thickness {
+      right: calc(100% - 12px);
+      width: calc(var(--left-book-thickness) + 12px);
+      border-radius: 12px 0 0 12px;
+    }
+    .right-book-thickness {
+      left: calc(100% - 12px);
+      width: calc(var(--right-book-thickness) + 12px);
+      border-radius: 0 12px 12px 0;
+    }
+    .reader-shell:not(.mode-spread) .book-thickness { display: none; }
+    .book::before {
+      content: "";
+      position: absolute;
+      z-index: 9;
+      left: calc(50% - 1px);
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(90deg, color-mix(in srgb, #000 18%, transparent), color-mix(in srgb, #fff 28%, transparent), color-mix(in srgb, #000 14%, transparent));
+      box-shadow: 0 0 14px color-mix(in srgb, #000 18%, transparent);
+      pointer-events: none;
+    }
+    .page {
+      position: absolute;
+      top: 0;
+      width: 50%;
+      height: 100%;
+      overflow: hidden;
+      color: var(--reader-text);
+      background: var(--reader-bg);
+      border: 1px solid color-mix(in srgb, var(--reader-text) 12%, transparent);
+    }
+    .left-page { left: 0; border-radius: 12px 0 0 12px; border-right: 0; cursor: grab; }
+    .left-page:active { cursor: grabbing; }
+    .right-page { right: 0; border-radius: 0 12px 12px 0; border-left: 0; cursor: grab; }
+    .right-page:active { cursor: grabbing; }
+    .page-inner {
+      position: absolute;
+      inset: 0;
+      padding: 42px 52px 42px;
+      overflow: hidden;
+      font-family: var(--reader-font-family);
+      font-size: var(--reader-font-size);
+      line-height: var(--reader-line-height);
+      white-space: normal;
+      overflow-wrap: anywhere;
+      text-align: justify;
+    }
+    .text-paragraph { margin: 0 0 var(--reader-paragraph-spacing); white-space: pre-wrap; }
+    .text-paragraph:last-child { margin-bottom: 0; }
+    .left-page .page-inner { box-shadow: inset -18px 0 24px -24px color-mix(in srgb, #000 34%, transparent); }
+    .right-page .page-inner { box-shadow: inset 18px 0 24px -24px color-mix(in srgb, #000 34%, transparent); }
+    .page-number {
+      position: absolute;
+      left: 32px;
+      right: 32px;
+      bottom: 18px;
+      font-size: 12px;
+      text-align: center;
+      opacity: .5;
+    }
+
+    .turning-page {
+      display: none;
+      position: absolute;
+      z-index: 8;
+      top: 0;
+      left: 50%;
+      width: 50%;
+      height: 100%;
+      transform-origin: 0 50%;
+      transform-style: preserve-3d;
+      will-change: transform, border-radius;
+      border-radius: 0 calc(12px + var(--curl) * 24px) calc(12px + var(--curl) * 24px) 0;
+    }
+    .turning-page.active { display: block; }
+    .sheet-face {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--reader-text) 12%, transparent);
+      background: var(--reader-bg);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+    .sheet-front { border-left: 0; border-radius: inherit; }
+    .sheet-back {
+      transform: rotateY(180deg);
+      border-right: 0;
+      border-radius: calc(12px + var(--curl) * 24px) 0 0 calc(12px + var(--curl) * 24px);
+      background: var(--reader-bg);
+      opacity: 1;
+    }
+    .sheet-back .page-inner { opacity: 1; }
+    .turning-page::before {
+      content: "";
+      position: absolute;
+      z-index: 4;
+      inset: 0 0 0 auto;
+      width: calc(10px + var(--curl) * 38px);
+      background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff calc(18% + var(--curl) * 28%), transparent), color-mix(in srgb, #000 calc(8% + var(--curl) * 18%), transparent));
+      opacity: calc(.22 + var(--curl) * .78);
+      pointer-events: none;
+    }
+    .turning-page::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      top: 2%;
+      right: -18px;
+      width: 36px;
+      height: 96%;
+      background: color-mix(in srgb, #000 calc(12% + var(--curl) * 24%), transparent);
+      filter: blur(calc(6px + var(--curl) * 10px));
+      opacity: var(--curl);
+      pointer-events: none;
+    }
+
+    .reader-shell.mode-single .book-stage { width: min(1120px, calc(100vw - 48px)); }
+    .reader-shell.mode-single .left-page, .reader-shell.mode-single .book::before { display: none; }
+    .reader-shell.mode-single .right-page { left: 0; width: 100%; border: 1px solid color-mix(in srgb, var(--reader-text) 12%, transparent); border-radius: 12px; cursor: default; }
+    .reader-shell.mode-single .right-page .page-inner { display: block; }
+    .reader-shell.mode-mobile .book-stage { width: min(430px, calc(100vw - 32px)); }
+    .reader-shell.mode-mobile .left-page, .reader-shell.mode-mobile .book::before { display: none; }
+    .reader-shell.mode-mobile .right-page { left: 0; width: 100%; border: 1px solid color-mix(in srgb, var(--reader-text) 12%, transparent); border-radius: 12px; cursor: default; }
+    .reader-shell.mode-mobile .page-inner { padding: 34px 32px 42px; }
+    body.mode-mobile .chapter-meta { display: block; max-width: 22vw; }
+    .reader-shell:not(.mode-spread) .turning-page { display: none !important; }
+
+    .reader-footer {
+      position: relative;
+      z-index: 4;
+      width: 100%;
+      height: 64px;
+      flex: 0 0 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+    .nav-button {
+      min-width: 144px;
+      min-height: 44px;
+      padding: 0 20px;
+      border: 1px solid color-mix(in srgb, var(--reader-text) 16%, transparent);
+      border-radius: 12px;
+      color: var(--reader-accent);
+      background: var(--reader-control);
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .nav-button:disabled { opacity: .4; cursor: default; }
+    .hint { font-size: 12px; opacity: .58; }
+    .hint kbd {
+      display: inline-flex;
+      min-width: 24px;
+      height: 24px;
+      align-items: center;
+      justify-content: center;
+      margin: 0 2px;
+      border: 1px solid color-mix(in srgb, var(--reader-text) 18%, transparent);
+      border-radius: 6px;
+      color: var(--reader-accent);
+      background: var(--reader-control);
+      font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .toast {
+      position: fixed;
+      z-index: 50;
+      left: 50%;
+      bottom: 28px;
+      max-width: min(560px, calc(100vw - 32px));
+      padding: 12px 18px;
+      border-radius: 12px;
+      color: var(--reader-control);
+      background: color-mix(in srgb, var(--reader-text) 92%, transparent);
+      box-shadow: 0 12px 36px color-mix(in srgb, #000 24%, transparent);
+      opacity: 0;
+      transform: translate(-50%, 16px);
+      transition: opacity .18s, transform .18s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .implementation-note { position: fixed; right: 16px; bottom: 12px; font-size: 11px; opacity: .45; }
+
+    @media (max-width: 900px) {
+      .topbar { padding: 0 16px; gap: 8px; }
+      .chapter-meta { display: none; }
+      .book-title { max-width: 20vw; }
+      .mode-option { min-width: 58px; padding: 0 8px; font-size: 12px; }
+      .page-inner { padding: 30px 28px 40px; }
+      .reader-shell { padding-inline: 12px; }
+    }
+    @media (orientation: portrait) and (min-width: 700px) {
+      :root { --book-height: min(704px, calc(100dvh - 208px)); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>LVRead</span></div>
+      <div class="book-title" id="bookTitle">正在读取书籍…</div>
+      <div class="chapter-meta" id="chapterMeta"></div>
+    </div>
+    <div class="topbar-right">
+      <div class="mode-control" role="group" aria-label="网页阅读模式">
+        <button class="mode-option selected" type="button" data-mode="spread" aria-pressed="true">仿真</button>
+        <button class="mode-option" type="button" data-mode="single" aria-pressed="false">单页</button>
+        <button class="mode-option" type="button" data-mode="mobile" aria-pressed="false">手机</button>
+      </div>
+      <div class="status" id="connectionStatus"><span class="status-dot"></span><span id="statusText">正在连接</span></div>
+    </div>
+  </header>
+
+  <main class="reader-shell mode-spread" id="readerShell">
+    <section class="book-stage" id="bookStage" aria-label="双页阅读区域">
+      <div class="book-thickness left-book-thickness" aria-hidden="true"></div>
+      <div class="book-thickness right-book-thickness" aria-hidden="true"></div>
+      <div class="book" id="book">
+        <article class="page left-page" id="leftPage"><div class="page-inner" id="leftContent"></div><div class="page-number" id="leftNumber"></div></article>
+        <article class="page right-page" id="rightPage"><div class="page-inner" id="rightContent"></div><div class="page-number" id="rightNumber"></div></article>
+        <div class="turning-page" id="turningPage" aria-hidden="true">
+          <article class="sheet-face sheet-front"><div class="page-inner" id="sheetFront"></div><div class="page-number" id="sheetFrontNumber"></div></article>
+          <article class="sheet-face sheet-back"><div class="page-inner" id="sheetBack"></div><div class="page-number" id="sheetBackNumber"></div></article>
+        </div>
+      </div>
+    </section>
+    <footer class="reader-footer">
+      <button class="nav-button" id="prevButton" type="button">上一页</button>
+      <span class="hint"><kbd>←</kbd> <kbd>J</kbd> 上一页　<kbd>→</kbd> <kbd>K</kbd> 下一页</span>
+      <button class="nav-button" id="nextButton" type="button">下一页</button>
+    </footer>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="implementation-note" title="浏览器 CSS 3D 无法调用 Apple 私有 Core Animation 卷页网格，本实现使用 matrix3d、透视、动态阴影与纸张背面近似。">CSS3 仿真模式</div>
+
+  <script>
+    'use strict';
+
+    const $ = id => document.getElementById(id);
+    const elements = {
+      shell: $('readerShell'), stage: $('bookStage'), leftPage: $('leftPage'), rightPage: $('rightPage'),
+      left: $('leftContent'), right: $('rightContent'), leftNo: $('leftNumber'), rightNo: $('rightNumber'),
+      turning: $('turningPage'), front: $('sheetFront'), back: $('sheetBack'),
+      frontNo: $('sheetFrontNumber'), backNo: $('sheetBackNumber'),
+      title: $('bookTitle'), meta: $('chapterMeta'),
+      status: $('connectionStatus'), statusText: $('statusText'), toast: $('toast'),
+      prev: $('prevButton'), next: $('nextButton')
+    };
+    const state = {
+      connected: false,
+      cache: null,
+      cursor: 0,
+      mode: 'spread',
+      turning: false,
+      turnDirection: 1,
+      turnProgress: 0,
+      preparedDirection: 0,
+      queuedDirection: 0,
+      pendingProgress: null,
+      settings: null,
+      reconnectTimer: null,
+      eventSource: null,
+      refreshTimer: null,
+      syncPromise: null,
+      cacheExtensionPromise: null,
+      cacheRefreshPromise: null,
+      prefetchPromise: null,
+      prefetchedCache: null,
+      progressVersion: 0,
+      fontLayoutKey: '',
+      fittedFontSize: 0
+    };
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    const cacheId = () => token() || 'lvread-demo-book';
+    const token = () => new URLSearchParams(location.search).get('t') || '';
+    const pageKey = page => page ? `${page.chapterIndex}:${page.pageIndex}` : '';
+
+    const database = {
+      open() {
+        return new Promise((resolve, reject) => {
+          if (!('indexedDB' in window)) { reject(new Error('IndexedDB unavailable')); return; }
+          const request = indexedDB.open('lvread-web-reader', 1);
+          request.onupgradeneeded = () => request.result.createObjectStore('books', { keyPath: 'id' });
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+      },
+      async read(id) {
+        const db = await this.open();
+        return new Promise((resolve, reject) => {
+          const request = db.transaction('books').objectStore('books').get(id);
+          request.onsuccess = () => resolve(request.result || null);
+          request.onerror = () => reject(request.error);
+        });
+      },
+      async write(record) {
+        const db = await this.open();
+        return new Promise((resolve, reject) => {
+          const request = db.transaction('books', 'readwrite').objectStore('books').put(record);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        });
+      }
+    };
+
+    async function api(path, options = {}) {
+      const separator = path.includes('?') ? '&' : '?';
+      const response = await fetch(`${path}${separator}t=${encodeURIComponent(token())}`, {
+        cache: 'no-store',
+        ...options
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      return data;
+    }
+
+    function blankPage() {
+      return { chapterIndex: -1, pageIndex: -1, totalPages: 1, chapterTitle: '', content: '' };
+    }
+
+    function normalizeCache(payload) {
+      const pages = Array.isArray(payload.pages) ? payload.pages.slice() : [];
+      let anchor = Math.max(0, Number(payload.anchorOffset) || 0);
+      if (anchor % 2 === 1) {
+        pages.unshift(blankPage());
+        anchor += 1;
+      }
+      return { ...payload, pages, anchorOffset: anchor };
+    }
+
+    function demoCache() {
+      const text = [
+        '双页仿真阅读模式\n\n这是可直接打开 HTML 文件时显示的演示内容。连接 LVRead App 后，这里会自动替换为真实书籍文本。',
+        '固定书脊\n\n屏幕垂直中线作为书脊。向左拖动右页时，左侧页面不会跟随移动。',
+        '纸张正面\n\n当前右页围绕中间书脊向内翻动，动画进度与指针位置实时对应。',
+        '纸张背面\n\n翻起后能隐约看到目标对开页的文字，并叠加纸张色与动态阴影。',
+        '取消与完成\n\n拖动距离不足会回弹；快速轻扫或超过阈值后自动完成翻页。',
+        '离线缓存\n\n与 App 断开后，已经缓存到浏览器的页面仍可继续阅读。',
+        '进度同步\n\n重新连接 App 后，电脑端最后阅读位置会自动同步。',
+        '缓存边界\n\n到达缓存末页且 App 仍未连接时，页面会提示重新连接。'
+      ];
+      return normalizeCache({
+        bookId: 'demo', bookTitle: 'LVRead 双页仿真演示', chapterCount: 1, anchorOffset: 0,
+        reachedBeginning: true, reachedEnd: true,
+        pages: text.map((content, index) => ({ chapterIndex: 0, pageIndex: index, totalPages: text.length, chapterTitle: '演示章节', content }))
+      });
+    }
+
+    async function persist() {
+      if (!state.cache) return;
+      try {
+        await database.write({
+          id: cacheId(), cache: state.cache, cursor: state.cursor,
+          pendingProgress: state.pendingProgress, settings: state.settings, updatedAt: Date.now()
+        });
+      } catch (error) {
+        console.warn('书籍缓存保存失败', error);
+      }
+    }
+
+    async function restoreCache() {
+      try {
+        const record = await database.read(cacheId());
+        if (!record || !record.cache) return false;
+        state.cache = normalizeCache(record.cache);
+        state.cursor = Math.min(Math.max(Number(record.cursor) || state.cache.anchorOffset, 0), state.cache.pages.length - 1);
+        state.pendingProgress = record.pendingProgress || null;
+        state.settings = record.settings || null;
+        if (state.settings) applySettings(state.settings);
+        renderCurrent();
+        return true;
+      } catch (error) {
+        console.warn('无法读取本地书籍缓存', error);
+        return false;
+      }
+    }
+
+    function currentUnit() { return state.mode === 'mobile' ? 1 : 2; }
+    function cacheEndpoint() { return `/api/pages/cache?unit=${currentUnit()}`; }
+    function currentPage() { return state.cache?.pages[state.cursor] || null; }
+    function pageLabel(page) { return page && page.pageIndex >= 0 ? `${page.pageIndex + 1} / ${page.totalPages}` : ''; }
+    function visibleSignature(cache, cursor) {
+      if (!cache) return '';
+      const count = state.mode === 'mobile' ? 1 : 2;
+      return cache.pages.slice(cursor, cursor + count).map(page => `${pageKey(page)}:${page?.content || ''}`).join('\u0000');
+    }
+
+    function renderPageText(element, content) {
+      element.replaceChildren();
+      const paragraphs = String(content || '').split(/\n\s*\n/);
+      paragraphs.forEach(text => {
+        const paragraph = document.createElement('p');
+        paragraph.className = 'text-paragraph';
+        paragraph.textContent = text;
+        element.appendChild(paragraph);
+      });
+    }
+
+    function renderSinglePagePair(first, second) {
+      renderPageText(elements.right, `${first.content || ''}${second.content || ''}`);
+    }
+
+    function preloadTurn(direction) {
+      if (!state.cache || state.mode !== 'spread') return false;
+      const target = state.cursor + direction * 2;
+      if (target < 0 || target >= state.cache.pages.length) return false;
+      const currentLeft = state.cache.pages[state.cursor] || blankPage();
+      const currentRight = state.cache.pages[state.cursor + 1] || blankPage();
+      const targetLeft = state.cache.pages[target] || blankPage();
+      const targetRight = state.cache.pages[target + 1] || blankPage();
+      const frontPage = direction > 0 ? currentRight : targetRight;
+      const backPage = direction > 0 ? targetLeft : currentLeft;
+      renderPageText(elements.front, frontPage.content);
+      renderPageText(elements.back, backPage.content);
+      elements.frontNo.textContent = pageLabel(frontPage);
+      elements.backNo.textContent = pageLabel(backPage);
+      state.preparedDirection = direction;
+      return true;
+    }
+
+    function fitVisibleContent() {
+      if (!state.cache?.pages.length || !elements.stage.clientHeight) return;
+      const rootStyle = getComputedStyle(document.documentElement);
+      const requestedSize = parseFloat(rootStyle.getPropertyValue('--reader-font-size')) || 26;
+      const layoutKey = [
+        state.mode, elements.stage.clientWidth, elements.stage.clientHeight,
+        requestedSize, rootStyle.getPropertyValue('--reader-line-height'),
+        rootStyle.getPropertyValue('--reader-paragraph-spacing'),
+        rootStyle.getPropertyValue('--reader-font-family')
+      ].join('|');
+      const pages = state.mode === 'spread'
+        ? [elements.left, elements.right, ...(elements.turning.classList.contains('active') ? [elements.front, elements.back] : [])]
+        : [elements.right];
+      let fontSize = state.fontLayoutKey === layoutKey && state.fittedFontSize
+        ? Math.min(requestedSize, state.fittedFontSize)
+        : requestedSize;
+      pages.forEach(page => { page.style.fontSize = `${fontSize}px`; });
+      while (fontSize > 10 && pages.some(page => page.scrollHeight > page.clientHeight)) {
+        fontSize -= .5;
+        pages.forEach(page => { page.style.fontSize = `${fontSize}px`; });
+      }
+      state.fontLayoutKey = layoutKey;
+      state.fittedFontSize = fontSize;
+      [elements.left, elements.right, elements.front, elements.back].forEach(page => {
+        page.style.fontSize = `${fontSize}px`;
+      });
+    }
+
+    function updateReadingMeta() {
+      const first = state.cache?.pages[state.cursor] || blankPage();
+      const second = state.mode === 'mobile' ? first : (state.cache?.pages[state.cursor + 1] || blankPage());
+      elements.meta.textContent = (first.chapterTitle || second.chapterTitle || '') + (state.connected ? '' : ' · 离线缓存');
+    }
+
+    function updateBookThickness() {
+      const page = state.cache?.pages[state.cursor];
+      if (!page || page.chapterIndex < 0) return;
+      const chapterCount = Math.max(Number(state.cache.chapterCount) || 1, 1);
+      const chapterFraction = (page.pageIndex + 1) / Math.max(page.totalPages, 1);
+      const progress = Math.min(1, Math.max(0, (page.chapterIndex + chapterFraction) / chapterCount));
+      elements.stage.style.setProperty('--left-book-thickness', `${3 + progress * 24}px`);
+      elements.stage.style.setProperty('--right-book-thickness', `${3 + (1 - progress) * 24}px`);
+    }
+
+    function updateNavigationButtons() {
+      if (!state.cache) return;
+      elements.prev.disabled = !state.connected && state.cursor <= 0 && Boolean(state.cache.reachedBeginning);
+      elements.next.disabled = !state.connected
+        && state.cursor + currentUnit() >= state.cache.pages.length
+        && Boolean(state.cache.reachedEnd);
+    }
+
+    function renderCurrent(preload = true) {
+      if (!state.cache || !state.cache.pages.length) return;
+      const first = state.cache.pages[state.cursor] || blankPage();
+      const second = state.mode === 'mobile' ? first : (state.cache.pages[state.cursor + 1] || blankPage());
+      renderPageText(elements.left, state.mode === 'spread' ? first.content : '');
+      if (state.mode === 'single') renderSinglePagePair(first, second);
+      else renderPageText(elements.right, second.content);
+      elements.leftNo.textContent = state.mode === 'spread' ? pageLabel(first) : '';
+      elements.rightNo.textContent = state.mode === 'single'
+        ? `${pageLabel(first)}${second.pageIndex >= 0 ? ` · ${pageLabel(second)}` : ''}`
+        : pageLabel(second);
+      elements.title.textContent = state.cache.bookTitle || 'LVRead';
+      updateReadingMeta();
+      updateNavigationButtons();
+      updateBookThickness();
+      if (preload) {
+        state.preparedDirection = 0;
+        preloadTurn(1);
+      }
+      fitVisibleContent();
+    }
+
+    function setConnected(value, message) {
+      state.connected = value;
+      elements.status.classList.toggle('connected', value);
+      elements.statusText.textContent = message || (value ? '已连接' : '离线阅读');
+      updateReadingMeta();
+      updateNavigationButtons();
+    }
+
+    let toastTimer;
+    function showToast(message) {
+      elements.toast.textContent = message;
+      elements.toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => elements.toast.classList.remove('show'), 3200);
+    }
+
+    function readerFontFamily(name) {
+      if (!name || name === 'system-zh' || name === 'system-en' || name.includes('系统')) return '-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      const fonts = {
+        'pingfang-sc': '"PingFang SC",sans-serif', 'pingfang-tc': '"PingFang TC","PingFang HK",sans-serif',
+        'fangsong-sc': '"FangSong","STFangsong",serif', 'kaiti-sc': '"Kaiti SC","STKaiti",serif',
+        'songti-sc': '"Songti SC","STSong",serif', 'heiti-sc': '"Heiti SC","STHeiti",sans-serif',
+        'sf-pro': '-apple-system,BlinkMacSystemFont,sans-serif', 'new-york': '"New York",Georgia,serif',
+        'avenir-next': '"Avenir Next",Avenir,sans-serif', 'helvetica-neue': '"Helvetica Neue",Helvetica,Arial,sans-serif'
+      };
+      return fonts[name] || `${name.replace(/^custom:/, '')},serif`;
+    }
+
+    function applySettings(settings) {
+      state.settings = settings;
+      const root = document.documentElement.style;
+      const fontSize = Math.max(18, Math.min(30, (Number(settings.fontSize) || 24) * 1.12));
+      const lineHeight = Math.max(1.4, Math.min(2.1, (Number(settings.lineSpacing) || 1.2) + .18));
+      const paragraphSpacing = Math.max(.35, Math.min(1.2, (Number(settings.paragraphSpacing) || 1.5) * .36));
+      root.setProperty('--reader-bg', settings.backgroundColor || '#fffdf8');
+      root.setProperty('--reader-text', settings.textColor || '#24211d');
+      root.setProperty('--reader-accent', settings.accentColor || '#236d67');
+      root.setProperty('--reader-panel', settings.panelColor || '#f3f4f2');
+      root.setProperty('--reader-control', settings.controlSurfaceColor || '#fffdf8');
+      root.setProperty('--reader-font-size', `${fontSize}px`);
+      root.setProperty('--reader-line-height', lineHeight);
+      root.setProperty('--reader-paragraph-spacing', `${paragraphSpacing}em`);
+      root.setProperty('--reader-font-family', readerFontFamily(settings.fontFamily));
+      fitVisibleContent();
+    }
+
+    function prepareTurn(direction) {
+      const target = state.cursor + direction * 2;
+      if (!state.cache || target < 0 || target >= state.cache.pages.length) return false;
+      state.turning = true;
+      state.turnDirection = direction;
+      state.turnProgress = 0;
+      const targetLeft = state.cache.pages[target] || blankPage();
+      const targetRight = state.cache.pages[target + 1] || blankPage();
+      if (state.preparedDirection !== direction && !preloadTurn(direction)) return false;
+      elements.turning.classList.add('active');
+      renderCurl(0);
+      if (direction > 0) {
+        renderPageText(elements.right, targetRight.content);
+        elements.rightNo.textContent = pageLabel(targetRight);
+      } else {
+        renderPageText(elements.left, targetLeft.content);
+        elements.leftNo.textContent = pageLabel(targetLeft);
+      }
+      fitVisibleContent();
+      return true;
+    }
+
+    function renderCurl(progress) {
+      state.turnProgress = Math.min(1, Math.max(0, progress));
+      const physical = state.turnDirection > 0 ? state.turnProgress : 1 - state.turnProgress;
+      const angle = -Math.PI * physical;
+      const cosine = Math.cos(angle);
+      const sine = Math.sin(angle);
+      const curl = Math.sin(Math.PI * physical);
+      const lift = -curl * 4;
+      const depth = curl * 24;
+      elements.turning.style.setProperty('--curl', curl.toFixed(4));
+      elements.turning.style.transform = `matrix3d(${cosine},0,${-sine},0,0,1,0,0,${sine},0,${cosine},0,0,${lift},${depth},1)`;
+    }
+
+    function animateTurn(to, completion) {
+      const from = state.turnProgress;
+      if (reduceMotion.matches) {
+        renderCurl(to);
+        completion();
+        return;
+      }
+      const start = performance.now();
+      const duration = 300 + Math.abs(to - from) * 120;
+      function frame(now) {
+        const t = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        renderCurl(from + (to - from) * eased);
+        if (t < 1) requestAnimationFrame(frame); else completion();
+      }
+      requestAnimationFrame(frame);
+    }
+
+    function finishTurn(commit) {
+      const direction = state.turnDirection;
+      const target = state.cursor + direction * 2;
+      animateTurn(commit ? 1 : 0, () => {
+        if (commit) {
+          state.cursor = target;
+          state.progressVersion += 1;
+          clearTimeout(state.refreshTimer);
+        }
+        // 卷页仍覆盖在最终位置时更新底层页面，避免先露出旧内容再重绘文字。
+        renderCurrent(false);
+        requestAnimationFrame(() => {
+          elements.turning.classList.remove('active');
+          elements.turning.style.transform = '';
+          state.turning = false;
+          state.preparedDirection = 0;
+          preloadTurn(1);
+          if (commit) recordProgress();
+          const queuedDirection = state.queuedDirection;
+          state.queuedDirection = 0;
+          if (queuedDirection) queueMicrotask(() => navigate(queuedDirection));
+        });
+      });
+    }
+
+    function cacheBoundary(forward) {
+      if (forward && state.cache?.reachedEnd) return '已到全书末尾';
+      if (!forward && state.cache?.reachedBeginning) return '已到全书开头';
+      if (state.connected) return '';
+      return forward
+        ? '已到缓存数据最后一页，请重新连接 LVRead App 后继续阅读'
+        : '已到缓存数据开头，请重新连接 LVRead App 后继续阅读';
+    }
+
+    function showCacheBoundary(forward) {
+      const message = cacheBoundary(forward);
+      if (message) showToast(message);
+    }
+
+    function gotoSpread(spreadIndex, animate = true) {
+      const target = Math.max(0, Number(spreadIndex) || 0) * 2;
+      if (!state.cache || target >= state.cache.pages.length) {
+        if (state.connected && !state.cache?.reachedEnd) extendCacheAndNavigate(1);
+        else showCacheBoundary(true);
+        return false;
+      }
+      if (target === state.cursor) return true;
+      if (!animate || state.mode !== 'spread' || Math.abs(target - state.cursor) !== 2) {
+        state.cursor = target;
+        renderCurrent();
+        recordProgress();
+        return true;
+      }
+      if (state.turning || !prepareTurn(target > state.cursor ? 1 : -1)) return false;
+      finishTurn(true);
+      return true;
+    }
+    window.gotoSpread = gotoSpread;
+
+    function gotoPage(pageOffset) {
+      if (!state.cache || pageOffset < 0 || pageOffset >= state.cache.pages.length) {
+        const direction = pageOffset < 0 ? -1 : 1;
+        const reachedBookBoundary = direction > 0
+          ? Boolean(state.cache?.reachedEnd)
+          : Boolean(state.cache?.reachedBeginning);
+        if (state.connected && !reachedBookBoundary) extendCacheAndNavigate(direction);
+        else showCacheBoundary(direction > 0);
+        return false;
+      }
+      state.cursor = pageOffset;
+      renderCurrent();
+      recordProgress();
+      return true;
+    }
+
+    async function extendCacheAndNavigate(direction) {
+      if (state.cacheExtensionPromise) return state.cacheExtensionPromise;
+      state.cacheExtensionPromise = (async () => {
+        if (usePrefetchedCache(direction)) return navigate(direction, false);
+        if (state.prefetchPromise) {
+          await state.prefetchPromise;
+          if (usePrefetchedCache(direction)) return navigate(direction, false);
+        }
+        if (!(await refreshCacheForNavigation())) {
+          showCacheBoundary(direction > 0);
+          return false;
+        }
+        return navigate(direction, false);
+      })();
+      try {
+        return await state.cacheExtensionPromise;
+      } finally {
+        state.cacheExtensionPromise = null;
+      }
+    }
+
+    function usePrefetchedCache(direction) {
+      if (!state.prefetchedCache || Number(state.prefetchedCache.pageUnit) !== currentUnit()) return false;
+      const currentKey = pageKey(currentPage());
+      const cursor = state.prefetchedCache.pages.findIndex(page => pageKey(page) === currentKey);
+      const target = cursor + direction * currentUnit();
+      if (cursor < 0 || target < 0 || target >= state.prefetchedCache.pages.length) return false;
+      state.cache = state.prefetchedCache;
+      state.cursor = cursor;
+      state.prefetchedCache = null;
+      updateNavigationButtons();
+      return true;
+    }
+
+    async function refreshCacheForNavigation() {
+      let refreshed = await refreshCacheWindow(true);
+      if (!refreshed && state.connected) {
+        // 后台预加载可能因翻页版本变化而作废；交互请求必须重新获取，不能吞掉本次点击。
+        refreshed = await refreshCache(true);
+      }
+      return refreshed;
+    }
+
+    async function navigate(direction, allowCacheExtension = true) {
+      if (state.turning) {
+        state.queuedDirection = direction;
+        return true;
+      }
+      const target = state.cursor + direction * currentUnit();
+      const outsideCache = !state.cache || target < 0 || target >= state.cache.pages.length;
+      if (outsideCache) {
+        const reachedBookBoundary = direction > 0
+          ? Boolean(state.cache?.reachedEnd)
+          : Boolean(state.cache?.reachedBeginning);
+        if (allowCacheExtension && state.connected && !reachedBookBoundary) {
+          return extendCacheAndNavigate(direction);
+        }
+        showCacheBoundary(direction > 0);
+        renderCurrent(false);
+        return false;
+      }
+      if (state.mode === 'spread') return gotoSpread(state.cursor / 2 + direction, true);
+      return gotoPage(target);
+    }
+
+    async function recordProgress() {
+      const page = currentPage();
+      if (!page || page.chapterIndex < 0) return;
+      state.progressVersion += 1;
+      clearTimeout(state.refreshTimer);
+      state.pendingProgress = { chapterIndex: page.chapterIndex, pageIndex: page.pageIndex, key: pageKey(page) };
+      await persist();
+      if (state.connected) await syncPendingProgress();
+    }
+
+    async function syncPendingProgress() {
+      if (!state.connected || !state.pendingProgress) return false;
+      if (state.syncPromise) return state.syncPromise;
+      state.syncPromise = (async () => {
+        try {
+          while (state.connected && state.pendingProgress) {
+            const pending = state.pendingProgress;
+            const query = `chapterIndex=${pending.chapterIndex}&pageIndex=${pending.pageIndex}`;
+            await api(`/api/progress/sync?${query}`, { method: 'POST' });
+            if (state.pendingProgress?.key === pending.key) state.pendingProgress = null;
+            await persist();
+          }
+          if (state.connected && !state.pendingProgress) {
+            if (isNearCacheBoundary()) prefetchCacheWindow();
+            else scheduleCacheRefresh();
+          }
+          return true;
+        } catch (error) {
+          setConnected(false, '等待重新连接');
+          return false;
+        }
+      })();
+      try {
+        return await state.syncPromise;
+      } finally {
+        state.syncPromise = null;
+        if (state.connected && state.pendingProgress) queueMicrotask(syncPendingProgress);
+      }
+    }
+
+    async function refreshCache(syncFirst = true) {
+      if (location.protocol === 'file:') return false;
+      if (syncFirst && state.pendingProgress && !(await syncPendingProgress())) return false;
+      const requestedVersion = state.progressVersion;
+      try {
+        const [payload, settings] = await Promise.all([
+          api(cacheEndpoint()),
+          api(`/api/settings?v=${Date.now()}`)
+        ]);
+        if (requestedVersion !== state.progressVersion || state.pendingProgress || state.turning) return false;
+        const oldSignature = visibleSignature(state.cache, state.cursor);
+        const refreshedCache = normalizeCache(payload);
+        const refreshedSignature = visibleSignature(refreshedCache, refreshedCache.anchorOffset);
+        state.cache = refreshedCache;
+        state.cursor = refreshedCache.anchorOffset;
+        state.prefetchedCache = null;
+        applySettings(settings);
+        setConnected(true);
+        if (oldSignature !== refreshedSignature) {
+          renderCurrent();
+        } else {
+          updateReadingMeta();
+          updateBookThickness();
+          state.preparedDirection = 0;
+          preloadTurn(1);
+        }
+        await persist();
+        return true;
+      } catch (error) {
+        setConnected(false);
+        return false;
+      }
+    }
+
+    async function refreshCacheWindow(syncFirst = true) {
+      if (state.cacheRefreshPromise) return state.cacheRefreshPromise;
+      state.cacheRefreshPromise = refreshCache(syncFirst);
+      try {
+        return await state.cacheRefreshPromise;
+      } finally {
+        state.cacheRefreshPromise = null;
+      }
+    }
+
+    async function prefetchCacheWindow() {
+      if (!state.connected || location.protocol === 'file:') return false;
+      if (Number(state.prefetchedCache?.pageUnit) === currentUnit()) return true;
+      state.prefetchedCache = null;
+      if (state.prefetchPromise) return state.prefetchPromise;
+      state.prefetchPromise = (async () => {
+        try {
+          state.prefetchedCache = normalizeCache(await api(cacheEndpoint()));
+          return true;
+        } catch (error) {
+          return false;
+        }
+      })();
+      try {
+        return await state.prefetchPromise;
+      } finally {
+        state.prefetchPromise = null;
+      }
+    }
+
+    function isNearCacheBoundary() {
+      if (!state.cache) return false;
+      const unit = currentUnit();
+      const nearBeginning = !state.cache.reachedBeginning && state.cursor <= 6 * unit;
+      const remaining = state.cache.pages.length - state.cursor - currentUnit();
+      const nearEnd = !state.cache.reachedEnd && remaining <= 16 * unit;
+      return nearBeginning || nearEnd;
+    }
+
+    function scheduleCacheRefresh(delay = 350) {
+      clearTimeout(state.refreshTimer);
+      state.refreshTimer = setTimeout(() => refreshCacheWindow(false), delay);
+    }
+
+    function connectEvents() {
+      if (location.protocol === 'file:') return;
+      if (state.eventSource) state.eventSource.close();
+      const source = new EventSource(`/api/stream?t=${encodeURIComponent(token())}`);
+      state.eventSource = source;
+      source.addEventListener('connected', async () => {
+        setConnected(true);
+        if (!(await syncPendingProgress())) await refreshCacheWindow(false);
+      });
+      source.addEventListener('pagechange', () => {
+        if (!state.pendingProgress && !state.turning) {
+          if (isNearCacheBoundary()) prefetchCacheWindow();
+          else scheduleCacheRefresh();
+        }
+      });
+      source.addEventListener('settingschange', event => {
+        state.prefetchedCache = null;
+        applySettings(JSON.parse(event.data));
+        persist();
+      });
+      source.onerror = () => {
+        source.close();
+        setConnected(false);
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = setTimeout(connectEvents, 3000);
+      };
+    }
+
+    function applyMode(mode) {
+      state.mode = ['spread', 'single', 'mobile'].includes(mode) ? mode : 'spread';
+      state.prefetchedCache = null;
+      elements.shell.className = `reader-shell mode-${state.mode}`;
+      document.body.classList.toggle('mode-mobile', state.mode === 'mobile');
+      document.querySelectorAll('.mode-option').forEach(button => {
+        const selected = button.dataset.mode === state.mode;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
+      if (state.mode !== 'mobile' && state.cursor % 2 === 1) state.cursor -= 1;
+      localStorage.setItem('lvread_web_reading_mode_v2', state.mode);
+      renderCurrent();
+      if (state.connected) prefetchCacheWindow();
+    }
+
+    let drag = null;
+    function startDrag(event, direction) {
+      if (state.mode !== 'spread' || state.turning || event.button !== 0) return;
+      if (!prepareTurn(direction)) {
+        const reachedBookBoundary = direction > 0
+          ? Boolean(state.cache?.reachedEnd)
+          : Boolean(state.cache?.reachedBeginning);
+        if (state.connected && !reachedBookBoundary) extendCacheAndNavigate(direction);
+        else showCacheBoundary(direction > 0);
+        return;
+      }
+      event.currentTarget.setPointerCapture(event.pointerId);
+      drag = { direction, startX: event.clientX, lastX: event.clientX, lastTime: performance.now(), velocity: 0 };
+    }
+    function moveDrag(event) {
+      if (!drag || !state.turning) return;
+      const now = performance.now();
+      const width = Math.max(elements.stage.clientWidth / 2, 1);
+      const progress = drag.direction > 0
+        ? (drag.startX - event.clientX) / width
+        : (event.clientX - drag.startX) / width;
+      drag.velocity = (event.clientX - drag.lastX) / Math.max(now - drag.lastTime, 1);
+      drag.lastX = event.clientX;
+      drag.lastTime = now;
+      renderCurl(progress);
+    }
+    function endDrag(cancelled) {
+      if (!drag || !state.turning) return;
+      const fastEnough = drag.direction > 0 ? drag.velocity < -.5 : drag.velocity > .5;
+      const commit = !cancelled && (state.turnProgress >= .34 || fastEnough);
+      drag = null;
+      finishTurn(commit);
+    }
+    elements.rightPage.addEventListener('pointerenter', () => preloadTurn(1));
+    elements.leftPage.addEventListener('pointerenter', () => preloadTurn(-1));
+    elements.rightPage.addEventListener('pointerdown', event => startDrag(event, 1));
+    elements.leftPage.addEventListener('pointerdown', event => startDrag(event, -1));
+    [elements.leftPage, elements.rightPage].forEach(page => {
+      page.addEventListener('pointermove', moveDrag);
+      page.addEventListener('pointerup', () => endDrag(false));
+      page.addEventListener('pointercancel', () => endDrag(true));
+    });
+
+    elements.prev.addEventListener('click', () => navigate(-1));
+    elements.next.addEventListener('click', () => navigate(1));
+    document.querySelectorAll('.mode-option').forEach(button => button.addEventListener('click', () => applyMode(button.dataset.mode)));
+    document.addEventListener('keydown', event => {
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key.toLowerCase() === 'k') {
+        event.preventDefault(); navigate(1);
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key.toLowerCase() === 'j') {
+        event.preventDefault(); navigate(-1);
+      }
+    });
+    window.addEventListener('resize', fitVisibleContent);
+
+    async function start() {
+      applyMode(localStorage.getItem('lvread_web_reading_mode_v2') || 'spread');
+      const restored = await restoreCache();
+      if (!restored && location.protocol === 'file:') {
+        state.cache = demoCache();
+        state.cursor = state.cache.anchorOffset;
+        renderCurrent();
+      }
+      if (location.protocol === 'file:') {
+        setConnected(false, '本地演示');
+        return;
+      }
+      if ('serviceWorker' in navigator) navigator.serviceWorker.register(`/sw.js?t=${encodeURIComponent(token())}`).catch(console.warn);
+      connectEvents();
+      if (!(await refreshCacheWindow(true)) && !state.cache) {
+        showToast('暂时无法连接 LVRead App，连接恢复后页面会自动加载书籍');
+      }
+      setInterval(async () => {
+        if (!state.connected) await refreshCacheWindow(true);
+      }, 5000);
+    }
+
+    start();
+  </script>
+</body>
+</html>
