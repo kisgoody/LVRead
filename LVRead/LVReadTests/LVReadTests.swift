@@ -203,21 +203,34 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("var(--reader-bg)"))
         XCTAssertTrue(html.contains("readerFontFamily"))
         XCTAssertFalse(html.contains("fitReadingText"))
-        XCTAssertTrue(html.contains("(Number(d.fontSize)||24)*1.12"))
-        XCTAssertTrue(html.contains("(Number(d.lineSpacing)||1.2)+.2"))
+        XCTAssertTrue(html.contains("Number(d.fontSize)||24"))
+        XCTAssertTrue(html.contains("Number(d.lineSpacing)||1.2"))
         XCTAssertTrue(html.contains("{cache:'no-store'}"))
-        XCTAssertTrue(html.contains("settingschange',function(e){applySettings(JSON.parse(e.data))"))
-        XCTAssertTrue(html.contains("setInterval(function(){loadPage();loadSettings();},2000)"))
+        XCTAssertTrue(html.contains("new WebSocket"))
+        XCTAssertTrue(html.contains("reconnectTimer=setTimeout(connectWebSocket,3000)"))
+        XCTAssertFalse(html.contains("EventSource"))
+        XCTAssertFalse(html.contains("/api/stream"))
+        XCTAssertTrue(html.contains("fetch('/api/book/archive"))
+        XCTAssertTrue(html.contains("fetch('/api/book/archive/status"))
+        XCTAssertTrue(html.contains("indexedDB.open('lvread-offline'"))
         XCTAssertFalse(html.contains("readingChapterTitle"))
-        XCTAssertTrue(html.contains("contentEl.textContent=d.content"))
-        XCTAssertTrue(html.contains("情况一：手机端未打开同步开关"))
-        XCTAssertTrue(html.contains("情况二：同步已打开，但 App 进入了后台"))
+        XCTAssertTrue(html.contains("id=\"leftContent\""))
+        XCTAssertTrue(html.contains("id=\"rightContent\""))
+        XCTAssertTrue(html.contains(".content{position:relative;flex:1;min-height:0;display:grid;grid-template-columns:1fr;"))
+        XCTAssertTrue(html.contains(".container.spread-mode .content{grid-template-columns:1fr 1fr;}"))
+        XCTAssertTrue(html.contains("data-mode=\"spread\""))
+        XCTAssertTrue(html.contains("整书缓存 0%"))
+        XCTAssertTrue(html.contains("archiveprogress"))
+        XCTAssertTrue(html.contains("archiveready"))
+        XCTAssertTrue(html.contains("@keyframes turnNext"))
+        XCTAssertTrue(html.contains("@keyframes turnPrev"))
+        XCTAssertTrue(html.contains("transform:rotateY(-180deg);animation:turnPrev"))
+        XCTAssertTrue(html.contains("applyRemoteProgress(d,true)"))
+        XCTAssertTrue(html.contains("live:live"))
+        XCTAssertTrue(html.contains("function fitRenderedPages()"))
+        XCTAssertTrue(html.contains("face.style.fontSize=fontSize"))
         XCTAssertTrue(html.contains("serviceWorker.register"))
         XCTAssertFalse(html.contains("disconnect-notice"))
-        XCTAssertTrue(html.contains("d.error==='end_of_book'"))
-        XCTAssertTrue(html.contains("d.error==='beginning_of_book'"))
-        XCTAssertFalse(html.contains("setTimeout(loadPage,700)"))
-        XCTAssertFalse(html.contains("contentEl.textContent='翻页失败：'"))
         XCTAssertTrue(html.contains("网页阅读模式"))
         XCTAssertTrue(html.contains("data-mode=\"default\""))
         XCTAssertTrue(html.contains("data-mode=\"mobile\""))
@@ -225,8 +238,29 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("lvread_web_reading_mode"))
         XCTAssertTrue(html.contains("classList.toggle('mobile-portrait'"))
         XCTAssertTrue(html.contains("html,body{height:100%;overflow:hidden;}"))
-        XCTAssertTrue(html.contains("function resizePortraitText()"))
-        XCTAssertTrue(html.contains("contentEl.scrollHeight>available"))
+        XCTAssertTrue(html.contains("function schedulePortraitResize()"))
+        XCTAssertTrue(html.contains("el.scrollHeight>height+1"))
+    }
+
+    func testWebSocketAcceptMatchesRFCExample() {
+        XCTAssertEqual(
+            WebSyncServer.webSocketAccept(for: "dGhlIHNhbXBsZSBub25jZQ=="),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        )
+    }
+
+    func testWebSocketFrameCodecDecodesMaskedClientText() throws {
+        let payload = Array("hello".utf8)
+        let mask: [UInt8] = [0x37, 0xFA, 0x21, 0x3D]
+        let masked = payload.enumerated().map { $0.element ^ mask[$0.offset % 4] }
+        let data = Data([0x81, 0x80 | UInt8(payload.count)] + mask + masked)
+
+        let result = try WebSocketFrameCodec.decodeFrames(from: data)
+
+        XCTAssertEqual(result.frames.count, 1)
+        XCTAssertEqual(result.frames.first?.opcode, .text)
+        XCTAssertEqual(String(data: result.frames[0].payload, encoding: .utf8), "hello")
+        XCTAssertTrue(result.remaining.isEmpty)
     }
 
     func testWebSyncPageSnapshotDecodesLegacyValueWithoutLayout() throws {

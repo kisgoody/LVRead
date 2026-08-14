@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Network
 import Security
 import UIKit
@@ -6,6 +7,91 @@ import UIKit
 extension Notification.Name {
     static let webSyncPageTurnRequested = Notification.Name("webSyncPageTurnRequested")
     static let webSyncConnectionStateChanged = Notification.Name("webSyncConnectionStateChanged")
+}
+
+enum WebSocketFrameCodec {
+    enum Opcode: UInt8 {
+        case text = 0x1
+        case close = 0x8
+        case ping = 0x9
+        case pong = 0xA
+    }
+
+    struct Frame {
+        let opcode: Opcode
+        let payload: Data
+    }
+
+    struct DecodeResult {
+        let frames: [Frame]
+        let remaining: Data
+    }
+
+    enum CodecError: Error {
+        case unsupportedFrame
+        case invalidLength
+    }
+
+    static func encode(_ payload: Data, opcode: Opcode) -> Data {
+        var result = Data([0x80 | opcode.rawValue])
+        switch payload.count {
+        case 0...125:
+            result.append(UInt8(payload.count))
+        case 126...65_535:
+            result.append(126)
+            var length = UInt16(payload.count).bigEndian
+            withUnsafeBytes(of: &length) { result.append(contentsOf: $0) }
+        default:
+            result.append(127)
+            var length = UInt64(payload.count).bigEndian
+            withUnsafeBytes(of: &length) { result.append(contentsOf: $0) }
+        }
+        result.append(payload)
+        return result
+    }
+
+    static func decodeFrames(from data: Data) throws -> DecodeResult {
+        var frames: [Frame] = []
+        var offset = 0
+        while data.count - offset >= 2 {
+            let first = data[offset]
+            let second = data[offset + 1]
+            guard first & 0x80 != 0,
+                  let opcode = Opcode(rawValue: first & 0x0F) else {
+                throw CodecError.unsupportedFrame
+            }
+            let masked = second & 0x80 != 0
+            var length = Int(second & 0x7F)
+            var headerLength = 2
+            if length == 126 {
+                guard data.count - offset >= 4 else { break }
+                length = Int(data[offset + 2]) << 8 | Int(data[offset + 3])
+                headerLength = 4
+            } else if length == 127 {
+                guard data.count - offset >= 10 else { break }
+                let value = data[(offset + 2)..<(offset + 10)].reduce(UInt64(0)) {
+                    ($0 << 8) | UInt64($1)
+                }
+                guard value <= UInt64(Int.max) else { throw CodecError.invalidLength }
+                length = Int(value)
+                headerLength = 10
+            }
+            let maskLength = masked ? 4 : 0
+            guard data.count - offset >= headerLength + maskLength + length else { break }
+            let maskStart = offset + headerLength
+            let payloadStart = maskStart + maskLength
+            var payload = Data(data[payloadStart..<(payloadStart + length)])
+            if masked {
+                let key = Array(data[maskStart..<(maskStart + 4)])
+                for index in payload.indices {
+                    payload[index] ^= key[index % 4]
+                }
+            }
+            frames.append(Frame(opcode: opcode, payload: payload))
+            offset = payloadStart + length
+        }
+        return DecodeResult(frames: frames, remaining: Data(data[offset...]))
+    }
 }
 
 enum WebSyncConnectionState: String, Equatable {
@@ -107,9 +193,27 @@ final class WebSyncServer {
         let updatedAt: Date
     }
 
-    private struct SSEClient {
+    private struct WebSocketClient {
         let connection: NWConnection
         let bookId: String
+    }
+
+    struct OfflineBookArchive: Codable {
+        struct OfflinePage: Codable {
+            let chapterIndex: Int
+            let pageIndex: Int
+            let chapterTitle: String
+            let content: String
+        }
+
+        let version: Int
+        let bookId: String
+        let title: String
+        let author: String
+        let pages: [OfflinePage]
+        var progress: ReadingProgress
+        let settings: ReadingSettings
+        let generatedAt: Date
     }
 
     enum StartError: LocalizedError {
@@ -161,12 +265,17 @@ final class WebSyncServer {
     private var currentBook: Book?
     private var currentPageIndex: Int = 0
     private var currentPageSnapshot: PageSnapshot?
+    private var currentArchive: OfflineBookArchive?
+    private var archiveBuildProgress = 0.0
+    private var archiveBuildError: String?
+    private var archiveBuildID: UUID?
 
-    /// SSE client connections keyed by a connection identifier.
-    private var sseConnections: [UUID: SSEClient] = [:]
-    private let sseLock = NSLock()
+    /// WebSocket connections keyed by a connection identifier.
+    private var webSocketConnections: [UUID: WebSocketClient] = [:]
+    private let webSocketLock = NSLock()
 
     private let serverQueue = DispatchQueue(label: "com.lvread.webSyncServer", qos: .utility)
+    private let archiveQueue = DispatchQueue(label: "com.lvread.webSyncArchive", qos: .utility)
 
     var connectionState: WebSyncConnectionState {
         stateLock.lock()
@@ -238,6 +347,9 @@ final class WebSyncServer {
     ) {
         storeSnapshot(page, for: book.id)
         let token = stableToken(for: book.id)
+        if currentBook?.id != book.id {
+            resetArchiveBuild()
+        }
         currentBook = book
         setActiveBookID(book.id)
         currentPageIndex = page.pageIndex
@@ -364,10 +476,10 @@ final class WebSyncServer {
         listener = nil
         activeListener?.cancel()
 
-        sseLock.lock()
-        let activeConnections = sseConnections.values.map(\.connection)
-        sseConnections.removeAll()
-        sseLock.unlock()
+        webSocketLock.lock()
+        let activeConnections = webSocketConnections.values.map(\.connection)
+        webSocketConnections.removeAll()
+        webSocketLock.unlock()
         activeConnections.forEach { $0.cancel() }
 
         removeObservers()
@@ -378,6 +490,10 @@ final class WebSyncServer {
         currentBook = nil
         setActiveBookID(nil)
         currentPageSnapshot = nil
+        currentArchive = nil
+        archiveBuildID = nil
+        archiveBuildProgress = 0
+        archiveBuildError = nil
     }
 
     func updateCurrentPage(bookId: String, page: PageSnapshot) {
@@ -386,6 +502,7 @@ final class WebSyncServer {
             self.storeSnapshot(page, for: bookId)
             guard self.isRunning else { return }
             if self.currentBook?.id != bookId {
+                self.resetArchiveBuild()
                 self.currentBook = BookRepository.shared.getById(bookId)
                 self.setActiveBookID(bookId)
             }
@@ -423,9 +540,10 @@ final class WebSyncServer {
                 return
             }
 
-            if self.isRunning {
-                self.stopOnQueue()
-            }
+            // A suspended app does not mean the listener has failed. Keep the
+            // existing listener and WebSocket sessions alive whenever possible;
+            // the browser owns reconnection after a passive network interruption.
+            guard !self.isRunning else { return }
             self.startOnQueue(with: book, page: saved.value.page) { result in
                 if case .failure(let error) = result {
                     print("[WebSyncServer] Foreground reconnect failed: \(error)")
@@ -540,46 +658,43 @@ final class WebSyncServer {
         return NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
     }
 
-    // MARK: - SSE Notifications
+    // MARK: - WebSocket Notifications
 
-    /// Notify connected SSE clients of a page change.
+    /// Notify connected WebSocket clients of a page change.
     public func notifyPageChanged(
         pageIndex: Int,
         chapterTitle: String,
         progressPercent: Double,
         bookId: String? = nil
     ) {
-        let escapedTitle = chapterTitle.replacingOccurrences(of: "\"", with: "\\\"")
-        let eventData = """
-        event: pagechange
-        data: {"pageIndex":\(pageIndex),"chapterTitle":"\(escapedTitle)","progressPercent":\(progressPercent)}
-
-        """
-        broadcastSSE(eventData, bookId: bookId ?? currentBook?.id)
+        let targetBookId = bookId ?? currentBook?.id
+        broadcastWebSocket([
+            "type": "pagechange",
+            "bookId": targetBookId ?? "",
+            "pageIndex": pageIndex,
+            "chapterIndex": currentPageSnapshot?.chapterIndex ?? 0,
+            "chapterTitle": chapterTitle,
+            "progressPercent": progressPercent,
+            "updatedAt": Date().timeIntervalSince1970
+        ], bookId: targetBookId)
     }
 
-    /// Notify connected SSE clients of a chapter change.
+    /// Notify connected WebSocket clients of a chapter change.
     public func notifyChapterChanged(chapterIndex: Int, chapterTitle: String) {
-        let escapedTitle = chapterTitle.replacingOccurrences(of: "\"", with: "\\\"")
-        let eventData = """
-        event: chapterchange
-        data: {"chapterIndex":\(chapterIndex),"chapterTitle":"\(escapedTitle)"}
-
-        """
-        broadcastSSE(eventData, bookId: currentBook?.id)
+        broadcastWebSocket([
+            "type": "chapterchange",
+            "chapterIndex": chapterIndex,
+            "chapterTitle": chapterTitle
+        ], bookId: currentBook?.id)
     }
 
-    /// Notify connected SSE clients of settings changes.
+    /// Notify connected WebSocket clients of settings changes.
     public func notifySettingsChanged(_ settings: ReadingSettings) {
-        guard let data = try? JSONSerialization.data(withJSONObject: settingsResponse(settings)),
-              let json = String(data: data, encoding: .utf8) else { return }
-        let eventData = """
-        event: settingschange
-        data: \(json)
-
-        """
-        // Reading appearance is global, so every connected browser must receive it.
-        broadcastSSE(eventData)
+        resetArchiveBuild()
+        var message = settingsResponse(settings)
+        message["type"] = "settingschange"
+        broadcastWebSocket(message)
+        broadcastWebSocket(["type": "archivechanged"])
     }
 
     // MARK: - Private: Connection Handling
@@ -604,11 +719,21 @@ final class WebSyncServer {
                 return
             }
 
-            let (method, path, queryParams, _) = self.parseHTTPRequest(requestString)
+            let (method, path, queryParams, headers) = self.parseHTTPRequest(requestString)
 
             let token = queryParams["t"] ?? ""
             guard !token.isEmpty, let requestBookId = self.activateBook(for: token) else {
                 self.sendErrorResponse(statusCode: 403, message: "Forbidden", to: connection)
+                return
+            }
+
+            if method == "GET", path == "/ws",
+               headers["upgrade"]?.lowercased() == "websocket" {
+                self.handleWebSocketUpgrade(
+                    connection,
+                    bookId: requestBookId,
+                    headers: headers
+                )
                 return
             }
 
@@ -631,8 +756,11 @@ final class WebSyncServer {
             case ("GET", "/api/settings"):
                 self.serveSettings(to: connection)
 
-            case ("GET", "/api/stream"):
-                self.handleSSEConnection(connection, bookId: requestBookId)
+            case ("GET", "/api/book/archive"):
+                self.serveBookArchive(to: connection)
+
+            case ("GET", "/api/book/archive/status"):
+                self.serveBookArchiveStatus(to: connection)
 
             case ("GET", "/api/progress"):
                 self.serveProgress(to: connection)
@@ -657,9 +785,6 @@ final class WebSyncServer {
             case ("POST", "/api/settings"):
                 let body = queryParams["body"] ?? ""
                 self.handleSettingsUpdate(connection: connection, body: body)
-
-            case ("GET", "/api/streamold"):
-                self.handleSSEConnection(connection, bookId: requestBookId)
 
             default:
                 self.sendErrorResponse(statusCode: 404, message: "Not Found", to: connection)
@@ -759,6 +884,165 @@ final class WebSyncServer {
         sendJSONResponse(info, to: connection)
     }
 
+    private func serveBookArchive(to connection: NWConnection) {
+        guard let book = currentBook else {
+            sendJSONResponse(["error": "No current book"], to: connection)
+            return
+        }
+        guard var archive = currentArchive, archive.bookId == book.id else {
+            beginArchiveBuildIfNeeded(for: book)
+            sendHTTPResponse(
+                statusCode: 202,
+                contentType: "application/json; charset=utf-8",
+                body: "{\"status\":\"building\",\"progress\":\(archiveBuildProgress)}",
+                to: connection
+            )
+            return
+        }
+        do {
+            archive.progress = BookRepository.shared.getById(book.id)?.readingProgress
+                ?? book.readingProgress
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .secondsSince1970
+            let data = try encoder.encode(archive)
+            guard let body = String(data: data, encoding: .utf8) else {
+                throw StartError.listener("无法编码离线书籍")
+            }
+            sendHTTPResponse(
+                statusCode: 200,
+                contentType: "application/json; charset=utf-8",
+                body: body,
+                to: connection
+            )
+        } catch {
+            print("[WebSyncServer] Failed to build offline archive: \(error)")
+            sendErrorResponse(statusCode: 500, message: "archive_failed", to: connection)
+        }
+    }
+
+    private func serveBookArchiveStatus(to connection: NWConnection) {
+        guard let book = currentBook else {
+            sendJSONResponse(["error": "No current book"], to: connection)
+            return
+        }
+        beginArchiveBuildIfNeeded(for: book)
+        sendJSONResponse([
+            "bookId": book.id,
+            "ready": currentArchive?.bookId == book.id,
+            "progress": archiveBuildProgress,
+            "error": archiveBuildError ?? NSNull()
+        ], to: connection)
+    }
+
+    private func resetArchiveBuild() {
+        currentArchive = nil
+        archiveBuildID = nil
+        archiveBuildProgress = 0
+        archiveBuildError = nil
+    }
+
+    private func beginArchiveBuildIfNeeded(for book: Book) {
+        guard currentArchive?.bookId != book.id, archiveBuildID == nil else { return }
+        let buildID = UUID()
+        archiveBuildID = buildID
+        archiveBuildProgress = 0
+        archiveBuildError = nil
+        var chapters = BookRepository.shared.getChapters(for: book.id)
+        if chapters.isEmpty {
+            chapters = [Chapter(bookId: book.id, title: L("正文"), orderIndex: 0)]
+        }
+        let layout = currentPageSnapshot?.layout ?? PageLayoutSnapshot(
+            size: CGSize(width: 390, height: 844),
+            safeAreaInsets: .zero,
+            usesContinuousInsets: false
+        )
+        let settings = ReadingSettingsRepository.shared.load()
+        archiveQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let archive = try self.makeBookArchive(
+                    for: book,
+                    chapters: chapters,
+                    layout: layout,
+                    settings: settings,
+                    progress: { completed, total in
+                        self.serverQueue.async {
+                            guard self.archiveBuildID == buildID else { return }
+                            self.archiveBuildProgress = Double(completed) / Double(max(total, 1))
+                            self.broadcastWebSocket([
+                                "type": "archiveprogress",
+                                "progress": self.archiveBuildProgress
+                            ], bookId: book.id)
+                        }
+                    }
+                )
+                self.serverQueue.async {
+                    guard self.archiveBuildID == buildID else { return }
+                    self.currentArchive = archive
+                    self.archiveBuildProgress = 1
+                    self.archiveBuildID = nil
+                    self.broadcastWebSocket([
+                        "type": "archiveready",
+                        "progress": 1
+                    ], bookId: book.id)
+                }
+            } catch {
+                self.serverQueue.async {
+                    guard self.archiveBuildID == buildID else { return }
+                    self.archiveBuildError = error.localizedDescription
+                    self.archiveBuildID = nil
+                    self.broadcastWebSocket([
+                        "type": "archiveerror",
+                        "message": error.localizedDescription
+                    ], bookId: book.id)
+                }
+            }
+        }
+    }
+
+    private func makeBookArchive(
+        for book: Book,
+        chapters: [Chapter],
+        layout: PageLayoutSnapshot,
+        settings: ReadingSettings,
+        progress: @escaping (Int, Int) -> Void
+    ) throws -> OfflineBookArchive {
+        let paginator = NativeDocumentChapterPaginator(
+            book: book,
+            chapters: chapters,
+            size: layout.size,
+            safeAreaInsets: layout.usesContinuousInsets ? .zero : layout.safeAreaInsets,
+            textInsets: layout.usesContinuousInsets
+                ? NativeDocumentTypography.continuousInsets(size: layout.size, settings: settings)
+                : nil,
+            settings: settings
+        )
+        var pages: [OfflineBookArchive.OfflinePage] = []
+        for chapterIndex in chapters.indices {
+            let chapterPages = try paginator.pages(at: chapterIndex)
+            pages.append(contentsOf: chapterPages.map {
+                OfflineBookArchive.OfflinePage(
+                    chapterIndex: $0.chapterIndex,
+                    pageIndex: $0.pageIndex,
+                    chapterTitle: $0.chapterTitle,
+                    content: $0.text
+                )
+            })
+            progress(chapterIndex + 1, chapters.count)
+        }
+        guard !pages.isEmpty else { throw StartError.listener("书籍没有可同步内容") }
+        return OfflineBookArchive(
+            version: 1,
+            bookId: book.id,
+            title: book.title,
+            author: book.author,
+            pages: pages,
+            progress: book.readingProgress,
+            settings: settings,
+            generatedAt: Date()
+        )
+    }
+
     private func serveCurrentPage(to connection: NWConnection) {
         guard let book = currentBook, let page = currentPageSnapshot else {
             sendJSONResponse(["error": "No current page"], to: connection)
@@ -810,77 +1094,214 @@ final class WebSyncServer {
         ]
     }
 
-    // MARK: - SSE Handling
+    // MARK: - WebSocket Handling
 
-    private func handleSSEConnection(_ connection: NWConnection, bookId: String) {
+    private func handleWebSocketUpgrade(
+        _ connection: NWConnection,
+        bookId: String,
+        headers: [String: String]
+    ) {
+        guard let key = headers["sec-websocket-key"], !key.isEmpty else {
+            sendErrorResponse(statusCode: 400, message: "Missing WebSocket key", to: connection)
+            return
+        }
+        let accept = Self.webSocketAccept(for: key)
+        let response = """
+        HTTP/1.1 101 Switching Protocols\r
+        Upgrade: websocket\r
+        Connection: Upgrade\r
+        Sec-WebSocket-Accept: \(accept)\r
+        \r
+        """
         let connectionId = UUID()
+        connection.send(content: response.data(using: .utf8), completion: .contentProcessed { [weak self] error in
+            guard let self, error == nil else {
+                connection.cancel()
+                return
+            }
+            self.webSocketLock.lock()
+            self.webSocketConnections[connectionId] = WebSocketClient(
+                connection: connection,
+                bookId: bookId
+            )
+            self.webSocketLock.unlock()
+            self.setConnectionState(.connected)
+            self.sendWebSocket([
+                "type": "connected",
+                "bookId": bookId,
+                "serverTime": Date().timeIntervalSince1970
+            ], to: connection)
+            self.receiveWebSocket(on: connection, connectionId: connectionId, buffer: Data())
+        })
+    }
 
-        sseLock.lock()
-        sseConnections[connectionId] = SSEClient(connection: connection, bookId: bookId)
-        sseLock.unlock()
-        setConnectionState(.connected)
+    static func webSocketAccept(for key: String) -> String {
+        let source = Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8)
+        return Data(Insecure.SHA1.hash(data: source)).base64EncodedString()
+    }
 
-        // Send SSE headers
-        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n"
-        connection.send(content: headers.data(using: .utf8)!, completion: .contentProcessed { _ in })
-
-        // Send an initial connected event
-        let connectedEvent = "event: connected\ndata: {\"status\":\"ok\"}\n\n"
-        connection.send(content: connectedEvent.data(using: .utf8)!, completion: .contentProcessed { _ in })
-
-        // A pending receive completes when the browser closes the EventSource.
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { [weak self] _, _, isComplete, error in
-            if isComplete || error != nil {
-                self?.removeSSEConnection(connectionId)
+    private func receiveWebSocket(
+        on connection: NWConnection,
+        connectionId: UUID,
+        buffer: Data
+    ) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, complete, error in
+            guard let self else { return }
+            if complete || error != nil {
+                self.removeWebSocketConnection(connectionId)
+                return
+            }
+            var pending = buffer
+            if let data { pending.append(data) }
+            do {
+                let decoded = try WebSocketFrameCodec.decodeFrames(from: pending)
+                for frame in decoded.frames {
+                    switch frame.opcode {
+                    case .text:
+                        self.handleWebSocketMessage(frame.payload, connection: connection)
+                    case .ping:
+                        connection.send(
+                            content: WebSocketFrameCodec.encode(frame.payload, opcode: .pong),
+                            completion: .contentProcessed { _ in }
+                        )
+                    case .close:
+                        self.removeWebSocketConnection(connectionId)
+                        return
+                    default:
+                        break
+                    }
+                }
+                self.receiveWebSocket(
+                    on: connection,
+                    connectionId: connectionId,
+                    buffer: decoded.remaining
+                )
+            } catch {
+                self.removeWebSocketConnection(connectionId)
             }
         }
-
-        // Keep-alive also detects half-open Wi-Fi/browser connections promptly.
-        sendKeepAlivePings(to: connection, connectionId: connectionId)
     }
 
-    private func sendKeepAlivePings(to connection: NWConnection, connectionId: UUID) {
-        serverQueue.asyncAfter(deadline: .now() + 5) { [weak self] in
-            guard let self = self else { return }
-
-            self.sseLock.lock()
-            let stillActive = self.sseConnections[connectionId] != nil
-            self.sseLock.unlock()
-
-            guard stillActive else { return }
-
-            let ping = ":keepalive\n\n"
-            connection.send(content: ping.data(using: .utf8)!, completion: .contentProcessed { [weak self] error in
-                if error != nil {
-                    self?.removeSSEConnection(connectionId)
-                } else {
-                    self?.sendKeepAlivePings(to: connection, connectionId: connectionId)
-                }
-            })
+    private func handleWebSocketMessage(_ data: Data, connection: NWConnection) {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String else { return }
+        switch type {
+        case "progress":
+            applyRemoteProgress(json, connection: connection)
+        case "ping":
+            sendWebSocket(["type": "pong"], to: connection)
+        default:
+            break
         }
     }
 
-    private func broadcastSSE(_ eventData: String, bookId: String? = nil) {
-        sseLock.lock()
-        let clients = Array(sseConnections.values)
-        sseLock.unlock()
-
-        guard let data = eventData.data(using: .utf8) else { return }
-
-        for client in clients where bookId == nil || client.bookId == bookId {
-            client.connection.send(content: data, completion: .contentProcessed { _ in })
+    private func applyRemoteProgress(_ json: [String: Any], connection: NWConnection) {
+        guard let book = currentBook,
+              let chapterIndex = json["chapterIndex"] as? Int,
+              let pageIndex = json["pageIndex"] as? Int,
+              let updatedAt = json["updatedAt"] as? TimeInterval else { return }
+        let remoteDate = Date(timeIntervalSince1970: updatedAt)
+        let storedBook = BookRepository.shared.getById(book.id) ?? book
+        let isLiveTurn = json["live"] as? Bool == true
+        guard isLiveTurn || remoteDate > storedBook.readingProgress.lastReadTimestamp else {
+            sendWebSocket(currentProgressMessage(for: storedBook), to: connection)
+            return
+        }
+        let archivePage = currentArchive?.pages.first(where: {
+            $0.chapterIndex == chapterIndex && $0.pageIndex == pageIndex
+        })
+        let cachedPage = PageCacheManager.shared.getPage(
+            bookId: book.id,
+            chapterIndex: chapterIndex,
+            pageIndex: pageIndex
+        )
+        guard archivePage != nil || cachedPage != nil else {
+            beginArchiveBuildIfNeeded(for: storedBook)
+            sendWebSocket(["type": "archivepending"], to: connection)
+            return
+        }
+        let chapterPageCount = currentArchive?.pages.filter {
+            $0.chapterIndex == chapterIndex
+        }.count ?? max((cachedPage?.pageIndex ?? 0) + 1, 1)
+        let snapshot = PageSnapshot(
+            pageIndex: archivePage?.pageIndex ?? cachedPage?.pageIndex ?? pageIndex,
+            content: archivePage?.content ?? cachedPage?.content ?? "",
+            chapterTitle: archivePage?.chapterTitle ?? cachedPage?.chapterTitle ?? "",
+            chapterIndex: archivePage?.chapterIndex ?? cachedPage?.chapterIndex ?? chapterIndex,
+            totalPages: max(chapterPageCount, 1),
+            layout: currentPageSnapshot?.layout
+        )
+        currentPageSnapshot = snapshot
+        currentPageIndex = pageIndex
+        storeSnapshot(snapshot, for: book.id)
+        let percent = progressPercent(bookId: book.id, page: snapshot)
+        BookRepository.shared.updateProgress(
+            bookId: book.id,
+            progress: ReadingProgress(
+                currentChapterIndex: chapterIndex,
+                currentPageOffset: pageIndex,
+                totalPages: snapshot.totalPages,
+                progressPercent: percent,
+                lastReadTimestamp: remoteDate
+            )
+        )
+        notifyPageChanged(
+            pageIndex: pageIndex,
+            chapterTitle: snapshot.chapterTitle,
+            progressPercent: percent,
+            bookId: book.id
+        )
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .webSyncPageTurnRequested,
+                object: nil,
+                userInfo: [
+                    "forward": chapterIndex > storedBook.readingProgress.currentChapterIndex
+                        || (chapterIndex == storedBook.readingProgress.currentChapterIndex
+                            && pageIndex > storedBook.readingProgress.currentPageOffset),
+                    "bookId": book.id,
+                    "chapterIndex": chapterIndex,
+                    "pageIndex": pageIndex
+                ]
+            )
         }
     }
 
-    private func removeSSEConnection(_ id: UUID) {
-        sseLock.lock()
-        let connection = sseConnections.removeValue(forKey: id)?.connection
-        let hasClients = !sseConnections.isEmpty
-        sseLock.unlock()
+    private func currentProgressMessage(for book: Book) -> [String: Any] {
+        [
+            "type": "progress",
+            "bookId": book.id,
+            "chapterIndex": book.readingProgress.currentChapterIndex,
+            "pageIndex": book.readingProgress.currentPageOffset,
+            "updatedAt": book.readingProgress.lastReadTimestamp.timeIntervalSince1970
+        ]
+    }
+
+    private func sendWebSocket(_ json: [String: Any], to connection: NWConnection) {
+        guard JSONSerialization.isValidJSONObject(json),
+              let data = try? JSONSerialization.data(withJSONObject: json) else { return }
+        connection.send(
+            content: WebSocketFrameCodec.encode(data, opcode: .text),
+            completion: .contentProcessed { _ in }
+        )
+    }
+
+    private func broadcastWebSocket(_ json: [String: Any], bookId: String? = nil) {
+        webSocketLock.lock()
+        let clients = Array(webSocketConnections.values)
+        webSocketLock.unlock()
+        clients.filter { bookId == nil || $0.bookId == bookId }.forEach {
+            sendWebSocket(json, to: $0.connection)
+        }
+    }
+
+    private func removeWebSocketConnection(_ id: UUID) {
+        webSocketLock.lock()
+        let connection = webSocketConnections.removeValue(forKey: id)?.connection
+        let hasClients = !webSocketConnections.isEmpty
+        webSocketLock.unlock()
         connection?.cancel()
-        if isRunning && !hasClients {
-            setConnectionState(.connecting)
-        }
+        if isRunning && !hasClients { setConnectionState(.connecting) }
     }
 
     // MARK: - HTTP Response Helpers
@@ -933,6 +1354,8 @@ final class WebSyncServer {
     private func statusMessage(for code: Int) -> String {
         switch code {
         case 200: return "OK"
+        case 202: return "Accepted"
+        case 400: return "Bad Request"
         case 403: return "Forbidden"
         case 404: return "Not Found"
         case 500: return "Internal Server Error"
@@ -1248,7 +1671,7 @@ final class WebSyncServer {
     private func webReaderServiceWorker(token: String) -> String {
         let escapedToken = token.replacingOccurrences(of: "'", with: "")
         return """
-        const cacheName='lvread-reader-v1';
+        const cacheName='lvread-reader-v4';
         const readerURL='/?t=\(escapedToken)';
         self.addEventListener('install',event=>event.waitUntil(
           caches.open(cacheName).then(cache=>cache.add(readerURL)).then(()=>self.skipWaiting())
@@ -1279,7 +1702,7 @@ final class WebSyncServer {
         html,body{height:100%;overflow:hidden;}
         body{height:100vh;height:100dvh;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--reader-panel);color:var(--reader-text);transition:background-color .2s,color .2s;}
         .topbar{height:64px;flex:0 0 64px;background:var(--reader-control);padding:0 32px;display:flex;align-items:center;justify-content:space-between;z-index:10;border-bottom:1px solid color-mix(in srgb,var(--reader-text) 12%,transparent);}
-        .topbar-left,.brand,.topbar-right,.chapter-meta,.status,.reading-mode-control{display:flex;align-items:center;}
+        .topbar-left,.brand,.topbar-right,.chapter-meta,.status,.cache-status,.reading-mode-control{display:flex;align-items:center;}
         .topbar-left{gap:16px;min-width:0;}
         .brand{gap:8px;color:var(--reader-accent);font-size:20px;font-weight:700;letter-spacing:.5px;white-space:nowrap;}
         .brand-mark{position:relative;width:24px;height:24px;}
@@ -1292,6 +1715,8 @@ final class WebSyncServer {
         .chapter-meta{font-size:13px;color:var(--reader-text);opacity:.78;white-space:nowrap;}
         .chapter-meta #pageInfo{margin-left:8px;padding-left:8px;border-left:1px solid color-mix(in srgb,var(--reader-text) 18%,transparent);}
         .status{font-size:12px;color:var(--reader-text);opacity:.72;gap:8px;padding-left:16px;border-left:1px solid color-mix(in srgb,var(--reader-text) 18%,transparent);}
+        .cache-status{font-size:12px;color:var(--reader-text);opacity:.72;gap:6px;white-space:nowrap;}
+        .cache-status.ready{color:var(--reader-accent);opacity:1;}
         .dot{width:8px;height:8px;border-radius:50%;background:var(--reader-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--reader-accent) 12%,transparent);}
         .reading-mode-control{height:44px;padding:4px;background:color-mix(in srgb,var(--reader-text) 7%,var(--reader-control));border:1px solid color-mix(in srgb,var(--reader-text) 12%,transparent);border-radius:12px;white-space:nowrap;}
         .mode-option{height:36px;min-width:80px;padding:0 16px;background:transparent;color:var(--reader-text);border:0;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .15s,color .15s,transform .15s;}
@@ -1302,9 +1727,23 @@ final class WebSyncServer {
         .mode-option:disabled{opacity:.45;cursor:not-allowed;}
         .container{width:min(1120px,calc(100% - 48px));flex:1;min-height:0;margin:0 auto;padding:24px 0 16px;display:flex;flex-direction:column;}
         .container.mobile-portrait{width:min(430px,calc(100% - 32px));}
-        .container.mobile-portrait .content{padding:32px;}
-        .content{flex:1;min-height:0;background:var(--reader-bg);color:var(--reader-text);border:1px solid color-mix(in srgb,var(--reader-text) 12%,transparent);border-radius:12px;padding:40px 64px;overflow:hidden;box-shadow:0 8px 40px color-mix(in srgb,var(--reader-text) 10%,transparent);transition:background-color .2s,color .2s,border-color .2s;}
+        .container.mobile-portrait .paper{padding:32px;}
+        .content{position:relative;flex:1;min-height:0;display:grid;grid-template-columns:1fr;background:var(--reader-bg);color:var(--reader-text);border:1px solid color-mix(in srgb,var(--reader-text) 12%,transparent);border-radius:12px;overflow:hidden;box-shadow:0 8px 40px color-mix(in srgb,var(--reader-text) 10%,transparent);perspective:1800px;transition:background-color .2s,color .2s,border-color .2s;}
+        .paper{position:relative;min-width:0;padding:40px 48px;overflow:hidden;background:var(--reader-bg);}
+        .paper.right{display:none;}
+        .container.spread-mode .content{grid-template-columns:1fr 1fr;}
+        .container.spread-mode .paper.left{border-right:1px solid color-mix(in srgb,var(--reader-text) 10%,transparent);box-shadow:inset -18px 0 24px -28px rgba(0,0,0,.55);}
+        .container.spread-mode .paper.right{display:block;box-shadow:inset 18px 0 24px -28px rgba(0,0,0,.55);}
         .content-text{font-family:var(--reader-font-family);font-size:var(--reader-font-size);line-height:var(--reader-line-height);white-space:pre-wrap;overflow-wrap:anywhere;text-align:justify;}
+        .turn-sheet{position:absolute;top:0;bottom:0;width:50%;z-index:5;transform-style:preserve-3d;pointer-events:none;will-change:transform;}
+        .turn-sheet.next{left:50%;transform-origin:left center;animation:turnNext .86s cubic-bezier(.25,.65,.22,1) forwards;}
+        .turn-sheet.prev{left:0;transform-origin:right center;transform:rotateY(-180deg);animation:turnPrev .86s cubic-bezier(.25,.65,.22,1) forwards;}
+        .turn-face{position:absolute;inset:0;padding:40px 48px;overflow:hidden;background:var(--reader-bg);backface-visibility:hidden;font-family:var(--reader-font-family);font-size:var(--reader-font-size);line-height:var(--reader-line-height);color:var(--reader-text);white-space:pre-wrap;overflow-wrap:anywhere;text-align:justify;box-shadow:0 0 18px rgba(0,0,0,.12);}
+        .turn-face:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,rgba(0,0,0,.22),transparent 18%,transparent 72%,rgba(255,255,255,.18));opacity:0;animation:pageShade .86s ease-in-out;}
+        .turn-face.back{transform:rotateY(180deg);filter:brightness(.94);}
+        @keyframes turnNext{0%{transform:rotateY(0deg) skewY(0deg)}35%{transform:rotateY(-62deg) skewY(-1.2deg)}68%{transform:rotateY(-132deg) skewY(.8deg)}100%{transform:rotateY(-180deg) skewY(0deg)}}
+        @keyframes turnPrev{0%{transform:rotateY(-180deg) skewY(0deg)}32%{transform:rotateY(-128deg) skewY(-.8deg)}68%{transform:rotateY(-48deg) skewY(1.2deg)}100%{transform:rotateY(0deg) skewY(0deg)}}
+        @keyframes pageShade{0%,100%{opacity:0}45%,60%{opacity:1}}
         .controls{display:flex;justify-content:center;gap:24px;margin-top:16px;}
         .controls button{min-width:152px;min-height:48px;background:var(--reader-control);color:var(--reader-accent);border:1px solid color-mix(in srgb,var(--reader-text) 18%,transparent);padding:8px 24px;border-radius:12px;font-size:14px;cursor:pointer;font-weight:600;transition:background-color .15s,border-color .15s,transform .15s;}
         .controls button:hover{background:color-mix(in srgb,var(--reader-accent) 10%,var(--reader-control));border-color:var(--reader-accent);}
@@ -1312,7 +1751,8 @@ final class WebSyncServer {
         .controls button:disabled{opacity:.45;cursor:not-allowed;}
         .shortcuts{height:32px;margin-top:8px;text-align:center;font-size:12px;color:var(--reader-text);opacity:.58;line-height:32px;}
         .shortcuts kbd{display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;background:var(--reader-control);color:var(--reader-accent);padding:0 8px;border-radius:8px;font-family:monospace;font-size:12px;border:1px solid color-mix(in srgb,var(--reader-text) 18%,transparent);}
-        @media(max-width:760px){.topbar{padding:0 16px;gap:8px;}.separator,.status,.chapter-meta{display:none;}.book-title{max-width:24vw;font-size:12px;}.topbar-right{gap:8px;}.mode-option{min-width:64px;padding:0 12px;}.container,.container.mobile-portrait{width:calc(100% - 24px);padding:16px 0 8px;}.content,.container.mobile-portrait .content{padding:24px;}.controls{margin-top:8px;}.controls button{min-width:120px;}.shortcuts{margin-top:0;}}
+        @media(max-width:760px){.topbar{padding:0 16px;gap:8px;}.separator,.status,.chapter-meta{display:none;}.book-title{max-width:24vw;font-size:12px;}.topbar-right{gap:8px;}.mode-option{min-width:64px;padding:0 12px;}.container,.container.mobile-portrait{width:calc(100% - 24px);padding:16px 0 8px;}.paper,.turn-face{padding:24px;}.controls{margin-top:8px;}.controls button{min-width:120px;}.shortcuts{margin-top:0;}}
+        @media(prefers-reduced-motion:reduce){.turn-sheet.next,.turn-sheet.prev{animation-duration:.01ms;}}
         @media(max-width:520px){.book-title,.separator{display:none;}}
         </style>
         </head>
@@ -1327,14 +1767,17 @@ final class WebSyncServer {
         <div class="reading-mode-control" role="group" aria-label="网页阅读模式">
         <button class="mode-option selected" type="button" data-mode="default" aria-pressed="true">默认</button>
         <button class="mode-option" type="button" data-mode="mobile" aria-pressed="false">手机竖屏</button>
+        <button class="mode-option" type="button" data-mode="spread" aria-pressed="false">双页</button>
         </div>
         <div class="chapter-meta"><span id="chapterTitle"></span><span id="pageInfo"></span></div>
+        <div class="cache-status" id="cacheStatus">整书缓存 0%</div>
         <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">已连接</span></div>
         </div>
         </div>
         <div class="container" id="readerContainer">
-        <article class="content" id="readingPage">
-        <div class="content-text" id="content">正在加载…</div>
+        <article class="content" id="readingPage" aria-live="polite">
+        <section class="paper left"><div class="content-text" id="leftContent">正在加载…</div></section>
+        <section class="paper right"><div class="content-text" id="rightContent"></div></section>
         </article>
         <div class="controls">
         <button id="prevBtn" onclick="prevPage()">&#9664; 上一页</button>
@@ -1345,46 +1788,55 @@ final class WebSyncServer {
         </div>
         </div>
         <script>
-        var currentPage=0,totalPages=1,bookTitle='';
-        var contentEl=document.getElementById('content');
+        var currentIndex=0,totalPages=0,bookTitle='',archive=null,ws=null,reconnectTimer=null,archivePollTimer=null,turning=false,readingMode='default';
+        var leftContentEl=document.getElementById('leftContent');
+        var rightContentEl=document.getElementById('rightContent');
         var bookTitleEl=document.getElementById('bookTitle');
         var pageInfoEl=document.getElementById('pageInfo');
         var chapterTitleEl=document.getElementById('chapterTitle');
         var statusDot=document.getElementById('statusDot');
         var statusText=document.getElementById('statusText');
+        var cacheStatus=document.getElementById('cacheStatus');
         var readingModeButtons=document.querySelectorAll('.mode-option');
         var readerContainer=document.getElementById('readerContainer');
         var readingPage=document.getElementById('readingPage');
         var readingModeStorageKey='lvread_web_reading_mode';
         var readerBaseFontSize=26;
-        function resizePortraitText(){contentEl.style.fontSize='';if(!readerContainer.classList.contains('mobile-portrait')){return;}var pageStyle=getComputedStyle(readingPage);var available=readingPage.clientHeight-parseFloat(pageStyle.paddingTop)-parseFloat(pageStyle.paddingBottom);var size=readerBaseFontSize;contentEl.style.fontSize=size+'px';while(size>10&&contentEl.scrollHeight>available){size-=.5;contentEl.style.fontSize=size+'px';}}
-        function schedulePortraitResize(){requestAnimationFrame(resizePortraitText);}
-        function applyWebReadingMode(mode){var nextMode=mode==='mobile'?'mobile':'default';readerContainer.classList.toggle('mobile-portrait',nextMode==='mobile');readingModeButtons.forEach(function(button){var selected=button.dataset.mode===nextMode;button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',selected);});try{localStorage.setItem(readingModeStorageKey,nextMode);}catch(e){console.warn('无法保存网页阅读模式',e);}schedulePortraitResize();}
+        function fitRenderedPages(){var visible=readingMode==='spread'?[leftContentEl,rightContentEl]:[leftContentEl];visible.forEach(function(el){el.style.fontSize='';});var size=readerBaseFontSize;function overflows(el){var paper=el.parentElement,style=getComputedStyle(paper),height=paper.clientHeight-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom);return el.scrollHeight>height+1;}while(size>12&&visible.some(overflows)){size-=.5;visible.forEach(function(el){el.style.fontSize=size+'px';});}}
+        function schedulePortraitResize(){requestAnimationFrame(function(){fitRenderedPages();});}
+        function pagesPerView(){return readingMode==='spread'?2:1;}
+        function applyWebReadingMode(mode){var nextMode=mode==='mobile'||mode==='spread'?mode:'default';var anchor=pageAt(0);readingMode=nextMode;readerContainer.classList.toggle('mobile-portrait',nextMode==='mobile');readerContainer.classList.toggle('spread-mode',nextMode==='spread');if(anchor&&archive){var found=archive.pages.indexOf(anchor);currentIndex=nextMode==='spread'?Math.floor(found/2)*2:found;}readingModeButtons.forEach(function(button){var selected=button.dataset.mode===nextMode;button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',selected);});try{localStorage.setItem(readingModeStorageKey,nextMode);}catch(e){console.warn('无法保存网页阅读模式',e);}renderPages(false);}
         function loadWebReadingMode(){var mode='default';try{mode=localStorage.getItem(readingModeStorageKey)||mode;}catch(e){console.warn('无法读取网页阅读模式',e);}applyWebReadingMode(mode);}
-        function applyPage(d){if(d.error){throw new Error(d.error);}var title=d.chapterTitle||'';contentEl.textContent=d.content||'当前页面暂无可同步文字';bookTitle=d.bookTitle||bookTitle;bookTitleEl.textContent=bookTitle||'LVRead';totalPages=d.totalPages||1;currentPage=d.pageIndex||0;chapterTitleEl.textContent=title;pageInfoEl.textContent=(currentPage+1)+' / '+totalPages;schedulePortraitResize();}
-        function offlineMessage(){return '无法连接到 LVRead。\\n\\n情况一：手机端未打开同步开关。请打开 LVRead，在书架或阅读页点击电脑图标，再点击“打开同步”。\\n\\n情况二：同步已打开，但 App 进入了后台。iOS 会暂停局域网服务，请将 LVRead 切回前台，本页面会自动重新连接。';}
-        function loadPage(){fetch('/api/page/current?t='+token()).then(r=>r.json()).then(d=>{applyPage(d);setStatus(true);}).catch(e=>{contentEl.textContent=offlineMessage();console.error(e);});}
-        function loadBookInfo(){fetch('/api/book/info?t='+token()).then(r=>r.json()).then(d=>{if(d.title){bookTitle=d.title;bookTitleEl.textContent=d.title;}}).catch(e=>{});}
+        function openArchiveDB(){return new Promise(function(resolve,reject){var request=indexedDB.open('lvread-offline',1);request.onupgradeneeded=function(){if(!request.result.objectStoreNames.contains('books')){request.result.createObjectStore('books',{keyPath:'bookId'});}};request.onsuccess=function(){resolve(request.result);};request.onerror=function(){reject(request.error);};});}
+        function saveArchive(){if(!archive||!archive._complete){return Promise.resolve();}return openArchiveDB().then(function(db){return new Promise(function(resolve,reject){var tx=db.transaction('books','readwrite');tx.objectStore('books').put(archive);tx.oncomplete=function(){try{localStorage.setItem('lvread_last_book_id',archive.bookId);}catch(e){}db.close();resolve();};tx.onerror=function(){reject(tx.error);};});});}
+        function loadCachedArchive(){return openArchiveDB().then(function(db){return new Promise(function(resolve,reject){var id='';try{id=localStorage.getItem('lvread_last_book_id')||'';}catch(e){}var store=db.transaction('books','readonly').objectStore('books');var request=id?store.get(id):store.getAll();request.onsuccess=function(){var result=id?request.result:(request.result||[]).pop();db.close();if(result&&result._complete){archive=result;prepareArchive();renderPages(false);setCacheProgress(1,false,true);resolve(true);}else{resolve(false);}};request.onerror=function(){db.close();reject(request.error);};});}).catch(function(e){console.warn('无法读取离线书籍',e);return false;});}
+        function prepareArchive(){archive.pages=Array.isArray(archive.pages)?archive.pages:[];totalPages=archive.pages.length;bookTitle=archive.title||bookTitle;bookTitleEl.textContent=bookTitle||'LVRead';var progress=archive.progress||{};var pageIndex=Number(progress.pageIndex!==undefined?progress.pageIndex:progress.currentPageOffset)||0;var chapterIndex=Number(progress.chapterIndex!==undefined?progress.chapterIndex:progress.currentChapterIndex)||0;var index=archive.pages.findIndex(function(page){return page.chapterIndex===chapterIndex&&page.pageIndex===pageIndex;});currentIndex=Math.max(index,0);if(readingMode==='spread'){currentIndex=Math.floor(currentIndex/2)*2;}if(archive.settings){applySettings(archive.settings);}}
+        function pageAt(offset){return archive&&archive.pages?archive.pages[currentIndex+offset]:null;}
+        function renderPages(animate,direction){if(!archive){return;}var oldLeft=leftContentEl.textContent,oldRight=rightContentEl.textContent;var left=pageAt(0),right=readingMode==='spread'?pageAt(1):null;var title=(left||right||{}).chapterTitle||'';leftContentEl.textContent=left?left.content:'';rightContentEl.textContent=right?right.content:'';fitRenderedPages();if(animate&&readingMode==='spread'){animateTurn(direction,oldLeft,oldRight,left,right);}chapterTitleEl.textContent=title;var first=totalPages?currentIndex+1:0;var last=Math.min(currentIndex+pagesPerView(),totalPages);pageInfoEl.textContent=totalPages?(first+(last>first?'–'+last:'')+' / '+totalPages):'0 / 0';document.getElementById('prevBtn').disabled=currentIndex<=0;document.getElementById('nextBtn').disabled=currentIndex+pagesPerView()>=totalPages;}
+        function animateTurn(direction,oldLeft,oldRight,left,right){var sheet=document.createElement('div');var fontSize=getComputedStyle(direction==='next'?rightContentEl:leftContentEl).fontSize;sheet.className='turn-sheet '+direction;sheet.innerHTML='<div class="turn-face front"></div><div class="turn-face back"></div>';sheet.querySelector('.front').textContent=direction==='next'?oldRight:(left?left.content:'');sheet.querySelector('.back').textContent=direction==='next'?(left?left.content:''):oldLeft;sheet.querySelectorAll('.turn-face').forEach(function(face){face.style.fontSize=fontSize;});readingPage.appendChild(sheet);turning=true;sheet.addEventListener('animationend',function(){sheet.remove();turning=false;},{once:true});}
+        function progressTime(progress){return Number(progress&&(progress.updatedAt||progress.lastReadTimestamp))||0;}
+        function setCacheProgress(value,error,ready){var percent=Math.max(0,Math.min(100,Math.round(Number(value||0)*100)));cacheStatus.classList.toggle('ready',!!ready&&!error);cacheStatus.textContent=error?'整书缓存失败':ready?'✓ 已离线缓存':'整书缓存 '+percent+'%';}
+        function fetchCurrentPage(){if(archive&&archive._complete){return Promise.resolve();}return fetch('/api/page/current?t='+token(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(page){archive={bookId:page.bookId,title:page.bookTitle,pages:[{chapterIndex:page.chapterIndex,pageIndex:page.pageIndex,chapterTitle:page.chapterTitle,content:page.content}],progress:{chapterIndex:page.chapterIndex,pageIndex:page.pageIndex},_complete:false};currentIndex=0;totalPages=1;bookTitle=page.bookTitle||'';bookTitleEl.textContent=bookTitle||'LVRead';renderPages(false);});}
+        function fetchArchive(){var localProgress=archive&&archive.progress;return fetch('/api/book/archive?t='+token(),{cache:'no-store'}).then(function(r){if(r.status===202){throw new Error('archive_building');}if(!r.ok){throw new Error('archive '+r.status);}return r.json();}).then(function(data){if(progressTime(localProgress)>progressTime(data.progress)){data.progress=localProgress;}data._complete=true;archive=data;prepareArchive();renderPages(false);return saveArchive().then(function(){setCacheProgress(1,false,true);sendProgress(false);});}).catch(function(error){if(error.message!=='archive_building'){setCacheProgress(0,true,false);}throw error;});}
+        function pollArchiveStatus(){clearTimeout(archivePollTimer);fetch('/api/book/archive/status?t='+token(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(status){setCacheProgress(status.progress,status.error);if(status.ready){return fetchArchive();}if(!status.error){archivePollTimer=setTimeout(pollArchiveStatus,500);}}).catch(function(){archivePollTimer=setTimeout(pollArchiveStatus,1500);});}
         function token(){return new URLSearchParams(window.location.search).get('t')||'';}
-        function turnPage(direction){fetch('/api/page/turn?t='+encodeURIComponent(token())+'&direction='+direction,{method:'POST'}).then(r=>r.json()).then(d=>{if(d.error==='end_of_book'){statusText.textContent='已到全书末尾';return;}if(d.error==='beginning_of_book'){statusText.textContent='已到全书开头';return;}if(!d.success){throw new Error(d.error||'翻页失败');}loadPage();}).catch(e=>{statusText.textContent='翻页失败';console.error(e);});}
+        function sendProgress(markNow){if(!archive||!archive.pages.length){return;}var page=pageAt(0);var previous=archive.progress||{};var live=markNow!==false;var message={type:'progress',bookId:archive.bookId,chapterIndex:page.chapterIndex,pageIndex:page.pageIndex,updatedAt:live?Date.now()/1000:progressTime(previous),live:live};archive.progress=message;saveArchive().catch(function(e){console.warn('无法保存阅读进度',e);});if(ws&&ws.readyState===WebSocket.OPEN){ws.send(JSON.stringify(message));}}
+        function turnPage(direction){if(turning||!archive){return;}var next=currentIndex+(direction==='next'?pagesPerView():-pagesPerView());var max=Math.max(0,totalPages-1);if(next<0||next>max){statusText.textContent=next<0?'已到全书开头':'已到全书末尾';return;}currentIndex=next;renderPages(true,direction);sendProgress();}
         function prevPage(){turnPage('prev');}
         function nextPage(){turnPage('next');}
         function readerFontFamily(name){if(!name||name==='system-zh'||name==='system-en'||name.indexOf('系统')>=0){return '-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';}if(name==='pingfang-sc'){return '"PingFang SC",-apple-system,BlinkMacSystemFont,sans-serif';}if(name==='pingfang-tc'){return '"PingFang TC","PingFang HK","PingFang SC",sans-serif';}if(name==='fangsong-sc'||name.indexOf('仿宋')>=0){return '"FangSong","STFangsong",serif';}if(name==='kaiti-sc'||name.indexOf('楷体')>=0){return '"Kaiti SC","STKaiti","KaiTi",serif';}if(name==='songti-sc'||name.indexOf('宋体')>=0){return '"Songti SC","STSong","SimSun",serif';}if(name==='heiti-sc'||name.indexOf('黑体')>=0){return '"Heiti SC","STHeiti",sans-serif';}if(name==='sf-pro'){return '-apple-system,BlinkMacSystemFont,sans-serif';}if(name==='new-york'){return '"New York",Georgia,serif';}if(name==='avenir-next'){return '"Avenir Next",Avenir,sans-serif';}if(name==='helvetica-neue'){return '"Helvetica Neue",Helvetica,Arial,sans-serif';}if(name.indexOf('custom:')===0){name=name.slice(7);}return name+',serif';}
-        function applySettings(d){var root=document.documentElement.style;var fontSize=Math.max(18,Math.min(30,(Number(d.fontSize)||24)*1.12));var lineHeight=Math.max(1.45,Math.min(2.2,(Number(d.lineSpacing)||1.2)+.2));readerBaseFontSize=fontSize;root.setProperty('--reader-bg',d.backgroundColor||'#FFFDF8');root.setProperty('--reader-text',d.textColor||'#24211D');root.setProperty('--reader-accent',d.accentColor||'#236D67');root.setProperty('--reader-panel',d.panelColor||'#F5F2EC');root.setProperty('--reader-control',d.controlSurfaceColor||'#FFFDF8');root.setProperty('--reader-font-size',fontSize+'px');root.setProperty('--reader-line-height',lineHeight);root.setProperty('--reader-font-family',readerFontFamily(d.fontFamily));schedulePortraitResize();}
+        function applySettings(d){var root=document.documentElement.style;var fontSize=Math.max(16,Math.min(30,Number(d.fontSize)||24));var lineHeight=Math.max(1.2,Math.min(2.2,Number(d.lineSpacing)||1.2));readerBaseFontSize=fontSize;root.setProperty('--reader-bg',d.backgroundColor||'#FFFDF8');root.setProperty('--reader-text',d.textColor||'#24211D');root.setProperty('--reader-accent',d.accentColor||'#236D67');root.setProperty('--reader-panel',d.panelColor||'#F5F2EC');root.setProperty('--reader-control',d.controlSurfaceColor||'#FFFDF8');root.setProperty('--reader-font-size',fontSize+'px');root.setProperty('--reader-line-height',lineHeight);root.setProperty('--reader-font-family',readerFontFamily(d.fontFamily));schedulePortraitResize();}
         function loadSettings(){fetch('/api/settings?t='+token()+'&v='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(applySettings).catch(e=>console.error(e));}
         function setStatus(ok){statusDot.style.background=ok?'var(--reader-accent)':'#C94A45';statusText.textContent=ok?'已连接':'连接已断开';}
         readingModeButtons.forEach(function(button){button.addEventListener('click',function(){applyWebReadingMode(button.dataset.mode);});});
         window.addEventListener('resize',schedulePortraitResize);
         document.addEventListener('keydown',function(e){if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key==='j'){e.preventDefault();nextPage();}else if(e.key==='ArrowLeft'||e.key==='ArrowUp'||e.key==='k'){e.preventDefault();prevPage();}});
-        var es=null,reconnectTimer=null;
-        function connectSSE(){if(es){es.close();}es=new EventSource('/api/stream?t='+token());es.addEventListener('connected',function(){setStatus(true);});es.addEventListener('pagechange',loadPage);es.addEventListener('chapterchange',function(e){var d=JSON.parse(e.data);chapterTitleEl.textContent=d.chapterTitle;});es.addEventListener('settingschange',function(e){applySettings(JSON.parse(e.data));});es.onerror=function(){setStatus(false);es.close();clearTimeout(reconnectTimer);reconnectTimer=setTimeout(connectSSE,3000);};}
+        function applyRemoteProgress(d,live,retried){if(!archive||d.bookId!==archive.bookId){return;}if(!live&&progressTime(archive.progress)>progressTime(d)){sendProgress(false);return;}var found=archive.pages.findIndex(function(page){return page.chapterIndex===Number(d.chapterIndex)&&page.pageIndex===Number(d.pageIndex);});if(found>=0){currentIndex=readingMode==='spread'?Math.floor(found/2)*2:found;renderPages(false);archive.progress=d;saveArchive().catch(console.warn);}else if(live&&!retried){fetchArchive().then(function(){applyRemoteProgress(d,true,true);}).catch(console.warn);}}
+        function connectWebSocket(){clearTimeout(reconnectTimer);if(ws&&(ws.readyState===WebSocket.OPEN||ws.readyState===WebSocket.CONNECTING)){return;}var protocol=location.protocol==='https:'?'wss:':'ws:';ws=new WebSocket(protocol+'//'+location.host+'/ws?t='+encodeURIComponent(token()));ws.onopen=function(){setStatus(true);sendProgress(false);pollArchiveStatus();};ws.onmessage=function(event){try{var d=JSON.parse(event.data);if(d.type==='pagechange'){applyRemoteProgress(d,true);}else if(d.type==='progress'){applyRemoteProgress(d,false);}else if(d.type==='settingschange'){applySettings(d);if(archive){archive.settings=d;saveArchive();}}else if(d.type==='archivechanged'){pollArchiveStatus();}else if(d.type==='archiveprogress'){setCacheProgress(d.progress);}else if(d.type==='archiveready'){fetchArchive().catch(function(){pollArchiveStatus();});}else if(d.type==='archiveerror'){setCacheProgress(0,true);}}catch(e){console.warn('无法处理同步消息',e);}};ws.onclose=function(){setStatus(false);reconnectTimer=setTimeout(connectWebSocket,3000);};ws.onerror=function(){ws.close();};}
         if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js?t='+encodeURIComponent(token())).catch(console.error);}
         loadWebReadingMode();
-        loadPage();
-        loadBookInfo();
-        loadSettings();
-        connectSSE();
-        setInterval(function(){loadPage();loadSettings();},2000);
+        loadCachedArchive().then(function(){return fetchCurrentPage();}).then(pollArchiveStatus).catch(function(e){if(!archive){leftContentEl.textContent='请先连接 LVRead 同步书籍';}setStatus(false);console.warn(e);});
+        connectWebSocket();
         </script>
         </body>
         </html>
