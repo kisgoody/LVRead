@@ -127,6 +127,8 @@ final class NativeDocumentPageViewController: UIViewController {
     private let timeText: String
     private let batteryLevel: Float
     private let readingSafeAreaInsets: UIEdgeInsets
+    private let textInsets: UIEdgeInsets?
+    private let chrome: NativeReaderPageChrome
     private var highlights: [Highlight]
     private let canvas = NativeCoreTextView()
     private let backButton = UIButton(type: .system)
@@ -150,7 +152,9 @@ final class NativeDocumentPageViewController: UIViewController {
         progressText: String,
         timeText: String,
         batteryLevel: Float,
-        readingSafeAreaInsets: UIEdgeInsets
+        readingSafeAreaInsets: UIEdgeInsets,
+        textInsets: UIEdgeInsets?,
+        chrome: NativeReaderPageChrome
     ) {
         self.page = page
         self.settings = settings
@@ -159,6 +163,8 @@ final class NativeDocumentPageViewController: UIViewController {
         self.timeText = timeText
         self.batteryLevel = batteryLevel
         self.readingSafeAreaInsets = readingSafeAreaInsets
+        self.textInsets = textInsets
+        self.chrome = chrome
         self.highlights = highlights
         self.isBookmarked = bookmarked
         super.init(nibName: nil, bundle: nil)
@@ -174,11 +180,24 @@ final class NativeDocumentPageViewController: UIViewController {
         canvas.page = page
         canvas.settings = settings
         canvas.readingSafeAreaInsets = readingSafeAreaInsets
+        canvas.textInsets = textInsets
         canvas.highlights = highlights
-        let pageBackground = UIColor(hex: settings.readingTheme.backgroundColor)
+        let palette = NativeBookSpreadPalette(settings: settings)
+        let pageBackground = chrome == .single
+            ? UIColor(hex: settings.backgroundColor)
+            : palette.paper
+        let foreground = palette.text
         view.backgroundColor = pageBackground
+        view.isOpaque = true
+        view.layer.cornerRadius = NativeBookSpreadMetrics.pageCornerRadius
+        view.layer.cornerCurve = .continuous
+        view.layer.maskedCorners = chrome.pageCorners
+        view.layer.masksToBounds = true
+        view.layer.borderWidth = 1
+        view.layer.borderColor = foreground.withAlphaComponent(0.12).cgColor
         canvas.backgroundColor = pageBackground
-        let foreground = UIColor(hex: settings.readingTheme.textColor)
+        canvas.renderBackgroundColor = pageBackground
+        canvas.isOpaque = true
         backButton.setImage(
             UIImage(
                 systemName: "chevron.left",
@@ -186,26 +205,30 @@ final class NativeDocumentPageViewController: UIViewController {
             ),
             for: .normal
         )
-        backButton.tintColor = foreground
+        backButton.tintColor = foreground.withAlphaComponent(0.78)
         backButton.accessibilityLabel = L("返回")
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         chapterLabel.text = page.chapterTitle
         chapterLabel.font = NativeDocumentTypography.headerFont
         chapterLabel.textAlignment = .right
-        chapterLabel.textColor = foreground
+        chapterLabel.textColor = foreground.withAlphaComponent(0.78)
         chapterLabel.lineBreakMode = .byTruncatingTail
         progressLabel.text = progressText
         progressLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        progressLabel.textColor = foreground.withAlphaComponent(0.72)
+        progressLabel.textColor = foreground.withAlphaComponent(0.50)
         timeLabel.text = timeText
         timeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         timeLabel.textColor = foreground.withAlphaComponent(0.72)
         batteryView.strokeColor = foreground.withAlphaComponent(0.7)
         batteryView.fillColor = foreground.withAlphaComponent(0.8)
         batteryView.level = batteryLevel
-        bookmark.tintColor = UIColor(hex: settings.readingTheme.accentColor)
+        backButton.isHidden = !chrome.showsBackButton
+        chapterLabel.isHidden = !chrome.showsChapter
+        timeLabel.isHidden = !chrome.showsTimeAndBattery
+        batteryView.isHidden = !chrome.showsTimeAndBattery
+        bookmark.tintColor = palette.accent
         comment.setImage(UIImage(systemName: "text.bubble.fill"), for: .normal)
-        comment.tintColor = UIColor(hex: settings.readingTheme.accentColor)
+        comment.tintColor = palette.accent
         comment.accessibilityLabel = L("查看或修改评论")
         comment.addTarget(self, action: #selector(commentTapped), for: .touchUpInside)
         view.addSubview(canvas)
@@ -219,6 +242,9 @@ final class NativeDocumentPageViewController: UIViewController {
         [canvas, backButton, chapterLabel, progressLabel, timeLabel, batteryView, bookmark, comment].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
+        let progressHorizontalConstraint = chrome == .single
+            ? progressLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16)
+            : progressLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor)
         NSLayoutConstraint.activate([
             canvas.topAnchor.constraint(equalTo: view.topAnchor),
             canvas.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -235,7 +261,7 @@ final class NativeDocumentPageViewController: UIViewController {
             chapterLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             chapterLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
             chapterLabel.heightAnchor.constraint(equalTo: backButton.heightAnchor),
-            progressLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            progressHorizontalConstraint,
             progressLabel.bottomAnchor.constraint(
                 equalTo: view.bottomAnchor,
                 constant: -(readingSafeAreaInsets.bottom + 8)
@@ -382,12 +408,19 @@ final class NativeDocumentPageBackViewController: UIViewController {
     let page: NativeDocumentPage
     private let settings: ReadingSettings
     private let readingSafeAreaInsets: UIEdgeInsets
+    private let textInsets: UIEdgeInsets?
     private let canvas = NativeCoreTextView()
 
-    init(page: NativeDocumentPage, settings: ReadingSettings, readingSafeAreaInsets: UIEdgeInsets) {
+    init(
+        page: NativeDocumentPage,
+        settings: ReadingSettings,
+        readingSafeAreaInsets: UIEdgeInsets,
+        textInsets: UIEdgeInsets?
+    ) {
         self.page = page
         self.settings = settings
         self.readingSafeAreaInsets = readingSafeAreaInsets
+        self.textInsets = textInsets
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -398,12 +431,20 @@ final class NativeDocumentPageBackViewController: UIViewController {
         super.viewDidLoad()
         let backColor = UIColor(hex: settings.readingTheme.pageBackColor)
         view.backgroundColor = backColor
+        view.layer.cornerRadius = NativeBookSpreadMetrics.pageCornerRadius
+        view.layer.cornerCurve = .continuous
+        view.layer.masksToBounds = true
+        view.layer.borderWidth = 1
+        view.layer.borderColor = UIColor(hex: settings.readingTheme.textColor)
+            .withAlphaComponent(0.12).cgColor
         view.isOpaque = true
 
         canvas.page = page
         canvas.settings = settings
         canvas.readingSafeAreaInsets = readingSafeAreaInsets
+        canvas.textInsets = textInsets
         canvas.backgroundColor = backColor
+        canvas.renderBackgroundColor = backColor
         canvas.isOpaque = true
         canvas.alpha = settings.readingTheme.pageBackTextOpacity
         canvas.transform = CGAffineTransform(scaleX: -1, y: 1)
@@ -415,6 +456,36 @@ final class NativeDocumentPageBackViewController: UIViewController {
             canvas.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             canvas.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+        accessibilityElementsHidden = true
+    }
+}
+
+/// Fills the unused right side of the final iPad spread while keeping the
+/// center spine fixed and preventing navigation beyond the end of the book.
+final class NativeDocumentBlankPageViewController: UIViewController {
+    let adjacentPageIndex: Int
+    private let settings: ReadingSettings
+
+    init(adjacentPageIndex: Int, settings: ReadingSettings) {
+        self.adjacentPageIndex = adjacentPageIndex
+        self.settings = settings
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        let palette = NativeBookSpreadPalette(settings: settings)
+        view.backgroundColor = palette.paper
+        view.isOpaque = true
+        view.layer.cornerRadius = NativeBookSpreadMetrics.pageCornerRadius
+        view.layer.cornerCurve = .continuous
+        view.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        view.layer.masksToBounds = true
+        view.layer.borderWidth = 1
+        view.layer.borderColor = palette.text.withAlphaComponent(0.12).cgColor
         accessibilityElementsHidden = true
     }
 }

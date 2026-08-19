@@ -118,6 +118,12 @@ final class NativeDocumentReaderViewController: UIViewController {
     private var visited: Set<String> = []
 
     private var pageViewController: UIPageViewController!
+    private let bookSpreadView = NativeBookSpreadView()
+    private var pageTopConstraint: NSLayoutConstraint?
+    private var pageLeadingConstraint: NSLayoutConstraint?
+    private var pageTrailingConstraint: NSLayoutConstraint?
+    private var pageBottomConstraint: NSLayoutConstraint?
+    private var configuredForDoublePage = false
     private lazy var coverPanGesture = UIPanGestureRecognizer(
         target: self,
         action: #selector(coverPanned(_:))
@@ -254,9 +260,46 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        if !initialLoadStarted, configuredForDoublePage != usesDoublePage {
+            replacePageViewController(doublePage: usesDoublePage)
+            view.setNeedsLayout()
+            return
+        }
         guard !initialLoadStarted, readingSize.width > 0 else { return }
         initialLoadStarted = true
         loadBook()
+    }
+
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+        guard traitCollection.userInterfaceIdiom == .pad else { return }
+        let targetDoublePage = NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: traitCollection.userInterfaceIdiom,
+            size: size,
+            navigationMode: navigationMode
+        )
+        let anchor = currentPage
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self else { return }
+            if self.configuredForDoublePage != targetDoublePage {
+                self.replacePageViewController(doublePage: targetDoublePage)
+            }
+            self.updateBookPresentation()
+            self.view.layoutIfNeeded()
+        }, completion: { [weak self] _ in
+            guard let self, let anchor else { return }
+            self.chapterPageCounts.removeAll()
+            self.loadWindow(
+                chapterIndex: anchor.chapterIndex,
+                pageIndex: anchor.pageIndex,
+                characterOffset: anchor.startOffset,
+                showSkeleton: false,
+                preserveCurrentPage: false
+            )
+        })
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -279,6 +322,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             settleOnCurrentPage()
             suppressWindowRefresh = false
         }
+        restorePagingInteraction()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -381,6 +425,7 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     @objc private func appDidBecomeActive() {
         registerReadingActivity()
+        restorePagingInteraction()
     }
 
     @objc private func audioSessionInterrupted(_ notification: Notification) {
@@ -450,23 +495,55 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private var readingSize: CGSize {
-        navigationMode == .continuousVertical
-            ? continuousScrollView.bounds.size
-            : pageViewController.view.bounds.size
+        if navigationMode == .continuousVertical { return continuousScrollView.bounds.size }
+        let size = pageViewController.view.bounds.size
+        guard configuredForDoublePage else { return size }
+        return CGSize(width: max(1, size.width / 2), height: size.height)
     }
 
     private var readingSafeAreaInsets: UIEdgeInsets {
         preparationSafeAreaInsets ?? view.safeAreaInsets
     }
 
-    private func makePageViewController() -> UIPageViewController {
+    private var pagedTextInsets: UIEdgeInsets? {
+        guard configuredForDoublePage else { return nil }
+        var insets = NativeDocumentTypography.insets(
+            size: readingSize,
+            safeAreaInsets: readingSafeAreaInsets,
+            settings: settings
+        )
+        insets.left += NativeBookSpreadMetrics.extraTextInset
+        insets.right += NativeBookSpreadMetrics.extraTextInset
+        return insets
+    }
+
+    private var usesDoublePage: Bool {
+        NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: traitCollection.userInterfaceIdiom,
+            size: view.bounds.size,
+            navigationMode: navigationMode
+        )
+    }
+
+    private var pageTurnDistance: Int {
+        NativeReaderPresentationPolicy.pageTurnDistance(usesDoublePage: configuredForDoublePage)
+    }
+
+    private func displayedPageIndex(_ requestedIndex: Int) -> Int {
+        guard configuredForDoublePage, requestedIndex > 0 else { return requestedIndex }
+        return requestedIndex - requestedIndex % 2
+    }
+
+    private func makePageViewController(doublePage: Bool? = nil) -> UIPageViewController {
+        let doublePage = doublePage ?? usesDoublePage
         let style: UIPageViewController.TransitionStyle =
             navigationMode == .simulation ? .pageCurl : .scroll
         let orientation: UIPageViewController.NavigationOrientation =
             navigationMode == .vertical ? .vertical : .horizontal
         var options: [UIPageViewController.OptionsKey: Any] = [.interPageSpacing: 0]
         if navigationMode == .simulation {
-            options[.spineLocation] = NSNumber(value: UIPageViewController.SpineLocation.min.rawValue)
+            let spine: UIPageViewController.SpineLocation = doublePage ? .mid : .min
+            options[.spineLocation] = NSNumber(value: spine.rawValue)
         }
         let controller = UIPageViewController(
             transitionStyle: style,
@@ -476,6 +553,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         controller.isDoubleSided = navigationMode == .simulation
         controller.dataSource = self
         controller.delegate = self
+        configuredForDoublePage = doublePage
         return controller
     }
 
@@ -588,22 +666,45 @@ final class NativeDocumentReaderViewController: UIViewController {
     private func installPageViewController() {
         addChild(pageViewController)
         view.insertSubview(pageViewController.view, belowSubview: topStatus)
+        view.insertSubview(bookSpreadView, aboveSubview: pageViewController.view)
         pageViewController.view.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            pageViewController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            pageViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            pageViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            pageViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+        bookSpreadView.translatesAutoresizingMaskIntoConstraints = false
+        pageTopConstraint = pageViewController.view.topAnchor.constraint(equalTo: view.topAnchor)
+        pageLeadingConstraint = pageViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        pageTrailingConstraint = pageViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        pageBottomConstraint = pageViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        NSLayoutConstraint.activate(
+            [pageTopConstraint, pageLeadingConstraint, pageTrailingConstraint, pageBottomConstraint]
+                .compactMap { $0 }
+                + [
+                    bookSpreadView.topAnchor.constraint(
+                        equalTo: pageViewController.view.topAnchor,
+                        constant: -NativeBookSpreadMetrics.coverVerticalOutset
+                    ),
+                    bookSpreadView.leadingAnchor.constraint(
+                        equalTo: pageViewController.view.leadingAnchor,
+                        constant: -NativeBookSpreadMetrics.coverHorizontalOutset
+                    ),
+                    bookSpreadView.trailingAnchor.constraint(
+                        equalTo: pageViewController.view.trailingAnchor,
+                        constant: NativeBookSpreadMetrics.coverHorizontalOutset
+                    ),
+                    bookSpreadView.bottomAnchor.constraint(
+                        equalTo: pageViewController.view.bottomAnchor,
+                        constant: NativeBookSpreadMetrics.coverVerticalOutset
+                    )
+                ]
+        )
         pageViewController.didMove(toParent: self)
+        updateBookPresentation()
         setNativePagingEnabled(navigationMode == .simulation || navigationMode == .horizontal)
     }
 
-    private func replacePageViewController() {
+    private func replacePageViewController(doublePage: Bool? = nil) {
         pageViewController.willMove(toParent: nil)
         pageViewController.view.removeFromSuperview()
         pageViewController.removeFromParent()
-        pageViewController = makePageViewController()
+        pageViewController = makePageViewController(doublePage: doublePage)
         if let controllers = pageControllers(at: currentIndex) {
             pageViewController.setViewControllers(
                 controllers,
@@ -615,6 +716,21 @@ final class NativeDocumentReaderViewController: UIViewController {
         [topStatus, bottomStatus, topMenu, bottomMenu, eyeCareOverlay, brightnessOverlay, skeleton]
             .forEach(view.bringSubviewToFront)
         updatePagingInteraction()
+    }
+
+    private func updateBookPresentation() {
+        let visible = configuredForDoublePage && navigationMode == .simulation
+        bookSpreadView.isHidden = !visible
+        bookSpreadView.settings = settings
+        pageTopConstraint?.constant = visible ? NativeBookSpreadMetrics.pageVerticalInset : 0
+        pageLeadingConstraint?.constant = visible ? NativeBookSpreadMetrics.pageHorizontalInset : 0
+        pageTrailingConstraint?.constant = visible ? -NativeBookSpreadMetrics.pageHorizontalInset : 0
+        pageBottomConstraint?.constant = visible ? -NativeBookSpreadMetrics.pageVerticalInset : 0
+        pageViewController.view.layer.cornerRadius = visible
+            ? NativeBookSpreadMetrics.pageCornerRadius
+            : 0
+        pageViewController.view.layer.cornerCurve = .continuous
+        pageViewController.view.layer.masksToBounds = visible
     }
 
     private func installCoverPaging() {
@@ -828,12 +944,18 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func applyAppearance() {
-        let background = UIColor(hex: settings.readingTheme.backgroundColor)
-        let foreground = UIColor(hex: settings.readingTheme.textColor)
-        let panel = NativeReaderChromeStyle.surface(for: settings)
-        view.backgroundColor = background
-        pageViewController.view.backgroundColor = background
-        pageViewController.view.subviews.forEach { $0.backgroundColor = background }
+        let palette = NativeBookSpreadPalette(settings: settings)
+        let background = UIColor(hex: settings.backgroundColor)
+        let foreground = palette.text
+        let panel = palette.control
+        let spreadVisible = configuredForDoublePage && navigationMode == .simulation
+        let pageBackground = configuredForDoublePage && navigationMode == .simulation
+            ? palette.paper
+            : background
+        view.backgroundColor = spreadVisible ? palette.stage : background
+        pageViewController.view.backgroundColor = pageBackground
+        pageViewController.view.isOpaque = true
+        pageViewController.view.subviews.forEach { $0.backgroundColor = pageBackground }
         topStatus.backgroundColor = background
         bottomStatus.backgroundColor = background
         topMenu.backgroundColor = panel
@@ -878,6 +1000,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         stopListeningButton.backgroundColor = .clear
         footerListeningButton.backgroundColor = panel
         listeningControls.backgroundColor = .clear
+        updateBookPresentation()
         updateListeningButton(animated: false)
         updateBookmarkButton()
         setNeedsStatusBarAppearanceUpdate()
@@ -892,6 +1015,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         let continuous = navigationMode == .continuousVertical
         continuousScrollView.isHidden = !continuous
         pageViewController.view.isHidden = continuous
+        bookSpreadView.isHidden = continuous || !configuredForDoublePage
         topStatus.isHidden = !continuous
         bottomStatus.isHidden = !continuous
     }
@@ -947,6 +1071,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         let continuousTextInsets = isContinuous
             ? NativeDocumentTypography.continuousInsets(size: size, settings: snapshotSettings)
             : nil
+        let snapshotTextInsets = continuousTextInsets ?? pagedTextInsets
         let radius = navigationMode == .continuousVertical ? max(preloadRadius, 6) : preloadRadius
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -1003,7 +1128,7 @@ final class NativeDocumentReaderViewController: UIViewController {
                     chapters: snapshotChapters,
                     size: size,
                     safeAreaInsets: isContinuous ? .zero : snapshotSafeAreaInsets,
-                    textInsets: continuousTextInsets,
+                    textInsets: snapshotTextInsets,
                     settings: snapshotSettings
                 )
                 var pageCounts: [Int: Int] = [:]
@@ -1104,7 +1229,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         }
         PageCacheManager.shared.cachePages(cachedPages, bookId: book.id, centerPage: target)
         pages = window
-        currentIndex = resolvedTarget
+        currentIndex = displayedPageIndex(resolvedTarget)
         if navigationMode == .continuousVertical {
             renderContinuousWindow(target: currentIndex, intraPageOffset: previousIntraPageOffset)
         } else if let controllers = pageControllers(at: currentIndex) {
@@ -1132,6 +1257,12 @@ final class NativeDocumentReaderViewController: UIViewController {
         ) != nil
         let pageHighlights = highlights(for: page)
         UIDevice.current.isBatteryMonitoringEnabled = true
+        let chrome: NativeReaderPageChrome
+        if configuredForDoublePage {
+            chrome = index.isMultiple(of: 2) ? .spreadLeft : .spreadRight
+        } else {
+            chrome = .single
+        }
         let controller = NativeDocumentPageViewController(
             page: page,
             settings: settings,
@@ -1141,7 +1272,9 @@ final class NativeDocumentReaderViewController: UIViewController {
             progressText: progressText(for: page),
             timeText: DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short),
             batteryLevel: max(0, UIDevice.current.batteryLevel),
-            readingSafeAreaInsets: readingSafeAreaInsets
+            readingSafeAreaInsets: readingSafeAreaInsets,
+            textInsets: pagedTextInsets,
+            chrome: chrome
         )
         controller.delegate = self
         controller.setSpokenRange(spokenRange(for: page))
@@ -1153,7 +1286,8 @@ final class NativeDocumentReaderViewController: UIViewController {
         return NativeDocumentPageBackViewController(
             page: pages[index],
             settings: settings,
-            readingSafeAreaInsets: readingSafeAreaInsets
+            readingSafeAreaInsets: readingSafeAreaInsets,
+            textInsets: pagedTextInsets
         )
     }
 
@@ -1162,7 +1296,13 @@ final class NativeDocumentReaderViewController: UIViewController {
         previouslyDisplayedIndex: Int? = nil,
         animated: Bool = false
     ) -> [UIViewController]? {
+        let index = displayedPageIndex(index)
         guard let front = makePageController(at: index) else { return nil }
+        if configuredForDoublePage {
+            let right = makePageController(at: index + 1)
+                ?? NativeDocumentBlankPageViewController(adjacentPageIndex: index, settings: settings)
+            return [front, right]
+        }
         guard navigationMode == .simulation, animated else { return [front] }
         let backIndex = previouslyDisplayedIndex ?? index
         guard let back = makeBackPageController(at: backIndex) else { return nil }
@@ -1304,17 +1444,24 @@ final class NativeDocumentReaderViewController: UIViewController {
             && !menuVisible
             && !isListening
             && presentedViewController == nil
-        if recordsEffectiveReading, visited.insert(page.id).inserted {
-            ReadingStatsRepository.shared.recordPageRead(
-                bookId: book.id,
-                characters: ReadingStatsRepository.readableCharacterCount(in: page.text)
-            )
+        if recordsEffectiveReading {
+            let lastVisibleIndex = min(currentIndex + 1, pages.count - 1)
+            let visiblePages = configuredForDoublePage
+                ? Array(pages[currentIndex...lastVisibleIndex])
+                : [page]
+            for visiblePage in visiblePages where visited.insert(visiblePage.id).inserted {
+                ReadingStatsRepository.shared.recordPageRead(
+                    bookId: book.id,
+                    characters: ReadingStatsRepository.readableCharacterCount(in: visiblePage.text)
+                )
+            }
         }
         chapterLabel.text = page.chapterTitle
         progressLabel.text = progressText(for: page)
         timeLabel.text = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryView.level = max(0, UIDevice.current.batteryLevel)
+        updateBookProgress(for: page)
         updateBookmarkButton()
         WebSyncServer.shared.updateCurrentPage(bookId: book.id, page: webSyncSnapshot(for: page))
         saveProgress()
@@ -1349,6 +1496,13 @@ final class NativeDocumentReaderViewController: UIViewController {
                 lastReadTimestamp: Date()
             )
         )
+    }
+
+    private func updateBookProgress(for page: NativeDocumentPage) {
+        let pageCount = max(chapterPageCounts[page.chapterIndex] ?? page.pageIndex + 1, 1)
+        let chapterFraction = Double(page.pageIndex + 1) / Double(pageCount)
+        let percent = (Double(page.chapterIndex) + chapterFraction) / Double(max(chapters.count, 1))
+        bookSpreadView.progress = CGFloat(min(max(percent, 0), 1))
     }
 
     private func toggleMenu() {
@@ -1407,6 +1561,15 @@ final class NativeDocumentReaderViewController: UIViewController {
         )
         coverPanGesture.isEnabled = enabled && usesCoverPaging
         continuousScrollView.isScrollEnabled = enabled
+    }
+
+    /// Clears an interrupted UIPageViewController/scroll gesture state. This
+    /// is safe after the reader becomes visible or a transition has settled.
+    private func restorePagingInteraction() {
+        setNativePagingEnabled(false)
+        coverPanGesture.isEnabled = false
+        continuousScrollView.isScrollEnabled = false
+        updatePagingInteraction()
     }
 
     private var usesCoverPaging: Bool {
@@ -1495,7 +1658,7 @@ final class NativeDocumentReaderViewController: UIViewController {
            let target,
            let controllers = pageControllers(at: target) {
             pageViewController.setViewControllers(controllers, direction: .forward, animated: false)
-            currentIndex = target
+            currentIndex = displayedPageIndex(target)
         }
 
         coverTargetController?.willMove(toParent: nil)
@@ -1505,6 +1668,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         coverTargetIndex = nil
         isPageTransitioning = false
         finishPageTransition(settle: committed && target != nil)
+        restorePagingInteraction()
     }
 
     private func animateCoverTurn(
@@ -1541,34 +1705,35 @@ final class NativeDocumentReaderViewController: UIViewController {
               canTurnWithPresentedController,
               !isProgrammaticPageTurn,
               !isPageTransitioning else { return }
-        if animated && usesCoverPaging {
+        let performsAnimation = animated && !UIAccessibility.isReduceMotionEnabled
+        if performsAnimation && usesCoverPaging {
             animateCoverTurn(forward: forward, completion: completion)
             return
         }
-        let target = currentIndex + (forward ? 1 : -1)
+        let target = currentIndex + (forward ? pageTurnDistance : -pageTurnDistance)
         guard let controllers = pageControllers(
             at: target,
             previouslyDisplayedIndex: currentIndex,
-            animated: animated
+            animated: performsAnimation
         ) else { return }
         isProgrammaticPageTurn = true
-        isPageTransitioning = animated
+        isPageTransitioning = performsAnimation
         pageViewController.setViewControllers(
             controllers,
             direction: forward ? .forward : .reverse,
-            animated: animated
+            animated: performsAnimation
         ) { [weak self] completed in
             guard let self else { return }
             self.isProgrammaticPageTurn = false
             self.isPageTransitioning = false
-            if completed, animated {
-                self.currentIndex = target
+            if completed, performsAnimation {
+                self.currentIndex = self.displayedPageIndex(target)
             }
-            self.finishPageTransition(settle: completed && animated)
+            self.finishPageTransition(settle: completed && performsAnimation)
             completion?(completed)
         }
-        if !animated {
-            currentIndex = target
+        if !performsAnimation {
+            currentIndex = displayedPageIndex(target)
             settleOnCurrentPage()
             isProgrammaticPageTurn = false
         }
@@ -1598,7 +1763,7 @@ final class NativeDocumentReaderViewController: UIViewController {
                 CGPoint(x: 0, y: continuousOffset(forPageAt: target)),
                 animated: true
             )
-        } else if abs(target - currentIndex) == 1 {
+        } else if abs(target - currentIndex) == pageTurnDistance {
             turnPage(
                 forward: forward,
                 animated: navigationMode != .none,
@@ -1612,7 +1777,7 @@ final class NativeDocumentReaderViewController: UIViewController {
                 animated: false
             ) { [weak self] completed in
                 guard let self, completed else { return }
-                self.currentIndex = target
+                self.currentIndex = self.displayedPageIndex(target)
                 self.settleOnCurrentPage()
             }
         }
@@ -1998,7 +2163,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             return
         }
         if navigationMode == .continuousVertical {
-            currentIndex = target
+            currentIndex = displayedPageIndex(target)
             continuousScrollView.setContentOffset(
                 CGPoint(x: 0, y: continuousOffset(forPageAt: target)),
                 animated: true
@@ -2064,13 +2229,15 @@ final class NativeDocumentReaderViewController: UIViewController {
         guard let target = pages.firstIndex(where: { $0.id == pageID }),
               target != currentIndex else { return }
         if navigationMode == .continuousVertical {
-            currentIndex = target
+            currentIndex = displayedPageIndex(target)
             continuousScrollView.setContentOffset(
                 CGPoint(x: 0, y: continuousOffset(forPageAt: target)),
                 animated: true
             )
             settleOnCurrentPage()
-        } else if target == currentIndex + 1 {
+        } else if configuredForDoublePage, target == currentIndex + 1 {
+            applySpokenRangeToVisiblePages()
+        } else if target == currentIndex + pageTurnDistance {
             turnPage(
                 forward: true,
                 animated: navigationMode != .none,
@@ -2290,6 +2457,14 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
         guard !menuVisible, !isTextSelectionActive, presentedViewController == nil else { return nil }
+        if configuredForDoublePage {
+            if let blank = viewController as? NativeDocumentBlankPageViewController {
+                return makePageController(at: blank.adjacentPageIndex)
+            }
+            guard let page = viewController as? NativeDocumentPageViewController,
+                  let index = pages.firstIndex(where: { $0.id == page.page.id }) else { return nil }
+            return makePageController(at: index - 1)
+        }
         if navigationMode == .simulation,
            let back = viewController as? NativeDocumentPageBackViewController,
            let index = pages.firstIndex(where: { $0.id == back.page.id }) {
@@ -2307,6 +2482,13 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
         guard !menuVisible, !isTextSelectionActive, presentedViewController == nil else { return nil }
+        if configuredForDoublePage {
+            if viewController is NativeDocumentBlankPageViewController { return nil }
+            guard let page = viewController as? NativeDocumentPageViewController,
+                  let index = pages.firstIndex(where: { $0.id == page.page.id }) else { return nil }
+            if let next = makePageController(at: index + 1) { return next }
+            return NativeDocumentBlankPageViewController(adjacentPageIndex: index, settings: settings)
+        }
         if navigationMode == .simulation,
            let back = viewController as? NativeDocumentPageBackViewController,
            let index = pages.firstIndex(where: { $0.id == back.page.id }) {
@@ -2334,9 +2516,10 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
             pages.firstIndex(where: { $0.id == visible.page.id })
         }
         if completed, let index {
-            currentIndex = index
+            currentIndex = displayedPageIndex(index)
         }
         finishPageTransition(settle: completed && index != nil)
+        restorePagingInteraction()
     }
 }
 
@@ -2348,7 +2531,7 @@ extension NativeDocumentReaderViewController: UIScrollViewDelegate {
               !pages.isEmpty else { return }
         let index = continuousPageIndex(at: scrollView.contentOffset.y + scrollView.bounds.height / 2)
         if index != currentIndex {
-            currentIndex = index
+            currentIndex = displayedPageIndex(index)
             settleOnCurrentPage()
         }
     }

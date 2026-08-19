@@ -408,6 +408,11 @@
       preparedDirection: 0,
       queuedDirection: 0,
       pendingProgress: null,
+      pendingReadingIntervals: [],
+      readingStartedAt: 0,
+      lastReadingActivityAt: 0,
+      readingInactivityTimer: null,
+      readingSyncPromise: null,
       settings: null,
       reconnectTimer: null,
       eventSource: null,
@@ -503,7 +508,9 @@
       try {
         await database.write({
           id: cacheId(), cache: state.cache, cursor: state.cursor,
-          pendingProgress: state.pendingProgress, settings: state.settings, updatedAt: Date.now()
+          pendingProgress: state.pendingProgress,
+          pendingReadingIntervals: state.pendingReadingIntervals,
+          settings: state.settings, updatedAt: Date.now()
         });
       } catch (error) {
         console.warn('书籍缓存保存失败', error);
@@ -517,6 +524,9 @@
         state.cache = normalizeCache(record.cache);
         state.cursor = Math.min(Math.max(Number(record.cursor) || state.cache.anchorOffset, 0), state.cache.pages.length - 1);
         state.pendingProgress = record.pendingProgress || null;
+        state.pendingReadingIntervals = Array.isArray(record.pendingReadingIntervals)
+          ? record.pendingReadingIntervals
+          : [];
         state.settings = record.settings || null;
         if (state.settings) applySettings(state.settings);
         renderCurrent();
@@ -535,6 +545,17 @@
       if (!cache) return '';
       const count = state.mode === 'mobile' ? 1 : 2;
       return cache.pages.slice(cursor, cursor + count).map(page => `${pageKey(page)}:${page?.content || ''}`).join('\u0000');
+    }
+
+    function missingSecondVisiblePage() {
+      if (currentUnit() !== 2 || !state.cache) return false;
+      const first = state.cache.pages[state.cursor];
+      const second = state.cache.pages[state.cursor + 1];
+      return Boolean(first && first.pageIndex >= 0) && !(second && second.pageIndex >= 0);
+    }
+
+    function visibleUnitNeedsRefresh() {
+      return missingSecondVisiblePage() && !state.cache?.reachedEnd;
     }
 
     function renderPageText(element, content) {
@@ -866,6 +887,15 @@
         state.queuedDirection = direction;
         return true;
       }
+      if (direction > 0 && allowCacheExtension && state.connected && visibleUnitNeedsRefresh()) {
+        if (await refreshCacheForNavigation()) {
+          if (!missingSecondVisiblePage()) return true;
+          if (state.cache?.reachedEnd) {
+            showCacheBoundary(true);
+            return false;
+          }
+        }
+      }
       const target = state.cursor + direction * currentUnit();
       const outsideCache = !state.cache || target < 0 || target >= state.cache.pages.length;
       if (outsideCache) {
@@ -893,15 +923,99 @@
       if (state.connected) await syncPendingProgress();
     }
 
-    async function syncPendingProgress() {
+    const readingInactivityMilliseconds = 2 * 60 * 1000;
+
+    function canRecordReadingTime() {
+      const page = currentPage();
+      return document.visibilityState === 'visible'
+        && document.hasFocus()
+        && page
+        && page.pageIndex >= 0;
+    }
+
+    function readingEventID() {
+      if (crypto.randomUUID) return crypto.randomUUID();
+      return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function queueReadingInterval(start, end) {
+      if (end - start < 1000) return;
+      state.pendingReadingIntervals.push({ id: readingEventID(), start, end });
+      persist();
+      if (state.connected) syncPendingReadingIntervals();
+    }
+
+    function checkpointReadingTime(continueReading = false, requestedEnd = Date.now()) {
+      if (!state.readingStartedAt) return;
+      const deadline = state.lastReadingActivityAt + readingInactivityMilliseconds;
+      const end = Math.min(requestedEnd, deadline);
+      queueReadingInterval(state.readingStartedAt, end);
+      state.readingStartedAt = continueReading && canRecordReadingTime() && end < deadline ? end : 0;
+    }
+
+    function scheduleReadingInactivity() {
+      clearTimeout(state.readingInactivityTimer);
+      if (!state.readingStartedAt) return;
+      const deadline = state.lastReadingActivityAt + readingInactivityMilliseconds;
+      state.readingInactivityTimer = setTimeout(() => {
+        checkpointReadingTime(false, deadline);
+      }, Math.max(50, deadline - Date.now()));
+    }
+
+    function registerReadingActivity() {
+      const now = Date.now();
+      if (state.readingStartedAt
+          && now - state.lastReadingActivityAt >= readingInactivityMilliseconds) {
+        checkpointReadingTime(false, state.lastReadingActivityAt + readingInactivityMilliseconds);
+      }
+      state.lastReadingActivityAt = now;
+      if (!state.readingStartedAt && canRecordReadingTime()) state.readingStartedAt = now;
+      scheduleReadingInactivity();
+    }
+
+    function suspendReadingTime() {
+      checkpointReadingTime(false);
+      clearTimeout(state.readingInactivityTimer);
+    }
+
+    async function syncPendingReadingIntervals() {
+      if (!state.connected || !state.pendingReadingIntervals.length) return false;
+      if (state.readingSyncPromise) return state.readingSyncPromise;
+      state.readingSyncPromise = (async () => {
+        try {
+          while (state.connected && state.pendingReadingIntervals.length) {
+            const interval = state.pendingReadingIntervals[0];
+            const query = `eventId=${encodeURIComponent(interval.id)}&start=${interval.start}&end=${interval.end}`;
+            await api(`/api/stats/reading-time?${query}`, { method: 'POST' });
+            if (state.pendingReadingIntervals[0]?.id === interval.id) {
+              state.pendingReadingIntervals.shift();
+            }
+            await persist();
+          }
+          return true;
+        } catch (error) {
+          setConnected(false, '等待重新连接');
+          return false;
+        }
+      })();
+      try {
+        return await state.readingSyncPromise;
+      } finally {
+        state.readingSyncPromise = null;
+      }
+    }
+
+    async function syncPendingProgress(strategy = 'replace') {
       if (!state.connected || !state.pendingProgress) return false;
       if (state.syncPromise) return state.syncPromise;
       state.syncPromise = (async () => {
+        let nextStrategy = strategy;
         try {
           while (state.connected && state.pendingProgress) {
             const pending = state.pendingProgress;
-            const query = `chapterIndex=${pending.chapterIndex}&pageIndex=${pending.pageIndex}`;
+            const query = `chapterIndex=${pending.chapterIndex}&pageIndex=${pending.pageIndex}&strategy=${nextStrategy}`;
             await api(`/api/progress/sync?${query}`, { method: 'POST' });
+            nextStrategy = 'replace';
             if (state.pendingProgress?.key === pending.key) state.pendingProgress = null;
             await persist();
           }
@@ -921,6 +1035,21 @@
         state.syncPromise = null;
         if (state.connected && state.pendingProgress) queueMicrotask(syncPendingProgress);
       }
+    }
+
+    async function reconcileProgressOnReconnect() {
+      if (!state.pendingProgress) {
+        const page = currentPage();
+        if (page && page.chapterIndex >= 0) {
+          state.pendingProgress = {
+            chapterIndex: page.chapterIndex,
+            pageIndex: page.pageIndex,
+            key: pageKey(page)
+          };
+          await persist();
+        }
+      }
+      return syncPendingProgress('furthest');
     }
 
     async function refreshCache(syncFirst = true) {
@@ -1008,7 +1137,10 @@
       state.eventSource = source;
       source.addEventListener('connected', async () => {
         setConnected(true);
-        if (!(await syncPendingProgress())) await refreshCacheWindow(false);
+        await reconcileProgressOnReconnect();
+        await syncPendingReadingIntervals();
+        if (state.connected) await refreshCacheWindow(false);
+        registerReadingActivity();
       });
       source.addEventListener('pagechange', () => {
         if (!state.pendingProgress && !state.turning) {
@@ -1099,6 +1231,24 @@
       }
     });
     window.addEventListener('resize', fitVisibleContent);
+    ['pointerdown', 'keydown', 'wheel'].forEach(type => {
+      window.addEventListener(type, registerReadingActivity, { passive: true });
+    });
+    window.addEventListener('focus', registerReadingActivity);
+    window.addEventListener('blur', suspendReadingTime);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') registerReadingActivity();
+      else suspendReadingTime();
+    });
+    window.addEventListener('pagehide', () => {
+      suspendReadingTime();
+      state.pendingReadingIntervals.forEach(interval => {
+        const query = `eventId=${encodeURIComponent(interval.id)}&start=${interval.start}&end=${interval.end}`;
+        navigator.sendBeacon(`/api/stats/reading-time?${query}&t=${encodeURIComponent(token())}`);
+      });
+      persist();
+    });
+    setInterval(() => checkpointReadingTime(true), 30000);
 
     async function start() {
       applyMode(localStorage.getItem('lvread_web_reading_mode_v2') || 'spread');
@@ -1120,6 +1270,7 @@
       setInterval(async () => {
         if (!state.connected) await refreshCacheWindow(true);
       }, 5000);
+      registerReadingActivity();
     }
 
     start();

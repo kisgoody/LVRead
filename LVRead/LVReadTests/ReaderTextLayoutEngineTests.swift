@@ -1,7 +1,70 @@
 import XCTest
+import CoreText
 @testable import LVRead
 
 final class ReaderTextLayoutEngineTests: XCTestCase {
+
+    func testOnlyIPadLandscapeSimulationUsesTwoPagesPerTurn() {
+        let landscape = CGSize(width: 1_024, height: 768)
+        let portrait = CGSize(width: 768, height: 1_024)
+
+        XCTAssertTrue(NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: .pad,
+            size: landscape,
+            navigationMode: .simulation
+        ))
+        XCTAssertFalse(NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: .phone,
+            size: landscape,
+            navigationMode: .simulation
+        ))
+        XCTAssertFalse(NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: .pad,
+            size: portrait,
+            navigationMode: .simulation
+        ))
+        XCTAssertFalse(NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: .pad,
+            size: landscape,
+            navigationMode: .horizontal
+        ))
+        XCTAssertEqual(NativeReaderPresentationPolicy.pageTurnDistance(usesDoublePage: true), 2)
+        XCTAssertEqual(NativeReaderPresentationPolicy.pageTurnDistance(usesDoublePage: false), 1)
+    }
+
+    func testBookThicknessMovesFromRightToLeftWithProgress() {
+        let beginning = NativeBookThickness.widths(progress: 0)
+        let middle = NativeBookThickness.widths(progress: 0.5)
+        let end = NativeBookThickness.widths(progress: 1)
+
+        XCTAssertLessThan(beginning.left, beginning.right)
+        XCTAssertEqual(middle.left, middle.right, accuracy: 0.001)
+        XCTAssertGreaterThan(end.left, end.right)
+        XCTAssertEqual(beginning.left, NativeBookSpreadMetrics.minimumThickness)
+        XCTAssertEqual(beginning.right, NativeBookSpreadMetrics.maximumThickness)
+        XCTAssertGreaterThan(
+            NativeBookSpreadMetrics.coverHorizontalOutset,
+            NativeBookSpreadMetrics.maximumThickness
+        )
+        XCTAssertLessThan(
+            NativeBookSpreadMetrics.coverVerticalOutset,
+            NativeBookSpreadMetrics.coverHorizontalOutset
+        )
+        XCTAssertEqual(NativeBookSpreadMetrics.pageCornerRadius, 12)
+        XCTAssertGreaterThan(
+            NativeBookSpreadMetrics.coverCornerRadius,
+            NativeBookSpreadMetrics.pageCornerRadius
+        )
+    }
+
+    func testSpreadChromeKeepsControlsOnTheRequestedPage() {
+        XCTAssertTrue(NativeReaderPageChrome.spreadLeft.showsBackButton)
+        XCTAssertFalse(NativeReaderPageChrome.spreadLeft.showsChapter)
+        XCTAssertFalse(NativeReaderPageChrome.spreadLeft.showsTimeAndBattery)
+        XCTAssertFalse(NativeReaderPageChrome.spreadRight.showsBackButton)
+        XCTAssertTrue(NativeReaderPageChrome.spreadRight.showsChapter)
+        XCTAssertTrue(NativeReaderPageChrome.spreadRight.showsTimeAndBattery)
+    }
 
     func testEveryEnglishFontPaginatesEnglishText() throws {
         let content = String(repeating: "Alice was beginning to get very tired of sitting by her sister. ", count: 80)
@@ -236,6 +299,41 @@ final class ReaderTextLayoutEngineTests: XCTestCase {
         XCTAssertEqual(pages.map(\.text).joined(), normalizedText)
         for pair in zip(pages, pages.dropFirst()) {
             XCTAssertEqual(pair.0.endOffset, pair.1.startOffset)
+        }
+    }
+
+    func testNativePaginationNeverKeepsABottomClippedLine() throws {
+        var settings = ReadingSettings.default
+        settings.fontSize = 24
+        settings.lineSpacing = 1.2
+        let size = CGSize(width: 260, height: 118)
+        let text = String(repeating: "第一行和第二行之间必须按完整行分页，不能裁切底部文字。", count: 24)
+        let chapter = Chapter(bookId: "book", title: "第一章", orderIndex: 0)
+
+        let pages = try NativeDocumentPaginator.pages(
+            text: text,
+            chapter: chapter,
+            chapterIndex: 0,
+            size: size,
+            textInsets: .zero,
+            settings: settings
+        )
+
+        XCTAssertGreaterThan(pages.count, 1)
+        XCTAssertEqual(pages.map(\.text).joined(), text)
+        for page in pages {
+            let attributed = NativeDocumentTypography.attributed(page.text, settings: settings, color: .label)
+            let frame = CTFramesetterCreateFrame(
+                CTFramesetterCreateWithAttributedString(attributed),
+                CFRange(location: 0, length: 0),
+                CGPath(rect: CGRect(origin: .zero, size: size), transform: nil),
+                nil
+            )
+            let complete = NativeDocumentTypography.completeVisibleRange(
+                in: frame,
+                pathHeight: size.height
+            )
+            XCTAssertEqual(complete.length, attributed.length)
         }
     }
 

@@ -65,6 +65,7 @@
 		9565881A8C267D8AB45D2681 /* FileParserProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BCB7A186F145C5C0D6A2CC /* FileParserProtocol.swift */; };
 		97544E38913889E4FB541247 /* CoverAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 362BC9289D9E2508A0369B6C /* CoverAnimator.swift */; };
 		999A94D60B3824690DDAA307 /* NativeDocumentPageViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FE1355CFF397587ED8DD7C7 /* NativeDocumentPageViewController.swift */; };
+		A9F10002A9F10002A9F10002 /* NativeBookSpreadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10001A9F10001A9F10001 /* NativeBookSpreadView.swift */; };
 		A11CE002A11CE002A11CE002 /* ReadingAdviceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE001A11CE001A11CE001 /* ReadingAdviceEngine.swift */; };
 		A2E6C4E6561385AB2F1D869B /* TCPTransferServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B95236BF3E76DDAA1AC7A99 /* TCPTransferServer.swift */; };
 		A32D4035223FC0B96BF348B1 /* ChapterListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8C786238FAC900A51BF47F /* ChapterListViewController.swift */; };
@@ -125,6 +126,7 @@
 		0C4910391A78AFCE00D69A47 /* LVSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVSlider.swift; sourceTree = "<group>"; };
 		0E7E923C264FD71604A74730 /* ZodiacWatermark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZodiacWatermark.swift; sourceTree = "<group>"; };
 		0FE1355CFF397587ED8DD7C7 /* NativeDocumentPageViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDocumentPageViewController.swift; sourceTree = "<group>"; };
+		A9F10001A9F10001A9F10001 /* NativeBookSpreadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBookSpreadView.swift; sourceTree = "<group>"; };
 		12BCB7A186F145C5C0D6A2CC /* FileParserProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileParserProtocol.swift; sourceTree = "<group>"; };
 		192E950E1BB945CE46273643 /* LVFilterChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVFilterChip.swift; sourceTree = "<group>"; };
 		1B4E6B0A6607AF1AD1AFACE5 /* Bookmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bookmark.swift; sourceTree = "<group>"; };
@@ -281,6 +283,7 @@
 			children = (
 				3E8C786238FAC900A51BF47F /* ChapterListViewController.swift */,
 				75022AD5D67AB53F53372572 /* ContinuousReaderViewController.swift */,
+				A9F10001A9F10001A9F10001 /* NativeBookSpreadView.swift */,
 				0FE1355CFF397587ED8DD7C7 /* NativeDocumentPageViewController.swift */,
 				D7FF8911681901CA5DA02F17 /* NativeDocumentReaderViewController.swift */,
 				D06DE3D326AB73A67A604552 /* NativeReaderDocument.swift */,
@@ -726,6 +729,7 @@
 				398B7AE977D9CEAFF72B8C21 /* LVSlider.swift in Sources */,
 				66CBBC4A16346C4C06415591 /* LVToast.swift in Sources */,
 				7007D936643054824E32C774 /* LanDevice.swift in Sources */,
+				A9F10002A9F10002A9F10002 /* NativeBookSpreadView.swift in Sources */,
 				999A94D60B3824690DDAA307 /* NativeDocumentPageViewController.swift in Sources */,
 				95537B5A016FA9BAD19D5695 /* NativeDocumentReaderViewController.swift in Sources */,
 				4D5CCEF76D1B8E6CD1B0A7BF /* NativeReaderDocument.swift in Sources */,

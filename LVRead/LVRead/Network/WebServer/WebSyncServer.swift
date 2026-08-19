@@ -141,6 +141,7 @@ final class WebSyncServer {
     private enum StorageKey {
         static let bookTokens = "web_sync_book_tokens_v1"
         static let snapshots = "web_sync_snapshots_v1"
+        static let readingIntervalEventIDs = "web_sync_reading_interval_event_ids_v1"
         static let foregroundReconnectEnabled = "web_sync_foreground_reconnect_enabled_v2"
         static let fixedPort: UInt16 = 8989
     }
@@ -663,7 +664,17 @@ final class WebSyncServer {
                     connection: connection,
                     bookId: requestBookId,
                     chapterIndex: Int(queryParams["chapterIndex"] ?? ""),
-                    pageIndex: Int(queryParams["pageIndex"] ?? "")
+                    pageIndex: Int(queryParams["pageIndex"] ?? ""),
+                    keepsFurthestProgress: queryParams["strategy"] == "furthest"
+                )
+
+            case ("POST", "/api/stats/reading-time"):
+                self.handleWebReadingInterval(
+                    connection: connection,
+                    bookId: requestBookId,
+                    eventID: queryParams["eventId"] ?? "",
+                    startMilliseconds: Double(queryParams["start"] ?? ""),
+                    endMilliseconds: Double(queryParams["end"] ?? "")
                 )
 
             case ("POST", "/api/settings"):
@@ -1105,7 +1116,8 @@ final class WebSyncServer {
         connection: NWConnection,
         bookId: String,
         chapterIndex: Int?,
-        pageIndex: Int?
+        pageIndex: Int?,
+        keepsFurthestProgress: Bool
     ) {
         guard let previous = currentPageSnapshot,
               let chapterIndex,
@@ -1117,12 +1129,21 @@ final class WebSyncServer {
         }
 
         do {
-            let target = try resolvedSnapshot(
-                chapterIndex: chapterIndex,
-                pageIndex: pageIndex,
-                bookId: bookId,
-                layout: previous.layout
+            let usesRequestedProgress = Self.shouldUseRequestedProgress(
+                currentChapterIndex: previous.chapterIndex,
+                currentPageIndex: previous.pageIndex,
+                requestedChapterIndex: chapterIndex,
+                requestedPageIndex: pageIndex,
+                keepsFurthestProgress: keepsFurthestProgress
             )
+            let target = usesRequestedProgress
+                ? try resolvedSnapshot(
+                    chapterIndex: chapterIndex,
+                    pageIndex: pageIndex,
+                    bookId: bookId,
+                    layout: previous.layout
+                )
+                : previous
             let forward = (target.chapterIndex, target.pageIndex) >= (previous.chapterIndex, previous.pageIndex)
             commitRemoteProgress(target, previous: previous, bookId: bookId, forward: forward)
             sendJSONResponse(
@@ -1135,6 +1156,70 @@ final class WebSyncServer {
                 to: connection
             )
         }
+    }
+
+    static func shouldUseRequestedProgress(
+        currentChapterIndex: Int,
+        currentPageIndex: Int,
+        requestedChapterIndex: Int,
+        requestedPageIndex: Int,
+        keepsFurthestProgress: Bool
+    ) -> Bool {
+        !keepsFurthestProgress
+            || (requestedChapterIndex, requestedPageIndex) > (currentChapterIndex, currentPageIndex)
+    }
+
+    private func handleWebReadingInterval(
+        connection: NWConnection,
+        bookId: String,
+        eventID: String,
+        startMilliseconds: Double?,
+        endMilliseconds: Double?
+    ) {
+        guard !eventID.isEmpty, eventID.count <= 128,
+              let interval = Self.validatedWebReadingInterval(
+                startMilliseconds: startMilliseconds,
+                endMilliseconds: endMilliseconds
+              ) else {
+            sendJSONResponse(["success": false, "error": "invalid_reading_interval"], to: connection)
+            return
+        }
+
+        var recorded = UserDefaults.standard.stringArray(forKey: StorageKey.readingIntervalEventIDs) ?? []
+        guard !recorded.contains(eventID) else {
+            sendJSONResponse(["success": true, "duplicate": true], to: connection)
+            return
+        }
+        recorded.append(eventID)
+        UserDefaults.standard.set(Array(recorded.suffix(512)), forKey: StorageKey.readingIntervalEventIDs)
+
+        DispatchQueue.main.async {
+            ReadingStatsRepository.shared.recordActiveInterval(
+                bookId: bookId,
+                from: interval.start,
+                to: interval.end,
+                pages: 0,
+                countsTowardPace: false
+            )
+            self.sendJSONResponse(["success": true], to: connection)
+        }
+    }
+
+    static func validatedWebReadingInterval(
+        startMilliseconds: Double?,
+        endMilliseconds: Double?,
+        now: Date = Date()
+    ) -> (start: Date, end: Date)? {
+        guard let startMilliseconds, let endMilliseconds,
+              startMilliseconds.isFinite, endMilliseconds.isFinite else { return nil }
+        let start = Date(timeIntervalSince1970: startMilliseconds / 1_000)
+        let end = Date(timeIntervalSince1970: endMilliseconds / 1_000)
+        let duration = end.timeIntervalSince(start)
+        guard duration >= 1,
+              duration <= 121,
+              start >= now.addingTimeInterval(-365 * 24 * 60 * 60),
+              end <= now.addingTimeInterval(5 * 60) else { return nil }
+        return (start, end)
     }
 
     private func commitRemoteProgress(

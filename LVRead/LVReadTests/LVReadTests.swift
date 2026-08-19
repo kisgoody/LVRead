@@ -208,6 +208,7 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("indexedDB.open('lvread-web-reader'"))
         XCTAssertTrue(html.contains("/api/pages/cache"))
         XCTAssertTrue(html.contains("/api/progress/sync"))
+        XCTAssertTrue(html.contains("/api/stats/reading-time"))
         XCTAssertTrue(html.contains("已到缓存数据最后一页，请重新连接 LVRead App"))
         XCTAssertTrue(html.contains("serviceWorker.register"))
         XCTAssertTrue(html.contains("网页阅读模式"))
@@ -247,6 +248,8 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("queueMicrotask(() => navigate(queuedDirection))"))
         XCTAssertTrue(html.contains("async function extendCacheAndNavigate(direction)"))
         XCTAssertTrue(html.contains("async function refreshCacheForNavigation()"))
+        XCTAssertTrue(html.contains("function visibleUnitNeedsRefresh()"))
+        XCTAssertTrue(html.contains("if (!missingSecondVisiblePage()) return true"))
         XCTAssertTrue(html.contains("refreshed = await refreshCache(true)"))
         XCTAssertTrue(html.contains("return navigate(direction, false)"))
         XCTAssertTrue(html.contains("!state.connected && state.cursor <= 0 && Boolean(state.cache.reachedBeginning)"))
@@ -260,6 +263,12 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("if (isNearCacheBoundary()) prefetchCacheWindow()"))
         XCTAssertTrue(html.contains("state.cursor <= 6 * unit"))
         XCTAssertTrue(html.contains("remaining <= 16 * unit"))
+        XCTAssertTrue(html.contains("await syncPendingReadingIntervals()"))
+        XCTAssertTrue(html.contains("await reconcileProgressOnReconnect()"))
+        XCTAssertTrue(html.contains("syncPendingProgress('furthest')"))
+        XCTAssertTrue(html.contains("nextStrategy = 'replace'"))
+        XCTAssertTrue(html.contains("if (state.connected) await refreshCacheWindow(false)"))
+        XCTAssertTrue(html.contains("const readingInactivityMilliseconds = 2 * 60 * 1000"))
         XCTAssertTrue(html.contains("if (state.connected) return '';"))
         XCTAssertTrue(html.contains("if (message) showToast(message)"))
         XCTAssertTrue(html.contains("elements.turning.classList.contains('active')"))
@@ -272,6 +281,51 @@ final class LVReadTests: XCTestCase {
         XCTAssertTrue(html.contains("sheet-back"))
         XCTAssertTrue(html.contains("html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }"))
         XCTAssertFalse(html.contains("turn.js"))
+    }
+
+    func testWebReadingIntervalValidationCapsIdleAndFutureTime() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let valid = WebSyncServer.validatedWebReadingInterval(
+            startMilliseconds: 1_999_940_000,
+            endMilliseconds: 2_000_000_000,
+            now: now
+        )
+
+        XCTAssertNotNil(valid)
+        XCTAssertNil(WebSyncServer.validatedWebReadingInterval(
+            startMilliseconds: 1_999_800_000,
+            endMilliseconds: 2_000_000_000,
+            now: now
+        ))
+        XCTAssertNil(WebSyncServer.validatedWebReadingInterval(
+            startMilliseconds: 2_000_000_000,
+            endMilliseconds: 2_000_400_000,
+            now: now
+        ))
+    }
+
+    func testReconnectProgressKeepsTheFurthestPositionOnlyForReconciliation() {
+        XCTAssertFalse(WebSyncServer.shouldUseRequestedProgress(
+            currentChapterIndex: 1,
+            currentPageIndex: 8,
+            requestedChapterIndex: 0,
+            requestedPageIndex: 18,
+            keepsFurthestProgress: true
+        ))
+        XCTAssertTrue(WebSyncServer.shouldUseRequestedProgress(
+            currentChapterIndex: 1,
+            currentPageIndex: 8,
+            requestedChapterIndex: 1,
+            requestedPageIndex: 9,
+            keepsFurthestProgress: true
+        ))
+        XCTAssertTrue(WebSyncServer.shouldUseRequestedProgress(
+            currentChapterIndex: 1,
+            currentPageIndex: 8,
+            requestedChapterIndex: 0,
+            requestedPageIndex: 18,
+            keepsFurthestProgress: false
+        ))
     }
 
     func testWebSyncPageSnapshotDecodesLegacyValueWithoutLayout() throws {
