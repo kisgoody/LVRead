@@ -71,6 +71,25 @@ final class PaperCurlPhysicsTests: XCTestCase {
         XCTAssertLessThanOrEqual(duration, 0.48)
     }
 
+    func testCoverAdvanceMovesCurrentPageAndKeepsNextPageUnderneath() {
+        let offsets = CoverAnimator.offsets(progress: 0.4, length: 300, direction: .next)
+
+        XCTAssertEqual(offsets.current, -120, accuracy: 0.001)
+        XCTAssertEqual(offsets.incoming, 0, accuracy: 0.001)
+    }
+
+    func testCoverReturnMovesPreviousPageOverCurrentPage() {
+        let offsets = CoverAnimator.offsets(progress: 0.4, length: 300, direction: .prev)
+
+        XCTAssertEqual(offsets.current, 0, accuracy: 0.001)
+        XCTAssertEqual(offsets.incoming, -180, accuracy: 0.001)
+    }
+
+    func testLegacyHorizontalModeKeepsItsPersistedRawValue() {
+        XCTAssertEqual(ReaderNavigationMode(rawValue: "horizontal"), .horizontal)
+        XCTAssertNotEqual(ReaderNavigationMode.horizontalCover.rawValue, "horizontal")
+    }
+
     func testPageFlipStateCleanupIsIdempotentAndRestoresPages() {
         let current = UIView()
         let next = UIView()

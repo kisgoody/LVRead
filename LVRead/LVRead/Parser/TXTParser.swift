@@ -80,7 +80,6 @@ final class TXTParser: FileParserProtocol {
         }
         print("[TXT] Offset guard passed, slicing utf16[\(start)..<\(end)]")
 
-        let utf16 = fullText.utf16
         let lo = String.Index(utf16Offset: start, in: fullText)
         let hi = String.Index(utf16Offset: end, in: fullText)
         let content = String(fullText[lo..<hi])

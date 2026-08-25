@@ -70,7 +70,7 @@ final class BookImportManager {
     // MARK: - Format Detection
 
     /// Map a URL to its `FileFormat` by inspecting the path extension.
-    func detectFormat(_ url: URL) -> FileFormat {
+    func detectFormat(_ url: URL) -> FileFormat? {
         let ext = url.pathExtension.lowercased()
         switch ext {
         case "epub":
@@ -79,16 +79,8 @@ final class BookImportManager {
             return .txt
         case "pdf":
             return .pdf
-        case "mobi":
-            return .mobi
-        case "azw3", "azw":
-            return .azw3
         default:
-            // Fallback: inspect file data for known signatures.
-            if let hint = detectFormatBySignature(url) {
-                return hint
-            }
-            return .txt
+            return detectFormatBySignature(url)
         }
     }
 
@@ -101,8 +93,6 @@ final class BookImportManager {
             return TXTParser()
         case .pdf:
             return PDFParser()
-        case .mobi, .azw3:
-            return MOBIParser()
         }
     }
 
@@ -170,7 +160,10 @@ final class BookImportManager {
         }
 
         let filePath = url.path
-        let format = detectFormat(url)
+        guard let format = detectFormat(url) else {
+            dispatchCompletion(completion, result: .failure(.formatUnsupported))
+            return
+        }
 
         // Step 0: Report format.
         reportProgress(progressHandler, percent: 0.0, message: "检测文件格式: \(format.displayName)", operation: operation)
@@ -372,21 +365,6 @@ final class BookImportManager {
         // PDF: %PDF
         if bytes.count >= 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46 {
             return .pdf
-        }
-        // MOBI/AZW: PalmDB header (0x424F4F4B4D4F4249 = "BOOKMOBI")
-        if bytes.count >= 68 {
-            let mobiMagic = String(bytes: bytes[60..<68], encoding: .ascii)
-            if mobiMagic == "BOOKMOBI" {
-                // Further discriminate: check for AZW3/KF8 marker
-                // "AZW3" appears near offset 68+ in newer files
-                if bytes.count >= 72 {
-                    let kindleMagic = String(bytes: bytes[68..<72], encoding: .ascii)
-                    if kindleMagic == "AZW3" {
-                        return .azw3
-                    }
-                }
-                return .mobi
-            }
         }
         return nil
     }
