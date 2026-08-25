@@ -43,7 +43,6 @@
 		6051EC1C457F9587A9C11509 /* ZodiacDemoVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74FDE646D41A872DD8B493C /* ZodiacDemoVC.swift */; };
 		61AC03A3587403CF760AB474 /* WebSyncViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59B899A345CAA2C1DBD0FCCC /* WebSyncViewController.swift */; };
 		66CBBC4A16346C4C06415591 /* LVToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = A775C381ED8137C4D741BF6D /* LVToast.swift */; };
-		A8B10002A8B10002A8B10002 /* WebReader.html in Resources */ = {isa = PBXBuildFile; fileRef = A8B10001A8B10001A8B10001 /* WebReader.html */; };
 		69AED7ECE05CE466047A88D6 /* ReadingProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB956F8ACFCAA350167FE2A3 /* ReadingProgress.swift */; };
 		6DA8A9C164E381E245C48842 /* WebSyncServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE58B094F2117889990D6188 /* WebSyncServer.swift */; };
 		7007D936643054824E32C774 /* LanDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9D4D5B4140986B2A1118CA /* LanDevice.swift */; };
@@ -65,12 +64,13 @@
 		9565881A8C267D8AB45D2681 /* FileParserProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BCB7A186F145C5C0D6A2CC /* FileParserProtocol.swift */; };
 		97544E38913889E4FB541247 /* CoverAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 362BC9289D9E2508A0369B6C /* CoverAnimator.swift */; };
 		999A94D60B3824690DDAA307 /* NativeDocumentPageViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FE1355CFF397587ED8DD7C7 /* NativeDocumentPageViewController.swift */; };
-		A9F10002A9F10002A9F10002 /* NativeBookSpreadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10001A9F10001A9F10001 /* NativeBookSpreadView.swift */; };
 		A11CE002A11CE002A11CE002 /* ReadingAdviceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE001A11CE001A11CE001 /* ReadingAdviceEngine.swift */; };
 		A2E6C4E6561385AB2F1D869B /* TCPTransferServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B95236BF3E76DDAA1AC7A99 /* TCPTransferServer.swift */; };
 		A32D4035223FC0B96BF348B1 /* ChapterListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8C786238FAC900A51BF47F /* ChapterListViewController.swift */; };
 		A7E771BA06E4DA6DF74B12EF /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54154FD888C1A9548FDAA18 /* ThemeManager.swift */; };
+		A8B10002A8B10002A8B10002 /* WebReader.html in Resources */ = {isa = PBXBuildFile; fileRef = A8B10001A8B10001A8B10001 /* WebReader.html */; };
 		A94652A54C463256014A9867 /* ContinuousReaderViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75022AD5D67AB53F53372572 /* ContinuousReaderViewController.swift */; };
+		A9F10002A9F10002A9F10002 /* NativeBookSpreadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10001A9F10001A9F10001 /* NativeBookSpreadView.swift */; };
 		AAFC0F3EF9B56BCE83A4FB7A /* LVCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A724FB18376F02CF582C8225 /* LVCard.swift */; };
 		AC68CA87B649486C184C7FB3 /* SmoothScrollHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B134274D22D973DD740F9C61 /* SmoothScrollHandler.swift */; };
 		B033DD80C898DDF140F29EE1 /* EPUBParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C2E38571FF001A5263328F /* EPUBParser.swift */; };
@@ -126,7 +126,6 @@
 		0C4910391A78AFCE00D69A47 /* LVSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVSlider.swift; sourceTree = "<group>"; };
 		0E7E923C264FD71604A74730 /* ZodiacWatermark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZodiacWatermark.swift; sourceTree = "<group>"; };
 		0FE1355CFF397587ED8DD7C7 /* NativeDocumentPageViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDocumentPageViewController.swift; sourceTree = "<group>"; };
-		A9F10001A9F10001A9F10001 /* NativeBookSpreadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBookSpreadView.swift; sourceTree = "<group>"; };
 		12BCB7A186F145C5C0D6A2CC /* FileParserProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileParserProtocol.swift; sourceTree = "<group>"; };
 		192E950E1BB945CE46273643 /* LVFilterChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVFilterChip.swift; sourceTree = "<group>"; };
 		1B4E6B0A6607AF1AD1AFACE5 /* Bookmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bookmark.swift; sourceTree = "<group>"; };
@@ -178,6 +177,7 @@
 		A74FDE646D41A872DD8B493C /* ZodiacDemoVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZodiacDemoVC.swift; sourceTree = "<group>"; };
 		A775C381ED8137C4D741BF6D /* LVToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVToast.swift; sourceTree = "<group>"; };
 		A8B10001A8B10001A8B10001 /* WebReader.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = WebReader.html; sourceTree = "<group>"; };
+		A9F10001A9F10001A9F10001 /* NativeBookSpreadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBookSpreadView.swift; sourceTree = "<group>"; };
 		AB956F8ACFCAA350167FE2A3 /* ReadingProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgress.swift; sourceTree = "<group>"; };
 		AF2F223D32225C49E94F6087 /* PDFParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFParser.swift; sourceTree = "<group>"; };
 		B134274D22D973DD740F9C61 /* SmoothScrollHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmoothScrollHandler.swift; sourceTree = "<group>"; };
@@ -821,7 +821,7 @@
 				DEVELOPMENT_TEAM = WN8UX325LG;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = LVRead/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -862,7 +862,7 @@
 				DEVELOPMENT_TEAM = WN8UX325LG;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = LVRead/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

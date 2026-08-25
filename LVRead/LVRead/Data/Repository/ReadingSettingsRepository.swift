@@ -5,7 +5,7 @@ final class ReadingSettingsRepository {
     static let shared = ReadingSettingsRepository()
     private let defaults = UserDefaults.standard
     private let settingsKey = "reading_settings"
-    private let padTypographyDefaultsKey = "reading_settings_pad_typography_defaults_v1"
+    private let padTypographyDefaultsKey = "reading_settings_pad_typography_defaults_v2"
 
     private init() {}
 

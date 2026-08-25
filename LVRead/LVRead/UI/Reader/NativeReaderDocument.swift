@@ -12,7 +12,39 @@ struct NativeDocumentPage {
     var id: String { "\(chapterIndex):\(pageIndex):\(startOffset):\(endOffset)" }
 }
 
+struct NativeDocumentCachePolicy: Equatable {
+    let pagesBefore: Int
+    let pagesAfter: Int
+
+    var refreshBefore: Int { pagesBefore / 2 }
+    var refreshAfter: Int { pagesAfter / 2 }
+
+    static func policy(for idiom: UIUserInterfaceIdiom) -> NativeDocumentCachePolicy {
+        let multiplier = idiom == .pad ? 2 : 1
+        return NativeDocumentCachePolicy(
+            pagesBefore: 12 * multiplier,
+            pagesAfter: 32 * multiplier
+        )
+    }
+
+    func shouldRefresh(
+        currentIndex: Int,
+        pageCount: Int,
+        visiblePageCount: Int,
+        reachedBeginning: Bool,
+        reachedEnd: Bool
+    ) -> Bool {
+        let remainingAfter = max(0, pageCount - currentIndex - visiblePageCount)
+        return (!reachedBeginning && currentIndex <= refreshBefore)
+            || (!reachedEnd && remainingAfter <= refreshAfter)
+    }
+}
+
 enum NativeDocumentWindowResolver {
+    static func isCurrent(generation: Int, latestGeneration: Int) -> Bool {
+        generation == latestGeneration
+    }
+
     static func targetIndex(
         in window: [NativeDocumentPage],
         requestedTarget: Int,
@@ -140,6 +172,11 @@ enum NativeDocumentTypography {
         let lines = CTFrameGetLines(frame) as! [CTLine]
         guard !lines.isEmpty else { return CFRange(location: visible.location, length: 0) }
 
+        // Font fallback can place a line's typographic bounds a fraction of a
+        // point outside the CoreText path even though the line is drawable.
+        // Keep a small tolerance so those pages do not fail pagination while
+        // still moving genuinely clipped bottom lines to the next page.
+        let geometryTolerance: CGFloat = 1
         var origins = Array(repeating: CGPoint.zero, count: lines.count)
         CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
         var completeEnd = visible.location
@@ -148,7 +185,7 @@ enum NativeDocumentTypography {
             var descent: CGFloat = 0
             CTLineGetTypographicBounds(line, &ascent, &descent, nil)
             guard origin.y - descent >= 0,
-                  origin.y + ascent <= pathHeight else { continue }
+                  origin.y + ascent <= pathHeight + geometryTolerance else { continue }
             let range = CTLineGetStringRange(line)
             completeEnd = max(completeEnd, range.location + range.length)
         }

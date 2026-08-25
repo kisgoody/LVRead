@@ -14,6 +14,44 @@ enum NativeReaderPresentationPolicy {
     static func pageTurnDistance(usesDoublePage: Bool) -> Int {
         usesDoublePage ? 2 : 1
     }
+
+    static func spreadAnchorIndex(
+        requestedIndex: Int,
+        preservesExistingAnchor: Bool,
+        usesDoublePage: Bool
+    ) -> Int {
+        guard usesDoublePage,
+              !preservesExistingAnchor,
+              requestedIndex > 0 else { return requestedIndex }
+        return requestedIndex - requestedIndex % 2
+    }
+
+    static func requiresSpreadControllers(
+        configuredForDoublePage: Bool,
+        spineIsMid: Bool,
+        layoutUsesDoublePage: Bool
+    ) -> Bool {
+        configuredForDoublePage || spineIsMid || layoutUsesDoublePage
+    }
+
+    static func isLeftPage(index: Int, anchorIndex: Int) -> Bool {
+        (index - anchorIndex).isMultiple(of: 2)
+    }
+
+    static func canProvidePreviousPage(isLeftPage: Bool, pagesBefore: Int) -> Bool {
+        !isLeftPage || pagesBefore >= 2
+    }
+
+    static func shouldProvideTrailingBlank(isLeftPage: Bool) -> Bool {
+        isLeftPage
+    }
+
+    static func validatedSpreadAnchor(visibleIndices: [Int]) -> Int? {
+        guard visibleIndices.count == 2 else { return nil }
+        let indices = visibleIndices.sorted()
+        guard indices.count == 2, indices[1] == indices[0] + 1 else { return nil }
+        return indices[0]
+    }
 }
 
 enum NativeReaderPageChrome: Equatable {
@@ -276,7 +314,14 @@ final class NativeBookSpreadView: UIView {
             byRoundingCorners: leftSide ? [.topLeft, .bottomLeft] : [.topRight, .bottomRight],
             cornerRadii: CGSize(width: radius, height: radius)
         )
-        let textureClip = UIBezierPath(rect: textureRect)
+        let outerCorners: UIRectCorner = leftSide
+            ? [.topLeft, .bottomLeft]
+            : [.topRight, .bottomRight]
+        let textureClip = UIBezierPath(
+            roundedRect: textureRect,
+            byRoundingCorners: outerCorners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
         textureClip.append(roundedPage)
         textureClip.usesEvenOddFillRule = true
 
@@ -296,6 +341,10 @@ final class NativeBookSpreadView: UIView {
         context.restoreGState()
 
         palette.outline.withAlphaComponent(0.20).setStroke()
-        UIBezierPath(rect: edge.insetBy(dx: 0.5, dy: 0.5)).stroke()
+        UIBezierPath(
+            roundedRect: edge.insetBy(dx: 0.5, dy: 0.5),
+            byRoundingCorners: outerCorners,
+            cornerRadii: CGSize(width: min(radius, edge.width), height: radius)
+        ).stroke()
     }
 }

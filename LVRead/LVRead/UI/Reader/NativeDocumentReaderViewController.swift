@@ -83,6 +83,29 @@ final class NativeDocumentReaderViewController: UIViewController {
         let settings: ReadingSettings
         let navigationMode: String
         let preserveCurrentPage: Bool
+
+        func canCoalesceBackgroundRefresh(with other: WindowLoadRequest) -> Bool {
+            preserveCurrentPage
+                && other.preserveCurrentPage
+                && size == other.size
+                && safeAreaInsets == other.safeAreaInsets
+                && settings == other.settings
+                && navigationMode == other.navigationMode
+        }
+    }
+
+    private struct PendingWindow {
+        let generation: Int
+        let pages: [NativeDocumentPage]
+        let target: Int
+        let preserveCurrentPage: Bool
+        let reachedBeginning: Bool
+        let reachedEnd: Bool
+    }
+
+    private struct InteractivePageTransition {
+        let sourcePageID: String?
+        let targetPageID: String?
     }
 
     private let book: Book
@@ -98,7 +121,6 @@ final class NativeDocumentReaderViewController: UIViewController {
     private var continuousPageOffsets: [CGFloat] = []
     private var currentIndex = 0
     private var loadVersion = 0
-    private var preloadRadius = 6
     private var initialLoadStarted = false
     private var preparationCompletion: ((Result<Void, Error>) -> Void)?
     private var preparationSafeAreaInsets: UIEdgeInsets?
@@ -109,7 +131,12 @@ final class NativeDocumentReaderViewController: UIViewController {
     private var isTextSelectionActive = false
     private var isProgrammaticPageTurn = false
     private var isPageTransitioning = false
-    private var pendingWindow: (pages: [NativeDocumentPage], target: Int, preserveCurrentPage: Bool)?
+    private var isFinalizingPageTransition = false
+    private var isWindowCommitInProgress = false
+    private var interactivePageTransition: InteractivePageTransition?
+    private var windowReachedBeginning = false
+    private var windowReachedEnd = false
+    private var pendingWindow: PendingWindow?
     private var activeReadingStartedAt: Date?
     private var activeReadingCountsTowardPace = false
     private var activeReadingPageID: String?
@@ -119,6 +146,7 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     private var pageViewController: UIPageViewController!
     private let bookSpreadView = NativeBookSpreadView()
+    private let pagingInteractionShield = UIView()
     private var pageTopConstraint: NSLayoutConstraint?
     private var pageLeadingConstraint: NSLayoutConstraint?
     private var pageTrailingConstraint: NSLayoutConstraint?
@@ -284,13 +312,15 @@ final class NativeDocumentReaderViewController: UIViewController {
         let anchor = currentPage
         coordinator.animate(alongsideTransition: { [weak self] _ in
             guard let self else { return }
+            self.view.layoutIfNeeded()
+        }, completion: { [weak self] _ in
+            guard let self else { return }
             if self.configuredForDoublePage != targetDoublePage {
                 self.replacePageViewController(doublePage: targetDoublePage)
             }
             self.updateBookPresentation()
             self.view.layoutIfNeeded()
-        }, completion: { [weak self] _ in
-            guard let self, let anchor else { return }
+            guard let anchor else { return }
             self.chapterPageCounts.removeAll()
             self.loadWindow(
                 chapterIndex: anchor.chapterIndex,
@@ -317,7 +347,8 @@ final class NativeDocumentReaderViewController: UIViewController {
         registerReadingActivity()
         if pendingInitialSettlement {
             pendingInitialSettlement = false
-            preparationSafeAreaInsets = nil
+            // Page controllers are recreated during every curl transition.
+            // Keep the initial geometry so their headers never shift after a turn.
             suppressWindowRefresh = true
             settleOnCurrentPage()
             suppressWindowRefresh = false
@@ -425,7 +456,17 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     @objc private func appDidBecomeActive() {
         registerReadingActivity()
-        restorePagingInteraction()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.isPageTransitioning
+                || self.isFinalizingPageTransition
+                || self.isWindowCommitInProgress
+                || self.nativePageGestureIsActive {
+                self.replacePageViewController(doublePage: self.usesDoublePage)
+            } else {
+                self.restorePagingInteraction()
+            }
+        }
     }
 
     @objc private func audioSessionInterrupted(_ notification: Notification) {
@@ -480,18 +521,58 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
-        preloadRadius = 3
-        guard let page = currentPage else { return }
-        loadWindow(
-            chapterIndex: page.chapterIndex,
-            pageIndex: page.pageIndex,
-            characterOffset: page.startOffset,
-            showSkeleton: false
-        )
+        PageCacheManager.shared.handleMemoryWarning()
     }
 
     private var currentPage: NativeDocumentPage? {
         pages.indices.contains(currentIndex) ? pages[currentIndex] : nil
+    }
+
+    private var visibleAnchorPage: NativeDocumentPage? {
+        if pageViewControllerRequiresSpread,
+           let index = spreadAnchor(in: pageViewController.viewControllers ?? []) {
+            return pages[index]
+        }
+        return (pageViewController.viewControllers ?? [])
+            .compactMap { $0 as? NativeDocumentPageViewController }
+            .map(\.page)
+            .first { visible in pages.contains(where: { $0.id == visible.id }) }
+    }
+
+    private var visiblePageIndices: [Int] {
+        (pageViewController.viewControllers ?? [])
+            .compactMap { $0 as? NativeDocumentPageViewController }
+            .compactMap { visible in
+                pages.firstIndex(where: { $0.id == visible.page.id })
+            }
+    }
+
+    private var nativePageGestureIsActive: Bool {
+        pageViewController.gestureRecognizers.contains {
+            $0.state == .began || $0.state == .changed
+        }
+    }
+
+    private func spreadAnchor(
+        in controllers: [UIViewController]
+    ) -> Int? {
+        let pageIndices = controllers
+            .compactMap { $0 as? NativeDocumentPageViewController }
+            .compactMap { visible in
+                pages.firstIndex(where: { $0.id == visible.page.id })
+            }
+        if let anchor = NativeReaderPresentationPolicy.validatedSpreadAnchor(
+            visibleIndices: pageIndices
+        ) {
+            return anchor
+        }
+        guard pageIndices.count == 1,
+              let blank = controllers.first(where: {
+                  $0 is NativeDocumentBlankPageViewController
+              }) as? NativeDocumentBlankPageViewController,
+              blank.adjacentPageIndex == pageIndices[0]
+        else { return nil }
+        return pageIndices[0]
     }
 
     private var readingSize: CGSize {
@@ -525,13 +606,36 @@ final class NativeDocumentReaderViewController: UIViewController {
         )
     }
 
-    private var pageTurnDistance: Int {
-        NativeReaderPresentationPolicy.pageTurnDistance(usesDoublePage: configuredForDoublePage)
+    private var cachePolicy: NativeDocumentCachePolicy {
+        NativeDocumentCachePolicy.policy(for: traitCollection.userInterfaceIdiom)
     }
 
-    private func displayedPageIndex(_ requestedIndex: Int) -> Int {
-        guard configuredForDoublePage, requestedIndex > 0 else { return requestedIndex }
-        return requestedIndex - requestedIndex % 2
+    private var pageTurnDistance: Int {
+        NativeReaderPresentationPolicy.pageTurnDistance(usesDoublePage: pageViewControllerRequiresSpread)
+    }
+
+    private var pageViewControllerRequiresSpread: Bool {
+        NativeReaderPresentationPolicy.requiresSpreadControllers(
+            configuredForDoublePage: configuredForDoublePage,
+            spineIsMid: pageViewController?.transitionStyle == .pageCurl
+                && pageViewController?.spineLocation == .mid,
+            layoutUsesDoublePage: usesDoublePage
+        )
+    }
+
+    private func isLeftPageInCurrentSpread(at index: Int) -> Bool {
+        NativeReaderPresentationPolicy.isLeftPage(index: index, anchorIndex: currentIndex)
+    }
+
+    private func displayedPageIndex(
+        _ requestedIndex: Int,
+        preservesExistingAnchor: Bool = false
+    ) -> Int {
+        NativeReaderPresentationPolicy.spreadAnchorIndex(
+            requestedIndex: requestedIndex,
+            preservesExistingAnchor: preservesExistingAnchor,
+            usesDoublePage: pageViewControllerRequiresSpread
+        )
     }
 
     private func makePageViewController(doublePage: Bool? = nil) -> UIPageViewController {
@@ -561,6 +665,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         buildPersistentStatus()
         pageViewController = makePageViewController()
         installPageViewController()
+        installPagingInteractionShield()
         installCoverPaging()
         buildContinuousReader()
         buildMenus()
@@ -700,10 +805,52 @@ final class NativeDocumentReaderViewController: UIViewController {
         setNativePagingEnabled(navigationMode == .simulation || navigationMode == .horizontal)
     }
 
+    private func installPagingInteractionShield() {
+        pagingInteractionShield.backgroundColor = .clear
+        pagingInteractionShield.isHidden = true
+        pagingInteractionShield.isAccessibilityElement = false
+        pagingInteractionShield.accessibilityElementsHidden = true
+        view.insertSubview(pagingInteractionShield, aboveSubview: bookSpreadView)
+        pagingInteractionShield.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            pagingInteractionShield.topAnchor.constraint(equalTo: view.topAnchor),
+            pagingInteractionShield.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pagingInteractionShield.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pagingInteractionShield.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+
     private func replacePageViewController(doublePage: Bool? = nil) {
-        pageViewController.willMove(toParent: nil)
-        pageViewController.view.removeFromSuperview()
-        pageViewController.removeFromParent()
+        let interruptedTransition = isPageTransitioning
+            || isFinalizingPageTransition
+            || isWindowCommitInProgress
+            || nativePageGestureIsActive
+        if interruptedTransition {
+            let visibleIndex = pageViewControllerRequiresSpread
+                ? spreadAnchor(in: pageViewController.viewControllers ?? [])
+                : visiblePageIndices.first
+            if let visibleIndex, pages.indices.contains(visibleIndex) {
+                currentIndex = visibleIndex
+            }
+            interactivePageTransition = nil
+            isProgrammaticPageTurn = false
+            isPageTransitioning = false
+            isFinalizingPageTransition = false
+            isWindowCommitInProgress = true
+            coverFlipState.cleanup()
+            coverTargetController?.willMove(toParent: nil)
+            coverTargetController?.view.removeFromSuperview()
+            coverTargetController?.removeFromParent()
+            coverTargetController = nil
+            coverTargetIndex = nil
+        }
+
+        let previousController = pageViewController
+        previousController?.dataSource = nil
+        previousController?.delegate = nil
+        previousController?.willMove(toParent: nil)
+        previousController?.view.removeFromSuperview()
+        previousController?.removeFromParent()
         pageViewController = makePageViewController(doublePage: doublePage)
         if let controllers = pageControllers(at: currentIndex) {
             pageViewController.setViewControllers(
@@ -713,8 +860,25 @@ final class NativeDocumentReaderViewController: UIViewController {
             )
         }
         installPageViewController()
+        view.insertSubview(pagingInteractionShield, aboveSubview: bookSpreadView)
         [topStatus, bottomStatus, topMenu, bottomMenu, eyeCareOverlay, brightnessOverlay, skeleton]
             .forEach(view.bringSubviewToFront)
+        if interruptedTransition {
+            isWindowCommitInProgress = false
+            if let pendingWindow = takeCurrentPendingWindow() {
+                commitWindow(pendingWindow)
+                return
+            }
+            skeleton.stop()
+            pageViewController.view.isUserInteractionEnabled = true
+            continuousScrollView.isUserInteractionEnabled = true
+            if preparationCompletion != nil {
+                pendingInitialSettlement = true
+                finishPreparation(.success(()))
+            } else {
+                settleOnCurrentPage()
+            }
+        }
         updatePagingInteraction()
     }
 
@@ -741,12 +905,19 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func setNativePagingEnabled(_ enabled: Bool) {
-        pageViewController.gestureRecognizers.forEach { $0.isEnabled = enabled }
+        pageViewController.gestureRecognizers.forEach {
+            guard $0.isEnabled != enabled else { return }
+            $0.isEnabled = enabled
+        }
         pageViewController.view.subviews
             .compactMap { $0 as? UIScrollView }
             .forEach {
-                $0.isScrollEnabled = enabled
-                $0.panGestureRecognizer.isEnabled = enabled
+                if $0.isScrollEnabled != enabled {
+                    $0.isScrollEnabled = enabled
+                }
+                if $0.panGestureRecognizer.isEnabled != enabled {
+                    $0.panGestureRecognizer.isEnabled = enabled
+                }
             }
     }
 
@@ -1054,10 +1225,15 @@ final class NativeDocumentReaderViewController: UIViewController {
             navigationMode: navigationMode.rawValue,
             preserveCurrentPage: preserveCurrentPage
         )
+        if let activeWindowLoadRequest,
+           request.canCoalesceBackgroundRefresh(with: activeWindowLoadRequest) {
+            return
+        }
         guard request != activeWindowLoadRequest else { return }
         activeWindowLoadRequest = request
         loadVersion += 1
         let version = loadVersion
+        pendingWindow = nil
         if showSkeleton {
             skeleton.start()
             pageViewController.view.isUserInteractionEnabled = false
@@ -1072,7 +1248,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             ? NativeDocumentTypography.continuousInsets(size: size, settings: snapshotSettings)
             : nil
         let snapshotTextInsets = continuousTextInsets ?? pagedTextInsets
-        let radius = navigationMode == .continuousVertical ? max(preloadRadius, 6) : preloadRadius
+        let cachePolicy = cachePolicy
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             if self.book.fileFormat == .pdf {
@@ -1082,8 +1258,8 @@ final class NativeDocumentReaderViewController: UIViewController {
                         throw NativeDocumentReaderError.emptyContent
                     }
                     let center = min(max(pageIndex, 0), document.pageCount - 1)
-                    let lower = max(0, center - radius)
-                    let upper = min(document.pageCount - 1, center + radius)
+                    let lower = max(0, center - cachePolicy.pagesBefore)
+                    let upper = min(document.pageCount - 1, center + cachePolicy.pagesAfter)
                     var pdfPages: [NativeDocumentPage] = []
                     for index in lower...upper {
                         guard let pdfPage = document.page(at: index) else { continue }
@@ -1110,7 +1286,10 @@ final class NativeDocumentReaderViewController: UIViewController {
                         self.apply(
                             window: pdfPages,
                             target: center - lower,
-                            preserveCurrentPage: preserveCurrentPage
+                            preserveCurrentPage: preserveCurrentPage,
+                            reachedBeginning: lower == 0,
+                            reachedEnd: upper == document.pageCount - 1,
+                            generation: version
                         )
                     }
                 } catch {
@@ -1158,16 +1337,23 @@ final class NativeDocumentReaderViewController: UIViewController {
                 var target = localTarget
                 var previous = resolvedChapter - 1
                 var next = resolvedChapter + 1
-                while target < radius, previous >= 0 {
+                while target < cachePolicy.pagesBefore, previous >= 0 {
                     let value = try parse(previous)
                     combined = value + combined
                     target += value.count
                     previous -= 1
                 }
-                while combined.count - target - 1 < radius, next < snapshotChapters.count {
+                while combined.count - target - 1 < cachePolicy.pagesAfter,
+                      next < snapshotChapters.count {
                     combined += try parse(next)
                     next += 1
                 }
+                let lower = max(0, target - cachePolicy.pagesBefore)
+                let upper = min(combined.count - 1, target + cachePolicy.pagesAfter)
+                let reachedBeginning = lower == 0 && previous < 0
+                let reachedEnd = upper == combined.count - 1 && next >= snapshotChapters.count
+                combined = Array(combined[lower...upper])
+                target -= lower
                 DispatchQueue.main.async {
                     guard version == self.loadVersion else { return }
                     self.activeWindowLoadRequest = nil
@@ -1175,7 +1361,10 @@ final class NativeDocumentReaderViewController: UIViewController {
                     self.apply(
                         window: combined,
                         target: target,
-                        preserveCurrentPage: preserveCurrentPage
+                        preserveCurrentPage: preserveCurrentPage,
+                        reachedBeginning: reachedBeginning,
+                        reachedEnd: reachedEnd,
+                        generation: version
                     )
                 }
             } catch {
@@ -1191,33 +1380,78 @@ final class NativeDocumentReaderViewController: UIViewController {
     private func apply(
         window: [NativeDocumentPage],
         target: Int,
-        preserveCurrentPage: Bool = true
+        preserveCurrentPage: Bool = true,
+        reachedBeginning: Bool,
+        reachedEnd: Bool,
+        generation: Int
     ) {
-        guard !isPageTransitioning else {
-            pendingWindow = (window, target, preserveCurrentPage)
+        let update = PendingWindow(
+            generation: generation,
+            pages: window,
+            target: target,
+            preserveCurrentPage: preserveCurrentPage,
+            reachedBeginning: reachedBeginning,
+            reachedEnd: reachedEnd
+        )
+        guard NativeDocumentWindowResolver.isCurrent(
+            generation: generation,
+            latestGeneration: loadVersion
+        ) else { return }
+        guard !isPageTransitioning,
+              !isFinalizingPageTransition,
+              !isWindowCommitInProgress,
+              !nativePageGestureIsActive else {
+            enqueuePendingWindow(update)
             return
         }
+        commitWindow(update)
+    }
+
+    private func enqueuePendingWindow(_ update: PendingWindow) {
+        guard NativeDocumentWindowResolver.isCurrent(
+            generation: update.generation,
+            latestGeneration: loadVersion
+        ) else { return }
+        guard pendingWindow == nil || update.generation >= pendingWindow!.generation else { return }
+        pendingWindow = update
+    }
+
+    private func commitWindow(_ update: PendingWindow) {
+        guard NativeDocumentWindowResolver.isCurrent(
+            generation: update.generation,
+            latestGeneration: loadVersion
+        ) else {
+            finishWindowCommit()
+            return
+        }
+        isWindowCommitInProgress = true
+        updatePagingInteraction()
         suppressWindowRefresh = true
-        let previousPage = currentPage
+        let previousPage = visibleAnchorPage ?? currentPage
         let previousIntraPageOffset = navigationMode == .continuousVertical
             ? continuousScrollView.contentOffset.y - continuousOffset(forPageAt: currentIndex)
             : 0
         guard let resolvedTarget = NativeDocumentWindowResolver.targetIndex(
-            in: window,
-            requestedTarget: target,
-            preserving: preserveCurrentPage ? previousPage : nil
+            in: update.pages,
+            requestedTarget: update.target,
+            preserving: update.preserveCurrentPage ? previousPage : nil
         ) else {
             suppressWindowRefresh = false
-            guard let previousPage else { return }
+            isWindowCommitInProgress = false
+            guard let previousPage else {
+                completePageTransition(settle: false)
+                return
+            }
             loadWindow(
                 chapterIndex: previousPage.chapterIndex,
                 pageIndex: previousPage.pageIndex,
                 characterOffset: previousPage.startOffset,
                 showSkeleton: false
             )
+            completePageTransition(settle: false)
             return
         }
-        let cachedPages = window.map {
+        let cachedPages = update.pages.map {
             PageData(
                 pageIndex: $0.pageIndex,
                 startCharOffset: $0.startOffset,
@@ -1227,14 +1461,52 @@ final class NativeDocumentReaderViewController: UIViewController {
                 chapterIndex: $0.chapterIndex
             )
         }
-        PageCacheManager.shared.cachePages(cachedPages, bookId: book.id, centerPage: target)
-        pages = window
-        currentIndex = displayedPageIndex(resolvedTarget)
+        PageCacheManager.shared.cachePages(
+            cachedPages,
+            bookId: book.id,
+            centerPage: update.pages[resolvedTarget].pageIndex
+        )
+        pages = update.pages
+        windowReachedBeginning = update.reachedBeginning
+        windowReachedEnd = update.reachedEnd
+        currentIndex = resolvedTarget
         if navigationMode == .continuousVertical {
             renderContinuousWindow(target: currentIndex, intraPageOffset: previousIntraPageOffset)
+            finishWindowCommit()
         } else if let controllers = pageControllers(at: currentIndex) {
-            pageViewController.setViewControllers(controllers, direction: .forward, animated: false)
+            let controller = pageViewController!
+            controller.setViewControllers(
+                controllers,
+                direction: .forward,
+                animated: false
+            ) { [weak self, weak controller] completed in
+                guard let self,
+                      let controller,
+                      controller === self.pageViewController else { return }
+                guard completed else {
+                    self.replacePageViewController(doublePage: self.usesDoublePage)
+                    return
+                }
+                self.finishWindowCommit()
+            }
+        } else {
+            finishWindowCommit()
         }
+    }
+
+    private func finishWindowCommit() {
+        if let pendingWindow,
+           NativeDocumentWindowResolver.isCurrent(
+               generation: pendingWindow.generation,
+               latestGeneration: loadVersion
+           ) {
+            self.pendingWindow = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.commitWindow(pendingWindow)
+            }
+            return
+        }
+        pendingWindow = nil
         skeleton.stop()
         pageViewController.view.isUserInteractionEnabled = true
         continuousScrollView.isUserInteractionEnabled = true
@@ -1245,6 +1517,8 @@ final class NativeDocumentReaderViewController: UIViewController {
             settleOnCurrentPage()
         }
         suppressWindowRefresh = false
+        isWindowCommitInProgress = false
+        completePageTransition(settle: false)
     }
 
     private func makePageController(at index: Int) -> NativeDocumentPageViewController? {
@@ -1258,8 +1532,8 @@ final class NativeDocumentReaderViewController: UIViewController {
         let pageHighlights = highlights(for: page)
         UIDevice.current.isBatteryMonitoringEnabled = true
         let chrome: NativeReaderPageChrome
-        if configuredForDoublePage {
-            chrome = index.isMultiple(of: 2) ? .spreadLeft : .spreadRight
+        if pageViewControllerRequiresSpread {
+            chrome = isLeftPageInCurrentSpread(at: index) ? .spreadLeft : .spreadRight
         } else {
             chrome = .single
         }
@@ -1296,9 +1570,10 @@ final class NativeDocumentReaderViewController: UIViewController {
         previouslyDisplayedIndex: Int? = nil,
         animated: Bool = false
     ) -> [UIViewController]? {
-        let index = displayedPageIndex(index)
         guard let front = makePageController(at: index) else { return nil }
-        if configuredForDoublePage {
+        // UIPageViewController validates the array count against its actual
+        // spine, which can briefly differ from cached layout state on iPad.
+        if pageViewControllerRequiresSpread {
             let right = makePageController(at: index + 1)
                 ?? NativeDocumentBlankPageViewController(adjacentPageIndex: index, settings: settings)
             return [front, right]
@@ -1369,7 +1644,9 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func refreshVisiblePages() {
-        guard !isPageTransitioning else { return }
+        guard !isPageTransitioning,
+              !isFinalizingPageTransition,
+              !isWindowCommitInProgress else { return }
         if navigationMode == .continuousVertical {
             let intraPageOffset = continuousScrollView.contentOffset.y - continuousOffset(forPageAt: currentIndex)
             renderContinuousWindow(target: currentIndex, intraPageOffset: intraPageOffset)
@@ -1446,7 +1723,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             && presentedViewController == nil
         if recordsEffectiveReading {
             let lastVisibleIndex = min(currentIndex + 1, pages.count - 1)
-            let visiblePages = configuredForDoublePage
+            let visiblePages = pageViewControllerRequiresSpread
                 ? Array(pages[currentIndex...lastVisibleIndex])
                 : [page]
             for visiblePage in visiblePages where visited.insert(visiblePage.id).inserted {
@@ -1468,9 +1745,15 @@ final class NativeDocumentReaderViewController: UIViewController {
         if persistsReadingProgress {
             NativeReaderRestorationStore.save(bookID: book.id)
         }
-        let reloadMargin = min(3, max(1, pages.count / 3))
+        let visiblePageCount = traitCollection.userInterfaceIdiom == .pad ? 2 : 1
         if !suppressWindowRefresh,
-           currentIndex < reloadMargin || currentIndex >= pages.count - reloadMargin {
+           cachePolicy.shouldRefresh(
+               currentIndex: currentIndex,
+               pageCount: pages.count,
+               visiblePageCount: visiblePageCount,
+               reachedBeginning: windowReachedBeginning,
+               reachedEnd: windowReachedEnd
+           ) {
             loadWindow(
                 chapterIndex: page.chapterIndex,
                 pageIndex: page.pageIndex,
@@ -1555,20 +1838,27 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func updatePagingInteraction() {
-        let enabled = !menuVisible && !isTextSelectionActive && presentedViewController == nil
+        let transitionIsBusy = isPageTransitioning
+            || isFinalizingPageTransition
+            || isWindowCommitInProgress
+        let interactionAllowed = !menuVisible
+            && !isTextSelectionActive
+            && presentedViewController == nil
+        // The shield blocks the next touch while a native curl settles. Do not
+        // reset UIPageViewController's internal recognizers after every page.
         setNativePagingEnabled(
-            enabled && (navigationMode == .simulation || navigationMode == .horizontal)
+            interactionAllowed
+                && (navigationMode == .simulation || navigationMode == .horizontal)
         )
-        coverPanGesture.isEnabled = enabled && usesCoverPaging
-        continuousScrollView.isScrollEnabled = enabled
+        coverPanGesture.isEnabled = interactionAllowed && !transitionIsBusy && usesCoverPaging
+        continuousScrollView.isScrollEnabled = interactionAllowed && !transitionIsBusy
+        pagingInteractionShield.isHidden = !transitionIsBusy
+            || navigationMode == .continuousVertical
     }
 
-    /// Clears an interrupted UIPageViewController/scroll gesture state. This
-    /// is safe after the reader becomes visible or a transition has settled.
+    /// Restores reader interaction without resetting UIKit's internal page
+    /// gesture recognizers, which can become inert after repeated toggles.
     private func restorePagingInteraction() {
-        setNativePagingEnabled(false)
-        coverPanGesture.isEnabled = false
-        continuousScrollView.isScrollEnabled = false
         updatePagingInteraction()
     }
 
@@ -1615,12 +1905,15 @@ final class NativeDocumentReaderViewController: UIViewController {
     private func beginCoverTransition(direction: PageFlipDirection) -> Bool {
         guard usesCoverPaging,
               !isPageTransitioning,
+              !isFinalizingPageTransition,
+              !isWindowCommitInProgress,
               !isProgrammaticPageTurn else { return false }
         let target = currentIndex + (direction == .next ? 1 : -1)
         guard let controller = makePageController(at: target) else { return false }
 
         coverFlipState.cleanup()
         isPageTransitioning = true
+        pagingInteractionShield.isHidden = false
         coverTargetIndex = target
         coverTargetController = controller
         addChild(controller)
@@ -1636,6 +1929,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             state: coverFlipState
         )
         controller.didMove(toParent: self)
+        view.bringSubviewToFront(pagingInteractionShield)
         [topStatus, bottomStatus, topMenu, bottomMenu, eyeCareOverlay, brightnessOverlay, skeleton]
             .forEach(view.bringSubviewToFront)
         return true
@@ -1653,12 +1947,30 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func completeCoverTransition(committed: Bool) {
+        guard coverTargetIndex != nil || coverTargetController != nil else { return }
         let target = coverTargetIndex
         if committed,
            let target,
            let controllers = pageControllers(at: target) {
-            pageViewController.setViewControllers(controllers, direction: .forward, animated: false)
-            currentIndex = displayedPageIndex(target)
+            let controller = pageViewController!
+            controller.setViewControllers(
+                controllers,
+                direction: .forward,
+                animated: false
+            ) { [weak self, weak controller] completed in
+                guard let self,
+                      let controller,
+                      controller === self.pageViewController else { return }
+                if completed {
+                    self.currentIndex = target
+                }
+                self.finishPageTransition(
+                    settle: completed,
+                    recoverVisiblePages: !completed
+                )
+            }
+        } else {
+            finishPageTransition(settle: false)
         }
 
         coverTargetController?.willMove(toParent: nil)
@@ -1666,9 +1978,6 @@ final class NativeDocumentReaderViewController: UIViewController {
         coverTargetController?.removeFromParent()
         coverTargetController = nil
         coverTargetIndex = nil
-        isPageTransitioning = false
-        finishPageTransition(settle: committed && target != nil)
-        restorePagingInteraction()
     }
 
     private func animateCoverTurn(
@@ -1704,7 +2013,12 @@ final class NativeDocumentReaderViewController: UIViewController {
               !isTextSelectionActive,
               canTurnWithPresentedController,
               !isProgrammaticPageTurn,
-              !isPageTransitioning else { return }
+              !isPageTransitioning,
+              !isFinalizingPageTransition,
+              !isWindowCommitInProgress else {
+            completion?(false)
+            return
+        }
         let performsAnimation = animated && !UIAccessibility.isReduceMotionEnabled
         if performsAnimation && usesCoverPaging {
             animateCoverTurn(forward: forward, completion: completion)
@@ -1715,27 +2029,30 @@ final class NativeDocumentReaderViewController: UIViewController {
             at: target,
             previouslyDisplayedIndex: currentIndex,
             animated: performsAnimation
-        ) else { return }
+        ) else {
+            completion?(false)
+            return
+        }
         isProgrammaticPageTurn = true
-        isPageTransitioning = performsAnimation
-        pageViewController.setViewControllers(
+        isPageTransitioning = true
+        updatePagingInteraction()
+        let controller = pageViewController!
+        controller.setViewControllers(
             controllers,
             direction: forward ? .forward : .reverse,
             animated: performsAnimation
-        ) { [weak self] completed in
-            guard let self else { return }
-            self.isProgrammaticPageTurn = false
-            self.isPageTransitioning = false
-            if completed, performsAnimation {
-                self.currentIndex = self.displayedPageIndex(target)
+        ) { [weak self, weak controller] completed in
+            guard let self,
+                  let controller,
+                  controller === self.pageViewController else { return }
+            if completed {
+                self.currentIndex = target
             }
-            self.finishPageTransition(settle: completed && performsAnimation)
+            self.finishPageTransition(
+                settle: completed,
+                recoverVisiblePages: !completed
+            )
             completion?(completed)
-        }
-        if !performsAnimation {
-            currentIndex = displayedPageIndex(target)
-            settleOnCurrentPage()
-            isProgrammaticPageTurn = false
         }
     }
 
@@ -1770,30 +2087,109 @@ final class NativeDocumentReaderViewController: UIViewController {
                 allowWhileSyncPresented: true
             )
         } else {
-            guard let controllers = pageControllers(at: target) else { return }
-            pageViewController.setViewControllers(
+            guard !isPageTransitioning,
+                  !isFinalizingPageTransition,
+                  !isWindowCommitInProgress,
+                  let controllers = pageControllers(at: target) else { return }
+            isProgrammaticPageTurn = true
+            isPageTransitioning = true
+            updatePagingInteraction()
+            let controller = pageViewController!
+            controller.setViewControllers(
                 controllers,
                 direction: forward ? .forward : .reverse,
                 animated: false
-            ) { [weak self] completed in
-                guard let self, completed else { return }
-                self.currentIndex = self.displayedPageIndex(target)
-                self.settleOnCurrentPage()
+            ) { [weak self, weak controller] completed in
+                guard let self,
+                      let controller,
+                      controller === self.pageViewController else { return }
+                if completed {
+                    self.currentIndex = target
+                }
+                self.finishPageTransition(
+                    settle: completed,
+                    recoverVisiblePages: !completed
+                )
             }
         }
     }
 
-    private func finishPageTransition(settle: Bool) {
-        if let pendingWindow {
-            self.pendingWindow = nil
-            apply(
-                window: pendingWindow.pages,
-                target: pendingWindow.target,
-                preserveCurrentPage: pendingWindow.preserveCurrentPage
+    private func finishPageTransition(
+        settle: Bool,
+        recoverVisiblePages: Bool = false
+    ) {
+        guard !isFinalizingPageTransition else { return }
+        isFinalizingPageTransition = true
+        pagingInteractionShield.isHidden = navigationMode == .continuousVertical
+        coverPanGesture.isEnabled = false
+        continuousScrollView.isScrollEnabled = false
+
+        // UIPageViewController must leave its delegate/completion stack before
+        // a settled spread or a newly loaded cache window is installed.
+        DispatchQueue.main.async { [weak self] in
+            self?.finalizePageTransition(
+                settle: settle,
+                recoverVisiblePages: recoverVisiblePages
             )
-        } else if settle {
+        }
+    }
+
+    private func finalizePageTransition(
+        settle: Bool,
+        recoverVisiblePages: Bool
+    ) {
+        if let pendingWindow = takeCurrentPendingWindow() {
+            commitWindow(pendingWindow)
+            return
+        }
+
+        guard recoverVisiblePages,
+              navigationMode != .continuousVertical,
+              let controllers = pageControllers(at: currentIndex) else {
+            completePageTransition(settle: settle)
+            return
+        }
+
+        isWindowCommitInProgress = true
+        updatePagingInteraction()
+        let controller = pageViewController!
+        controller.setViewControllers(
+            controllers,
+            direction: .forward,
+            animated: false
+        ) { [weak self, weak controller] completed in
+            guard let self,
+                  let controller,
+                  controller === self.pageViewController else { return }
+            guard completed else {
+                self.replacePageViewController(doublePage: self.usesDoublePage)
+                return
+            }
+            self.isWindowCommitInProgress = false
+            self.finalizePageTransition(settle: settle, recoverVisiblePages: false)
+        }
+    }
+
+    private func takeCurrentPendingWindow() -> PendingWindow? {
+        guard let pendingWindow else { return nil }
+        self.pendingWindow = nil
+        guard NativeDocumentWindowResolver.isCurrent(
+            generation: pendingWindow.generation,
+            latestGeneration: loadVersion
+        ) else { return nil }
+        return pendingWindow
+    }
+
+    private func completePageTransition(settle: Bool) {
+        interactivePageTransition = nil
+        isProgrammaticPageTurn = false
+        isPageTransitioning = false
+        isFinalizingPageTransition = false
+        isWindowCommitInProgress = false
+        if settle {
             settleOnCurrentPage()
         }
+        restorePagingInteraction()
     }
 
     @discardableResult
@@ -2158,7 +2554,11 @@ final class NativeDocumentReaderViewController: UIViewController {
             stopListening()
             return
         }
-        if target == currentIndex {
+        let targetPageID = pages[target].id
+        let targetIsVisible = navigationMode != .continuousVertical
+            ? visiblePageIndices.contains(target)
+            : target == currentIndex
+        if targetIsVisible {
             startListening(page: pages[target], from: offset)
             return
         }
@@ -2185,7 +2585,11 @@ final class NativeDocumentReaderViewController: UIViewController {
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                guard let self, let page = self.currentPage, self.isListening else { return }
+                guard let self,
+                      self.isListening,
+                      let resolvedTarget = self.pages.firstIndex(where: { $0.id == targetPageID })
+                else { return }
+                let page = self.pages[resolvedTarget]
                 self.startListening(page: page, from: offset)
             }
         }
@@ -2235,7 +2639,7 @@ final class NativeDocumentReaderViewController: UIViewController {
                 animated: true
             )
             settleOnCurrentPage()
-        } else if configuredForDoublePage, target == currentIndex + 1 {
+        } else if pageViewControllerRequiresSpread, target == currentIndex + 1 {
             applySpokenRangeToVisiblePages()
         } else if target == currentIndex + pageTurnDistance {
             turnPage(
@@ -2448,21 +2852,65 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
         _ pageViewController: UIPageViewController,
         willTransitionTo pendingViewControllers: [UIViewController]
     ) {
-        guard !isProgrammaticPageTurn else { return }
+        guard pageViewController === self.pageViewController,
+              !isProgrammaticPageTurn,
+              !isPageTransitioning,
+              interactivePageTransition == nil,
+              !isFinalizingPageTransition,
+              !isWindowCommitInProgress else { return }
+        let sourcePageID: String?
+        if pageViewControllerRequiresSpread {
+            sourcePageID = visibleAnchorPage?.id ?? currentPage?.id
+        } else {
+            sourcePageID = pageViewController.viewControllers?
+                .compactMap { $0 as? NativeDocumentPageViewController }
+                .first?
+                .page.id
+        }
+        let targetIndex: Int?
+        if pageViewControllerRequiresSpread {
+            targetIndex = spreadAnchor(in: pendingViewControllers)
+                ?? pendingViewControllers
+                    .compactMap { $0 as? NativeDocumentPageViewController }
+                    .compactMap { pending in
+                        pages.firstIndex(where: { $0.id == pending.page.id })
+                    }
+                    .first
+        } else {
+            targetIndex = pendingViewControllers
+                .compactMap { $0 as? NativeDocumentPageViewController }
+                .compactMap { pending in
+                    pages.firstIndex(where: { $0.id == pending.page.id })
+                }
+                .first
+        }
+        interactivePageTransition = InteractivePageTransition(
+            sourcePageID: sourcePageID,
+            targetPageID: targetIndex.map { pages[$0].id }
+        )
         isPageTransitioning = true
+        pagingInteractionShield.isHidden = false
+        view.bringSubviewToFront(pagingInteractionShield)
     }
 
     func pageViewController(
         _ pageViewController: UIPageViewController,
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
-        guard !menuVisible, !isTextSelectionActive, presentedViewController == nil else { return nil }
-        if configuredForDoublePage {
+        guard pageViewController === self.pageViewController,
+              !menuVisible,
+              !isTextSelectionActive,
+              presentedViewController == nil else { return nil }
+        if pageViewControllerRequiresSpread {
             if let blank = viewController as? NativeDocumentBlankPageViewController {
                 return makePageController(at: blank.adjacentPageIndex)
             }
             guard let page = viewController as? NativeDocumentPageViewController,
                   let index = pages.firstIndex(where: { $0.id == page.page.id }) else { return nil }
+            guard NativeReaderPresentationPolicy.canProvidePreviousPage(
+                isLeftPage: isLeftPageInCurrentSpread(at: index),
+                pagesBefore: index - pages.startIndex
+            ) else { return nil }
             return makePageController(at: index - 1)
         }
         if navigationMode == .simulation,
@@ -2481,12 +2929,18 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
         _ pageViewController: UIPageViewController,
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
-        guard !menuVisible, !isTextSelectionActive, presentedViewController == nil else { return nil }
-        if configuredForDoublePage {
+        guard pageViewController === self.pageViewController,
+              !menuVisible,
+              !isTextSelectionActive,
+              presentedViewController == nil else { return nil }
+        if pageViewControllerRequiresSpread {
             if viewController is NativeDocumentBlankPageViewController { return nil }
             guard let page = viewController as? NativeDocumentPageViewController,
                   let index = pages.firstIndex(where: { $0.id == page.page.id }) else { return nil }
             if let next = makePageController(at: index + 1) { return next }
+            guard NativeReaderPresentationPolicy.shouldProvideTrailingBlank(
+                isLeftPage: isLeftPageInCurrentSpread(at: index)
+            ) else { return nil }
             return NativeDocumentBlankPageViewController(adjacentPageIndex: index, settings: settings)
         }
         if navigationMode == .simulation,
@@ -2507,19 +2961,39 @@ extension NativeDocumentReaderViewController: UIPageViewControllerDataSource, UI
         previousViewControllers: [UIViewController],
         transitionCompleted completed: Bool
     ) {
-        guard !isProgrammaticPageTurn else { return }
-        isPageTransitioning = false
-        let visible = pageViewController.viewControllers?
-            .compactMap { $0 as? NativeDocumentPageViewController }
-            .first
-        let index = visible.flatMap { visible in
-            pages.firstIndex(where: { $0.id == visible.page.id })
+        guard pageViewController === self.pageViewController,
+              !isProgrammaticPageTurn,
+              !isFinalizingPageTransition else { return }
+        let transition = interactivePageTransition
+        interactivePageTransition = nil
+
+        let settledPageID = completed
+            ? (transition?.targetPageID ?? transition?.sourcePageID)
+            : transition?.sourcePageID
+        let settledIndex = settledPageID.flatMap { pageID in
+            pages.firstIndex(where: { $0.id == pageID })
         }
-        if completed, let index {
-            currentIndex = displayedPageIndex(index)
+        if let settledIndex {
+            currentIndex = settledIndex
         }
-        finishPageTransition(settle: completed && index != nil)
-        restorePagingInteraction()
+
+        let visiblePagesAreValid: Bool
+        if let settledIndex, pageViewControllerRequiresSpread {
+            visiblePagesAreValid = spreadAnchor(
+                in: pageViewController.viewControllers ?? []
+            ) == settledIndex
+        } else if let settledIndex {
+            let visibleIndices = visiblePageIndices
+            visiblePagesAreValid = visibleIndices.count == 1
+                && visibleIndices.first == settledIndex
+        } else {
+            visiblePagesAreValid = false
+        }
+        finishPageTransition(
+            settle: settledIndex != nil,
+            recoverVisiblePages: pages.indices.contains(currentIndex)
+                && !visiblePagesAreValid
+        )
     }
 }
 

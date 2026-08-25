@@ -56,11 +56,15 @@ struct ReadingSettings: Codable, Equatable, Hashable {
     )
 
     static func applyingPadTypographyDefaults(to settings: ReadingSettings) -> ReadingSettings {
-        guard settings.fontSize == 24,
-              settings.lineSpacing == 1.2,
-              settings.paragraphSpacing == 1.5 else { return settings }
+        let isBaseDefault = settings.fontSize == 24
+            && settings.lineSpacing == 1.2
+            && settings.paragraphSpacing == 1.5
+        let isPreviousPadDefault = settings.fontSize == 32
+            && settings.lineSpacing == 1.2
+            && settings.paragraphSpacing == 1.6
+        guard isBaseDefault || isPreviousPadDefault else { return settings }
         var updated = settings
-        updated.fontSize = 32
+        updated.fontSize = 28
         updated.paragraphSpacing = 1.6
         return updated
     }
