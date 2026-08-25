@@ -1,7 +1,187 @@
 import XCTest
+import CoreText
 @testable import LVRead
 
 final class ReaderTextLayoutEngineTests: XCTestCase {
+
+    func testNativeReaderCachePolicyMatchesWebReaderWindow() {
+        let phone = NativeDocumentCachePolicy.policy(for: .phone)
+        XCTAssertEqual(phone.pagesBefore, 12)
+        XCTAssertEqual(phone.pagesAfter, 32)
+        XCTAssertEqual(phone.refreshBefore, 6)
+        XCTAssertEqual(phone.refreshAfter, 16)
+
+        let pad = NativeDocumentCachePolicy.policy(for: .pad)
+        XCTAssertEqual(pad.pagesBefore, 24)
+        XCTAssertEqual(pad.pagesAfter, 64)
+        XCTAssertEqual(pad.refreshBefore, 12)
+        XCTAssertEqual(pad.refreshAfter, 32)
+        XCTAssertTrue(pad.shouldRefresh(
+            currentIndex: 24,
+            pageCount: 58,
+            visiblePageCount: 2,
+            reachedBeginning: false,
+            reachedEnd: false
+        ))
+        XCTAssertFalse(pad.shouldRefresh(
+            currentIndex: 12,
+            pageCount: 80,
+            visiblePageCount: 2,
+            reachedBeginning: true,
+            reachedEnd: true
+        ))
+    }
+
+    func testOnlyIPadLandscapeSimulationUsesTwoPagesPerTurn() {
+        let landscape = CGSize(width: 1_024, height: 768)
+        let portrait = CGSize(width: 768, height: 1_024)
+
+        XCTAssertTrue(NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: .pad,
+            size: landscape,
+            navigationMode: .simulation
+        ))
+        XCTAssertFalse(NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: .phone,
+            size: landscape,
+            navigationMode: .simulation
+        ))
+        XCTAssertFalse(NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: .pad,
+            size: portrait,
+            navigationMode: .simulation
+        ))
+        XCTAssertFalse(NativeReaderPresentationPolicy.usesDoublePage(
+            idiom: .pad,
+            size: landscape,
+            navigationMode: .horizontal
+        ))
+        XCTAssertEqual(NativeReaderPresentationPolicy.pageTurnDistance(usesDoublePage: true), 2)
+        XCTAssertEqual(NativeReaderPresentationPolicy.pageTurnDistance(usesDoublePage: false), 1)
+        XCTAssertEqual(NativeReaderPresentationPolicy.spreadAnchorIndex(
+            requestedIndex: 7,
+            preservesExistingAnchor: false,
+            usesDoublePage: true
+        ), 6)
+        XCTAssertEqual(NativeReaderPresentationPolicy.spreadAnchorIndex(
+            requestedIndex: 7,
+            preservesExistingAnchor: true,
+            usesDoublePage: true
+        ), 7)
+        XCTAssertEqual(NativeReaderPresentationPolicy.spreadAnchorIndex(
+            requestedIndex: 7,
+            preservesExistingAnchor: false,
+            usesDoublePage: false
+        ), 7)
+        XCTAssertEqual(NativeReaderPresentationPolicy.spreadAnchorIndex(
+            requestedIndex: -1,
+            preservesExistingAnchor: false,
+            usesDoublePage: true
+        ), -1)
+        XCTAssertTrue(NativeReaderPresentationPolicy.requiresSpreadControllers(
+            configuredForDoublePage: true,
+            spineIsMid: false,
+            layoutUsesDoublePage: false
+        ))
+        XCTAssertTrue(NativeReaderPresentationPolicy.requiresSpreadControllers(
+            configuredForDoublePage: false,
+            spineIsMid: true,
+            layoutUsesDoublePage: false
+        ))
+        XCTAssertTrue(NativeReaderPresentationPolicy.requiresSpreadControllers(
+            configuredForDoublePage: false,
+            spineIsMid: false,
+            layoutUsesDoublePage: true
+        ))
+        XCTAssertFalse(NativeReaderPresentationPolicy.requiresSpreadControllers(
+            configuredForDoublePage: false,
+            spineIsMid: false,
+            layoutUsesDoublePage: false
+        ))
+        XCTAssertTrue(NativeReaderPresentationPolicy.isLeftPage(index: 9, anchorIndex: 7))
+        XCTAssertFalse(NativeReaderPresentationPolicy.isLeftPage(index: 8, anchorIndex: 7))
+        XCTAssertFalse(NativeReaderPresentationPolicy.canProvidePreviousPage(
+            isLeftPage: true,
+            pagesBefore: 1
+        ))
+        XCTAssertTrue(NativeReaderPresentationPolicy.canProvidePreviousPage(
+            isLeftPage: true,
+            pagesBefore: 2
+        ))
+        XCTAssertTrue(NativeReaderPresentationPolicy.shouldProvideTrailingBlank(isLeftPage: true))
+        XCTAssertFalse(NativeReaderPresentationPolicy.shouldProvideTrailingBlank(isLeftPage: false))
+        XCTAssertEqual(
+            NativeReaderPresentationPolicy.validatedSpreadAnchor(visibleIndices: [8, 7]),
+            7
+        )
+        XCTAssertNil(
+            NativeReaderPresentationPolicy.validatedSpreadAnchor(visibleIndices: [7, 19])
+        )
+        XCTAssertNil(
+            NativeReaderPresentationPolicy.validatedSpreadAnchor(visibleIndices: [7])
+        )
+        XCTAssertNil(
+            NativeReaderPresentationPolicy.validatedSpreadAnchor(visibleIndices: [7, 7, 8])
+        )
+    }
+
+    func testNativeDocumentWindowGenerationRejectsStaleCacheResult() {
+        XCTAssertTrue(
+            NativeDocumentWindowResolver.isCurrent(generation: 8, latestGeneration: 8)
+        )
+        XCTAssertFalse(
+            NativeDocumentWindowResolver.isCurrent(generation: 7, latestGeneration: 8)
+        )
+    }
+
+    func testBookThicknessMovesFromRightToLeftWithProgress() {
+        let beginning = NativeBookThickness.widths(progress: 0)
+        let middle = NativeBookThickness.widths(progress: 0.5)
+        let end = NativeBookThickness.widths(progress: 1)
+
+        XCTAssertLessThan(beginning.left, beginning.right)
+        XCTAssertEqual(middle.left, middle.right, accuracy: 0.001)
+        XCTAssertGreaterThan(end.left, end.right)
+        XCTAssertEqual(beginning.left, NativeBookSpreadMetrics.minimumThickness)
+        XCTAssertEqual(beginning.right, NativeBookSpreadMetrics.maximumThickness)
+        XCTAssertGreaterThan(
+            NativeBookSpreadMetrics.coverHorizontalOutset,
+            NativeBookSpreadMetrics.maximumThickness
+        )
+        XCTAssertLessThan(
+            NativeBookSpreadMetrics.coverVerticalOutset,
+            NativeBookSpreadMetrics.coverHorizontalOutset
+        )
+        XCTAssertEqual(NativeBookSpreadMetrics.pageCornerRadius, 12)
+        XCTAssertGreaterThan(
+            NativeBookSpreadMetrics.coverCornerRadius,
+            NativeBookSpreadMetrics.pageCornerRadius
+        )
+    }
+
+    func testSpreadChromeKeepsControlsOnTheRequestedPage() {
+        XCTAssertTrue(NativeReaderPageChrome.spreadLeft.showsBackButton)
+        XCTAssertFalse(NativeReaderPageChrome.spreadLeft.showsChapter)
+        XCTAssertFalse(NativeReaderPageChrome.spreadLeft.showsTimeAndBattery)
+        XCTAssertFalse(NativeReaderPageChrome.spreadRight.showsBackButton)
+        XCTAssertTrue(NativeReaderPageChrome.spreadRight.showsChapter)
+        XCTAssertTrue(NativeReaderPageChrome.spreadRight.showsTimeAndBattery)
+    }
+
+    func testEveryEnglishFontPaginatesEnglishText() throws {
+        let content = String(repeating: "Alice was beginning to get very tired of sitting by her sister. ", count: 80)
+        for option in FontManager.shared.options(for: .english) where !option.id.hasPrefix("custom:") {
+            var settings = ReadingSettings.default
+            settings.fontFamily = option.id
+            let ranges = try ReaderTextLayoutEngine.pageRanges(
+                content: content,
+                pageSize: CGSize(width: 390, height: 700),
+                settings: settings
+            )
+            XCTAssertFalse(ranges.isEmpty, "English font failed: \(option.id)")
+            XCTAssertEqual(ranges.last?.endOffset, (content as NSString).length)
+        }
+    }
 
     func testTextRectIsHorizontallyCentered() {
         var settings = ReadingSettings.default
@@ -224,6 +404,62 @@ final class ReaderTextLayoutEngineTests: XCTestCase {
         }
     }
 
+    func testNativePaginationNeverKeepsABottomClippedLine() throws {
+        var settings = ReadingSettings.default
+        settings.fontSize = 24
+        settings.lineSpacing = 1.2
+        let size = CGSize(width: 260, height: 118)
+        let text = String(repeating: "第一行和第二行之间必须按完整行分页，不能裁切底部文字。", count: 24)
+        let chapter = Chapter(bookId: "book", title: "第一章", orderIndex: 0)
+
+        let pages = try NativeDocumentPaginator.pages(
+            text: text,
+            chapter: chapter,
+            chapterIndex: 0,
+            size: size,
+            textInsets: .zero,
+            settings: settings
+        )
+
+        XCTAssertGreaterThan(pages.count, 1)
+        XCTAssertEqual(pages.map(\.text).joined(), text)
+        for page in pages {
+            let attributed = NativeDocumentTypography.attributed(page.text, settings: settings, color: .label)
+            let frame = CTFramesetterCreateFrame(
+                CTFramesetterCreateWithAttributedString(attributed),
+                CFRange(location: 0, length: 0),
+                CGPath(rect: CGRect(origin: .zero, size: size), transform: nil),
+                nil
+            )
+            let complete = NativeDocumentTypography.completeVisibleRange(
+                in: frame,
+                pathHeight: size.height
+            )
+            XCTAssertEqual(complete.length, attributed.length)
+        }
+    }
+
+    func testNativePaginationAcceptsDrawableFallbackFontLine() throws {
+        var settings = ReadingSettings.default
+        settings.fontSize = 32
+        settings.lineSpacing = 1.2
+        settings.paragraphSpacing = 1.6
+        let text = "ا正文需要在字体回退后继续分页。"
+        let chapter = Chapter(bookId: "book", title: "第一章", orderIndex: 0)
+
+        let pages = try NativeDocumentPaginator.pages(
+            text: text,
+            chapter: chapter,
+            chapterIndex: 0,
+            size: CGSize(width: 400, height: 600),
+            textInsets: .zero,
+            settings: settings
+        )
+
+        XCTAssertEqual(pages.map(\.text).joined(), text)
+        XCTAssertTrue(pages.allSatisfy { !$0.text.isEmpty })
+    }
+
     func testNativeBottomInsetUsesCompactStatusArea() {
         var settings = ReadingSettings.default
         settings.pageMarginVertical = 2
@@ -258,6 +494,27 @@ final class ReaderTextLayoutEngineTests: XCTestCase {
         XCTAssertEqual(pathRect.minY, insets.bottom, accuracy: 0.001)
         XCTAssertEqual(size.height - pathRect.maxY, insets.top, accuracy: 0.001)
         XCTAssertEqual(pathRect.width, size.width - insets.left - insets.right, accuracy: 0.001)
+    }
+
+    func testContinuousPageSpacingFollowsLineAndParagraphSettings() {
+        var settings = ReadingSettings.default
+        settings.lineSpacing = 1.4
+        settings.paragraphSpacing = 2.0
+        let font = FontManager.shared.font(
+            named: settings.fontFamily,
+            size: CGFloat(settings.fontSize)
+        )
+
+        XCTAssertEqual(
+            NativeDocumentTypography.continuousPageSpacing(after: "正文", settings: settings),
+            font.lineHeight * 0.4,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            NativeDocumentTypography.continuousPageSpacing(after: "正文\n", settings: settings),
+            font.lineHeight,
+            accuracy: 0.001
+        )
     }
 
     func testNativeWindowRejectsStaleBackwardReload() {

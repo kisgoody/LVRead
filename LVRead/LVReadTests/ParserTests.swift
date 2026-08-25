@@ -159,6 +159,28 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(ReadingSettings.default.fontSize, 23) // Original unchanged
     }
 
+    func testPadTypographyDefaultsOnlyReplaceUnmodifiedDefaults() {
+        let padSettings = ReadingSettings.applyingPadTypographyDefaults(to: .default)
+        XCTAssertEqual(padSettings.fontSize, 28)
+        XCTAssertEqual(padSettings.lineSpacing, 1.2)
+        XCTAssertEqual(padSettings.paragraphSpacing, 1.6)
+
+        var previousPadDefault = ReadingSettings.default
+        previousPadDefault.fontSize = 32
+        previousPadDefault.paragraphSpacing = 1.6
+        XCTAssertEqual(
+            ReadingSettings.applyingPadTypographyDefaults(to: previousPadDefault).fontSize,
+            28
+        )
+
+        var customized = ReadingSettings.default
+        customized.fontSize = 26
+        XCTAssertEqual(
+            ReadingSettings.applyingPadTypographyDefaults(to: customized),
+            customized
+        )
+    }
+
     // MARK: - ReadingTheme Tests
     
     func testReadingThemeProperties() throws {

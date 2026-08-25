@@ -54,6 +54,20 @@ struct ReadingSettings: Codable, Equatable, Hashable {
         simulationDuration: 0.38,
         simulationSpringDamping: 0.55
     )
+
+    static func applyingPadTypographyDefaults(to settings: ReadingSettings) -> ReadingSettings {
+        let isBaseDefault = settings.fontSize == 24
+            && settings.lineSpacing == 1.2
+            && settings.paragraphSpacing == 1.5
+        let isPreviousPadDefault = settings.fontSize == 32
+            && settings.lineSpacing == 1.2
+            && settings.paragraphSpacing == 1.6
+        guard isBaseDefault || isPreviousPadDefault else { return settings }
+        var updated = settings
+        updated.fontSize = 28
+        updated.paragraphSpacing = 1.6
+        return updated
+    }
 }
 
 enum EyeCareFilter: String, Codable, CaseIterable, Hashable {

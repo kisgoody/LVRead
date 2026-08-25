@@ -12,7 +12,39 @@ struct NativeDocumentPage {
     var id: String { "\(chapterIndex):\(pageIndex):\(startOffset):\(endOffset)" }
 }
 
+struct NativeDocumentCachePolicy: Equatable {
+    let pagesBefore: Int
+    let pagesAfter: Int
+
+    var refreshBefore: Int { pagesBefore / 2 }
+    var refreshAfter: Int { pagesAfter / 2 }
+
+    static func policy(for idiom: UIUserInterfaceIdiom) -> NativeDocumentCachePolicy {
+        let multiplier = idiom == .pad ? 2 : 1
+        return NativeDocumentCachePolicy(
+            pagesBefore: 12 * multiplier,
+            pagesAfter: 32 * multiplier
+        )
+    }
+
+    func shouldRefresh(
+        currentIndex: Int,
+        pageCount: Int,
+        visiblePageCount: Int,
+        reachedBeginning: Bool,
+        reachedEnd: Bool
+    ) -> Bool {
+        let remainingAfter = max(0, pageCount - currentIndex - visiblePageCount)
+        return (!reachedBeginning && currentIndex <= refreshBefore)
+            || (!reachedEnd && remainingAfter <= refreshAfter)
+    }
+}
+
 enum NativeDocumentWindowResolver {
+    static func isCurrent(generation: Int, latestGeneration: Int) -> Bool {
+        generation == latestGeneration
+    }
+
     static func targetIndex(
         in window: [NativeDocumentPage],
         requestedTarget: Int,
@@ -118,6 +150,38 @@ enum NativeDocumentTypography {
             height: max(1, size.height - insets.top - insets.bottom)
         )
     }
+
+    /// CoreText may include a final line whose glyph bounds extend below the
+    /// frame path. Move that whole line to the next page instead of drawing it
+    /// clipped and continuing from the middle of the line.
+    static func completeVisibleRange(in frame: CTFrame, pathHeight: CGFloat) -> CFRange {
+        let visible = CTFrameGetVisibleStringRange(frame)
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        guard !lines.isEmpty else { return CFRange(location: visible.location, length: 0) }
+
+        // Font fallback can place a line's typographic bounds a fraction of a
+        // point outside the CoreText path even though the line is drawable.
+        // Keep a small tolerance so those pages do not fail pagination while
+        // still moving genuinely clipped bottom lines to the next page.
+        let geometryTolerance: CGFloat = 1
+        var origins = Array(repeating: CGPoint.zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
+        var completeEnd = visible.location
+        for (line, origin) in zip(lines, origins) {
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+            guard origin.y - descent >= 0,
+                  origin.y + ascent <= pathHeight + geometryTolerance else { continue }
+            let range = CTLineGetStringRange(line)
+            completeEnd = max(completeEnd, range.location + range.length)
+        }
+        let visibleEnd = visible.location + visible.length
+        return CFRange(
+            location: visible.location,
+            length: max(0, min(completeEnd, visibleEnd) - visible.location)
+        )
+    }
 }
 
 enum NativeDocumentPaginator {
@@ -159,7 +223,10 @@ enum NativeDocumentPaginator {
             let setter = CTFramesetterCreateWithAttributedString(value)
             let path = CGPath(rect: CGRect(origin: .zero, size: textSize), transform: nil)
             let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil)
-            let visible = CTFrameGetVisibleStringRange(frame)
+            let visible = NativeDocumentTypography.completeVisibleRange(
+                in: frame,
+                pathHeight: textSize.height
+            )
             guard visible.length > 0 else { throw PaginationError.cannotFit }
             let length = min(visible.length, source.length - offset)
             result.append(
@@ -460,6 +527,7 @@ enum NativeSpokenTextStyle {
 final class NativeCoreTextView: UIView {
     var page: NativeDocumentPage?
     var settings: ReadingSettings = .default
+    var renderBackgroundColor: UIColor?
     var readingSafeAreaInsets: UIEdgeInsets = .zero
     var textInsets: UIEdgeInsets?
     var highlights: [Highlight] = []
@@ -503,7 +571,9 @@ final class NativeCoreTextView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let page, let context = UIGraphicsGetCurrentContext() else { return }
-        context.setFillColor(UIColor(hex: settings.readingTheme.backgroundColor).cgColor)
+        context.setFillColor(
+            (renderBackgroundColor ?? UIColor(hex: settings.backgroundColor)).cgColor
+        )
         context.fill(bounds)
         if let image = page.image {
             let scale = min(bounds.width / max(image.size.width, 1), bounds.height / max(image.size.height, 1))
