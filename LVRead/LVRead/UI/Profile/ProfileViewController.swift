@@ -39,6 +39,8 @@ final class ProfileViewController: UIViewController {
     deinit { NotificationCenter.default.removeObserver(self) }
 
     private func buildInterface() {
+        let usesPadSidebar = UIDevice.current.userInterfaceIdiom == .pad
+        let horizontalInset: CGFloat = usesPadSidebar ? 40 : 16
         view.backgroundColor = profilePageBackground
         titleLabel.text = L("我的")
         titleLabel.font = .systemFont(ofSize: 30, weight: .bold)
@@ -49,8 +51,10 @@ final class ProfileViewController: UIViewController {
         subtitleLabel.numberOfLines = 2
 
         scrollView.alwaysBounceVertical = true
-        stackView.axis = .vertical
-        stackView.spacing = 12
+        stackView.axis = usesPadSidebar ? .horizontal : .vertical
+        stackView.alignment = usesPadSidebar ? .top : .fill
+        stackView.distribution = usesPadSidebar ? .fillEqually : .fill
+        stackView.spacing = usesPadSidebar ? 24 : 12
         scrollView.addSubview(stackView)
         [titleLabel, subtitleLabel, scrollView, moduleNavigation].forEach {
             view.addSubview($0)
@@ -58,31 +62,42 @@ final class ProfileViewController: UIViewController {
         }
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
-        stackView.addArrangedSubview(makeStatsCard())
-        stackView.addArrangedSubview(makePreferencesCard())
-        stackView.addArrangedSubview(makeAboutCard())
+        let statsCard = makeStatsCard()
+        let preferencesCard = makePreferencesCard()
+        let aboutCard = makeAboutCard()
+        if usesPadSidebar {
+            let settingsColumn = UIStackView(arrangedSubviews: [preferencesCard, aboutCard])
+            settingsColumn.axis = .vertical
+            settingsColumn.spacing = 24
+            stackView.addArrangedSubview(statsCard)
+            stackView.addArrangedSubview(settingsColumn)
+        } else {
+            [statsCard, preferencesCard, aboutCard].forEach { stackView.addArrangedSubview($0) }
+        }
         moduleNavigation.onSelect = { [weak self] module in self?.showMainModule(module) }
 
-        NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+        let constraints = [
+            titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: usesPadSidebar ? 32 : 16),
+            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: horizontalInset),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -horizontalInset),
             scrollView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 16),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: moduleNavigation.topAnchor),
             stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
-            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: horizontalInset),
+            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -horizontalInset),
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -16),
-            stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32),
+            stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -(horizontalInset * 2)),
             moduleNavigation.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             moduleNavigation.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             moduleNavigation.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            moduleNavigation.heightAnchor.constraint(equalToConstant: 76)
-        ])
+            moduleNavigation.heightAnchor.constraint(equalToConstant: usesPadSidebar ? 0 : 76)
+        ]
+        NSLayoutConstraint.activate(constraints)
+        moduleNavigation.isHidden = usesPadSidebar
     }
 
     private func makeStatsCard() -> UIView {

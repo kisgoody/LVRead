@@ -9,6 +9,42 @@ fileprivate extension UIView {
 
 final class BookListCell: UITableViewCell {
     static let reuseIdentifier = "BookListCell"
+    private let bookView = BookListContentView()
+    var onSyncTapped: (() -> Void)? {
+        get { bookView.onSyncTapped }
+        set { bookView.onSyncTapped = newValue }
+    }
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        contentView.addSubview(bookView)
+        bookView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            bookView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            bookView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            bookView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            bookView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+    func configure(with book: Book, syncConnected: Bool = false) {
+        bookView.configure(with: book, syncConnected: syncConnected)
+    }
+    func applyAppearance() { bookView.applyAppearance() }
+    func transitionSource() -> BookOpenTransitionSource { bookView.transitionSource() }
+    var transitionItemView: UIView { bookView.transitionItemView }
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        bookView.prepareForReuse()
+    }
+}
+
+private final class BookListContentView: UIView {
+    private var contentView: UIView { self }
 
     private let cardView = UIView()
     private let coverImageView = UIImageView()
@@ -27,17 +63,14 @@ final class BookListCell: UITableViewCell {
     private var syncConnected = false
     var onSyncTapped: (() -> Void)?
 
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         setupUI()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     private func setupUI() {
-        accessoryType = .disclosureIndicator
-        accessoryType = .none
-        selectionStyle = .none
         backgroundColor = .clear
         contentView.backgroundColor = .clear
 
@@ -140,11 +173,9 @@ final class BookListCell: UITableViewCell {
             sourceBadge.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             sourceBadge.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -15),
             sourceBadge.heightAnchor.constraint(equalToConstant: 23),
-            sourceBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 48),
 
             progressBar.leadingAnchor.constraint(equalTo: sourceBadge.trailingAnchor, constant: 8),
             progressBar.centerYAnchor.constraint(equalTo: sourceBadge.centerYAnchor),
-            progressBar.widthAnchor.constraint(equalToConstant: 54),
             progressBar.heightAnchor.constraint(equalToConstant: 3),
 
             progressLabel.centerYAnchor.constraint(equalTo: progressBar.centerYAnchor),
@@ -160,6 +191,13 @@ final class BookListCell: UITableViewCell {
             bookActionButton.heightAnchor.constraint(equalToConstant: 44),
 
         ])
+
+        // Preserve normal widths while allowing UIKit's narrow sizing passes.
+        let badgeWidth = sourceBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 48)
+        let progressWidth = progressBar.widthAnchor.constraint(equalToConstant: 54)
+        badgeWidth.priority = .defaultHigh
+        progressWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([badgeWidth, progressWidth])
 
         // Zodiac watermark over the whole cover (positioned in layoutSubviews)
         zodiacBadge.tag = 999
@@ -257,8 +295,7 @@ final class BookListCell: UITableViewCell {
         titleLabel.text = book.title
         coverTitleLabel.text = book.title
         let percent = book.readingProgress.progressPercent
-        let readingProgress = percent > 0 ? LF("已读 %d%%", Int(percent)) : L("尚未开始")
-        authorLabel.text = "\(book.author) · \(readingProgress)"
+        authorLabel.text = "\(book.author) · \(LF("第 %d 章", book.readingProgress.currentChapterIndex + 1)) · \(book.fileSizeDisplay)"
         progressBar.progress = Float(percent / 100.0)
         progressLabel.text = book.progressPercentDisplay
         if percent >= 100 {
@@ -284,8 +321,14 @@ final class BookListCell: UITableViewCell {
 
     @objc private func syncTapped() { onSyncTapped?() }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
+    func transitionSource() -> BookOpenTransitionSource {
+        layoutIfNeeded()
+        return BookOpenTransitionSource(itemView: cardView)
+    }
+
+    var transitionItemView: UIView { cardView }
+
+    func prepareForReuse() {
         representedBookId = nil
         syncConnected = false
         onSyncTapped = nil
@@ -295,5 +338,60 @@ final class BookListCell: UITableViewCell {
         progressBar.progress = 0
         zodiacBadge.image = nil
         zodiacBadge.isHidden = true
+    }
+}
+
+/// Reuses the existing list presentation in the iPad two-column collection.
+final class BookListCollectionCell: UICollectionViewCell, UIGestureRecognizerDelegate {
+    static let reuseIdentifier = "BookListCollectionCell"
+
+    private let listCell = BookListContentView()
+    var onSelect: ((BookOpenTransitionSource) -> Void)?
+    var onSyncTapped: (() -> Void)? {
+        didSet { listCell.onSyncTapped = onSyncTapped }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.addSubview(listCell)
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(selectCell))
+        tapGesture.cancelsTouchesInView = false
+        tapGesture.delegate = self
+        contentView.addGestureRecognizer(tapGesture)
+        listCell.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            listCell.topAnchor.constraint(equalTo: contentView.topAnchor),
+            listCell.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            listCell.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            listCell.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(with book: Book, syncConnected: Bool) {
+        listCell.configure(with: book, syncConnected: syncConnected)
+    }
+
+    var transitionItemView: UIView { listCell.transitionItemView }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var touchedView = touch.view
+        while let view = touchedView, view !== contentView {
+            if view is UIControl { return false }
+            touchedView = view.superview
+        }
+        return true
+    }
+
+    @objc private func selectCell() {
+        onSelect?(listCell.transitionSource())
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onSelect = nil
+        onSyncTapped = nil
     }
 }

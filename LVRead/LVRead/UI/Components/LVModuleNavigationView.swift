@@ -179,6 +179,18 @@ final class LVModuleButton: UIButton {
 
 extension UIViewController {
     func showMainModule(_ module: LVMainModule) {
+        var ancestor: UIViewController? = self
+        while let current = ancestor {
+            if let padRoot = current as? LVPadMainViewController {
+                padRoot.selectMainModule(module)
+                return
+            }
+            ancestor = current.parent
+        }
+        if let padRoot = viewIfLoaded?.window?.rootViewController as? LVPadMainViewController {
+            padRoot.selectMainModule(module)
+            return
+        }
         guard let navigationController else { return }
         let shelf = navigationController.viewControllers.first(where: { $0 is BookshelfViewController })
             ?? BookshelfViewController()
@@ -195,7 +207,7 @@ extension UIViewController {
     }
 }
 
-private extension LVMainModule {
+extension LVMainModule {
     var index: Int { tag }
 
     var tag: Int {

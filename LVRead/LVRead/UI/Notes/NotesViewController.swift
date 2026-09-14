@@ -16,6 +16,14 @@ final class NotesViewController: UIViewController {
     private let filterScrollView = UIScrollView()
     private let filterStackView = UIStackView()
     private let tableView = UITableView(frame: .zero, style: .plain)
+    private lazy var padList = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewCompositionalLayout { _, _ in
+        let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(0.5), heightDimension: .estimated(160)))
+        let group = NSCollectionLayoutGroup.horizontal(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(160)), subitem: item, count: 2)
+        group.interItemSpacing = .fixed(16)
+        let section = NSCollectionLayoutSection(group: group)
+        section.interGroupSpacing = 8
+        return section
+    })
     private let emptyView = LVEmptyStateView(
         icon: "bookmark",
         title: L("还没有笔记"),
@@ -68,6 +76,8 @@ final class NotesViewController: UIViewController {
     deinit { NotificationCenter.default.removeObserver(self) }
 
     private func buildInterface() {
+        let usesPadSidebar = UIDevice.current.userInterfaceIdiom == .pad
+        let horizontalInset: CGFloat = usesPadSidebar ? 40 : 16
         view.backgroundColor = modulePageBackground
         titleLabel.text = L("笔记")
         titleLabel.font = .systemFont(ofSize: 30, weight: .bold)
@@ -117,22 +127,22 @@ final class NotesViewController: UIViewController {
         }
         filterStackView.translatesAutoresizingMaskIntoConstraints = false
 
-        NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            actionsButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+        let constraints = [
+            titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: usesPadSidebar ? 32 : 16),
+            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: horizontalInset),
+            actionsButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -horizontalInset),
             actionsButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             actionsButton.widthAnchor.constraint(equalToConstant: 44),
             actionsButton.heightAnchor.constraint(equalToConstant: 44),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -horizontalInset),
             searchBar.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 12),
-            searchBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
-            searchBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            searchBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: horizontalInset - 8),
+            searchBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -(horizontalInset - 8)),
             filterScrollView.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 8),
-            filterScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            filterScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            filterScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: horizontalInset),
+            filterScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -horizontalInset),
             filterScrollView.heightAnchor.constraint(equalToConstant: 36),
             filterStackView.topAnchor.constraint(equalTo: filterScrollView.contentLayoutGuide.topAnchor),
             filterStackView.leadingAnchor.constraint(equalTo: filterScrollView.contentLayoutGuide.leadingAnchor),
@@ -140,8 +150,8 @@ final class NotesViewController: UIViewController {
             filterStackView.bottomAnchor.constraint(equalTo: filterScrollView.contentLayoutGuide.bottomAnchor),
             filterStackView.heightAnchor.constraint(equalTo: filterScrollView.frameLayoutGuide.heightAnchor),
             tableView.topAnchor.constraint(equalTo: filterScrollView.bottomAnchor, constant: 12),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: horizontalInset),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -horizontalInset),
             tableView.bottomAnchor.constraint(equalTo: moduleNavigation.topAnchor),
             emptyView.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
             emptyView.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
@@ -150,8 +160,25 @@ final class NotesViewController: UIViewController {
             moduleNavigation.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             moduleNavigation.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             moduleNavigation.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            moduleNavigation.heightAnchor.constraint(equalToConstant: 76)
-        ])
+            moduleNavigation.heightAnchor.constraint(equalToConstant: usesPadSidebar ? 0 : 76)
+        ]
+        NSLayoutConstraint.activate(constraints)
+        moduleNavigation.isHidden = usesPadSidebar
+        if usesPadSidebar {
+            tableView.isHidden = true
+            padList.backgroundColor = .clear
+            padList.dataSource = self
+            padList.delegate = self
+            padList.register(LVPadNoteCell.self, forCellWithReuseIdentifier: "padNote")
+            view.insertSubview(padList, belowSubview: emptyView)
+            padList.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                padList.topAnchor.constraint(equalTo: tableView.topAnchor),
+                padList.leadingAnchor.constraint(equalTo: tableView.leadingAnchor),
+                padList.trailingAnchor.constraint(equalTo: tableView.trailingAnchor),
+                padList.bottomAnchor.constraint(equalTo: tableView.bottomAnchor)
+            ])
+        }
     }
 
     @objc private func reloadData() { loadAssets() }
@@ -214,6 +241,7 @@ final class NotesViewController: UIViewController {
         )
         emptyView.isHidden = !visibleAssets.isEmpty
         tableView.reloadData()
+        padList.reloadData()
     }
 
     @objc private func filterChanged(_ sender: UIButton) {
@@ -238,6 +266,7 @@ final class NotesViewController: UIViewController {
         actionsButton.layer.shadowColor = (DarkModeManager.shared.isDarkMode ? UIColor.black : UIColor(hex: "#2A221A")).cgColor
         applyFilterAppearance()
         tableView.reloadData()
+        padList.reloadData()
     }
 
     private func applyFilterAppearance() {
@@ -401,18 +430,91 @@ extension NotesViewController: UITableViewDataSource, UITableViewDelegate {
     }()
 }
 
+extension NotesViewController: UICollectionViewDataSource, UICollectionViewDelegate {
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { visibleAssets.count }
+
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "padNote", for: indexPath) as! LVPadNoteCell
+        let record = visibleAssets[indexPath.item].record
+        let kind: String
+        switch record.kind {
+        case .bookmark: kind = L("书签标识")
+        case .excerpt: kind = L("摘录")
+        case .comment: kind = L("评论标记")
+        }
+        let body = [record.originalText, record.comment].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        cell.noteView.configure(kind: kind, title: "\(record.bookTitle) · \(record.chapterTitle)", body: body.isEmpty ? L("未保存摘录") : body, date: Self.dateFormatter.string(from: record.createdAt))
+        return cell
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        collectionView.deselectItem(at: indexPath, animated: true)
+        open(visibleAssets[indexPath.item])
+    }
+
+    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+        let asset = visibleAssets[indexPath.item]
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            UIMenu(children: [UIAction(title: L("删除"), image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+                LVNoteRecordStore.shared.delete(id: asset.id)
+                switch asset.record.kind {
+                case .bookmark: BookRepository.shared.deleteBookmark(asset.id)
+                case .excerpt, .comment: BookRepository.shared.deleteHighlight(asset.id)
+                }
+                self?.loadAssets()
+            }])
+        }
+    }
+}
+
+private final class LVPadNoteCell: UICollectionViewCell {
+    let noteView = LVNoteCardView()
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.addSubview(noteView)
+        noteView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            noteView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            noteView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            noteView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            noteView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
 private final class LVNoteCardCell: UITableViewCell {
     static let reuseIdentifier = "LVNoteCardCell"
+    let noteView = LVNoteCardView()
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .clear
+        selectionStyle = .none
+        contentView.addSubview(noteView)
+        noteView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            noteView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            noteView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            noteView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            noteView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    func configure(kind: String, title: String, body: String, date: String) {
+        noteView.configure(kind: kind, title: title, body: body, date: date)
+    }
+}
+
+private final class LVNoteCardView: UIView {
     private let card = UIView()
     private let kindLabel = UILabel()
     private let titleLabel = UILabel()
     private let bodyLabel = UILabel()
     private let dateLabel = UILabel()
 
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         backgroundColor = .clear
-        selectionStyle = .none
         LVBookshelfModuleStyle.applyCard(to: card)
         kindLabel.font = .systemFont(ofSize: 12, weight: .bold)
         LVBookshelfModuleStyle.applyAccent(to: kindLabel)
@@ -428,15 +530,15 @@ private final class LVNoteCardCell: UITableViewCell {
         let stack = UIStackView(arrangedSubviews: [kindLabel, titleLabel, bodyLabel, footer])
         stack.axis = .vertical
         stack.spacing = 8
-        contentView.addSubview(card)
+        addSubview(card)
         card.addSubview(stack)
         card.translatesAutoresizingMaskIntoConstraints = false
         stack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            card.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            card.leadingAnchor.constraint(equalTo: leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: trailingAnchor),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
             stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
@@ -479,6 +581,9 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L("笔记详情")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            navigationItem.largeTitleDisplayMode = .never
+        }
         configureActions()
         buildInterface()
         NotificationCenter.default.addObserver(
@@ -501,6 +606,7 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
     deinit { NotificationCenter.default.removeObserver(self) }
 
     private func buildInterface() {
+        let usesPadLayout = UIDevice.current.userInterfaceIdiom == .pad
         view.backgroundColor = LVBookshelfModuleStyle.pageBackground
         scrollView.alwaysBounceVertical = true
         scrollView.showsVerticalScrollIndicator = false
@@ -568,17 +674,29 @@ private final class NoteDetailViewController: UIViewController, UIGestureRecogni
         scrollView.addSubview(stackView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         stackView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
+        var constraints = [
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
-            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
-            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: usesPadLayout ? 32 : 16),
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -32),
-            stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32)
-        ])
+            stackView.centerXAnchor.constraint(equalTo: scrollView.frameLayoutGuide.centerXAnchor)
+        ]
+        if usesPadLayout {
+            let availableWidth = stackView.widthAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.widthAnchor,
+                constant: -80
+            )
+            availableWidth.priority = .defaultHigh
+            constraints.append(contentsOf: [
+                stackView.widthAnchor.constraint(lessThanOrEqualToConstant: 840),
+                availableWidth
+            ])
+        } else {
+            constraints.append(stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32))
+        }
+        NSLayoutConstraint.activate(constraints)
     }
 
     private func makeKindLabel() -> UILabel {

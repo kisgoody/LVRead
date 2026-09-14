@@ -21,6 +21,16 @@ fileprivate extension UIButton {
 
 final class BookshelfViewController: UIViewController {
 
+    private var parentSequence: [UIViewController] {
+        var result: [UIViewController] = []
+        var ancestor = parent
+        while let current = ancestor {
+            result.append(current)
+            ancestor = current.parent
+        }
+        return result
+    }
+
     // MARK: - Properties
 
     private var books: [Book] = []
@@ -150,11 +160,13 @@ final class BookshelfViewController: UIViewController {
     // MARK: - Setup
 
     private func setupUI() {
+        let usesPadSidebar = UIDevice.current.userInterfaceIdiom == .pad
+        if usesPadSidebar { isGridView = true }
         view.backgroundColor = .lvBgDay
         navigationItem.largeTitleDisplayMode = .never
         navigationController?.navigationBar.prefersLargeTitles = false
 
-        titleLabel.text = "LVRead"
+        titleLabel.text = usesPadSidebar ? L("书架") : "LVRead"
         titleLabel.font = .systemFont(ofSize: 30, weight: .bold)
         titleLabel.textAlignment = .left
         titleLabel.backgroundColor = .clear
@@ -198,6 +210,7 @@ final class BookshelfViewController: UIViewController {
         toggleButton.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
         toggleButton.tintColor = .white
         toggleButton.addTarget(self, action: #selector(toggleViewMode), for: .touchUpInside)
+        toggleButton.isHidden = usesPadSidebar
         
 
         // Edit button
@@ -315,8 +328,12 @@ final class BookshelfViewController: UIViewController {
         collectionView.delegate = self
         collectionView.dataSource = self
         collectionView.register(BookCell.self, forCellWithReuseIdentifier: BookCell.reuseIdentifier)
+        collectionView.register(
+            BookListCollectionCell.self,
+            forCellWithReuseIdentifier: BookListCollectionCell.reuseIdentifier
+        )
         collectionView.alwaysBounceVertical = true
-        collectionView.isHidden = true
+        collectionView.isHidden = !usesPadSidebar
 
         // Table view (list)
         tableView.backgroundColor = .lvBgDay
@@ -326,7 +343,7 @@ final class BookshelfViewController: UIViewController {
         tableView.rowHeight = 116
         tableView.separatorStyle = .none
         tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 100, right: 0)
-        tableView.isHidden = false
+        tableView.isHidden = usesPadSidebar
 
         // Empty state
         emptyStateView.onAction = { [weak self] in self?.addBookTapped() }
@@ -477,8 +494,10 @@ final class BookshelfViewController: UIViewController {
             bottomNavView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomNavView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomNavView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            bottomNavView.heightAnchor.constraint(equalToConstant: 76)
+            bottomNavView.heightAnchor.constraint(equalToConstant: usesPadSidebar ? 0 : 76)
         ])
+
+        bottomNavView.isHidden = usesPadSidebar
 
         applyReadingThemeToHome()
     }
@@ -503,6 +522,9 @@ final class BookshelfViewController: UIViewController {
         bottomNavView.layer.borderWidth = 1
         bottomNavView.layer.borderColor = LVBookshelfModuleStyle.divider.cgColor
         view.addSubview(bottomNavView)
+
+        // iPad keeps only the zero-height layout anchor; navigation lives in the sidebar.
+        guard UIDevice.current.userInterfaceIdiom != .pad else { return }
 
         let stack = UIStackView(arrangedSubviews: [bottomShelfButton, bottomNotesButton, bottomMineButton])
         stack.axis = .horizontal
@@ -822,11 +844,13 @@ final class BookshelfViewController: UIViewController {
         sortAction.setValue(UIImage(systemName: "arrow.up.arrow.down"), forKey: "image")
         alert.addAction(sortAction)
 
-        let viewAction = UIAlertAction(title: isGridView ? L("列表方式") : L("宫格方式"), style: .default) { [weak self] _ in
-            self?.toggleViewMode()
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            let viewAction = UIAlertAction(title: isGridView ? L("列表方式") : L("宫格方式"), style: .default) { [weak self] _ in
+                self?.toggleViewMode()
+            }
+            viewAction.setValue(UIImage(systemName: isGridView ? "list.bullet" : "square.grid.2x2"), forKey: "image")
+            alert.addAction(viewAction)
         }
-        viewAction.setValue(UIImage(systemName: isGridView ? "list.bullet" : "square.grid.2x2"), forKey: "image")
-        alert.addAction(viewAction)
 
         alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
         if let popover = alert.popoverPresentationController {
@@ -840,7 +864,33 @@ final class BookshelfViewController: UIViewController {
         guard let book = books.first(where: {
             $0.readingProgress.progressPercent > 0 && $0.readingProgress.progressPercent < 100
         }) ?? books.first else { return }
-        openReader(for: book)
+        let transitionSource = UIDevice.current.userInterfaceIdiom == .pad
+            ? BookOpenTransitionSource(
+                itemView: continueView,
+                dismissalItemProvider: { [weak self] in
+                    self?.visibleBookItemView(for: book.id)
+                },
+                dismissalFrameProvider: { [weak self] in
+                    self?.bookItemFrameInWindow(for: book.id)
+                }
+            )
+            : nil
+        openReader(for: book, transitionSource: transitionSource)
+    }
+
+    private func visibleBookItemView(for bookID: String) -> UIView? {
+        guard let index = filteredBooks.firstIndex(where: { $0.id == bookID }),
+              let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0))
+                as? BookListCollectionCell else { return nil }
+        return cell.transitionItemView
+    }
+
+    private func bookItemFrameInWindow(for bookID: String) -> CGRect? {
+        guard let index = filteredBooks.firstIndex(where: { $0.id == bookID }),
+              let attributes = collectionView.layoutAttributesForItem(
+                at: IndexPath(item: index, section: 0)
+              ) else { return nil }
+        return collectionView.convert(attributes.frame.insetBy(dx: 18, dy: 6), to: nil)
     }
 
     private func presentFilePicker() {
@@ -1010,7 +1060,7 @@ final class BookshelfViewController: UIViewController {
         present(alert, animated: true)
     }
 
-    private func openReader(for book: Book) {
+    private func openReader(for book: Book, transitionSource: BookOpenTransitionSource? = nil) {
         let filePath = book.resolvedFilePath()
         guard FileManager.default.fileExists(atPath: filePath) else {
             LVToast.show(message: L("原文件不存在，请重新导入"), style: .error)
@@ -1046,15 +1096,17 @@ final class BookshelfViewController: UIViewController {
         guard preparingReader == nil, let navigationController else { return }
         let readerVC = NativeDocumentReaderViewController(book: book)
         preparingReader = readerVC
+        let padRoot = parentSequence.first(where: { $0 is LVPadMainViewController }) as? LVPadMainViewController
         readerVC.prepareForPresentation(
-            in: navigationController.view.bounds,
-            safeAreaInsets: navigationController.view.safeAreaInsets
+            in: padRoot?.readerPresentationBounds ?? navigationController.view.bounds,
+            safeAreaInsets: padRoot?.readerPresentationSafeAreaInsets ?? navigationController.view.safeAreaInsets
         ) { [weak self, weak readerVC] result in
             guard let self, self.preparingReader === readerVC else { return }
             self.preparingReader = nil
             switch result {
             case .success:
                 guard let readerVC else { return }
+                (navigationController as? LVPadPresentingNavigationController)?.bookTransitionSource = transitionSource
                 navigationController.pushViewController(readerVC, animated: true)
             case .failure(let error):
                 LVToast.show(message: error.localizedDescription, style: .error)
@@ -1112,6 +1164,23 @@ extension BookshelfViewController: UICollectionViewDataSource, UICollectionViewD
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: BookListCollectionCell.reuseIdentifier,
+                for: indexPath
+            ) as! BookListCollectionCell
+            let book = filteredBooks[indexPath.item]
+            cell.configure(
+                with: book,
+                syncConnected: WebSyncServer.shared.isConnected(to: book.id)
+            )
+            cell.onSelect = { [weak self, weak collectionView] source in
+                guard let self, let collectionView else { return }
+                self.selectBook(book, at: indexPath, in: collectionView, transitionSource: source)
+            }
+            cell.onSyncTapped = { [weak self] in self?.openWebSync(for: book) }
+            return cell
+        }
         let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: BookCell.reuseIdentifier,
             for: indexPath
@@ -1134,6 +1203,10 @@ extension BookshelfViewController: UICollectionViewDataSource, UICollectionViewD
     ) -> CGSize {
         let padding: CGFloat = 16
         let spacing: CGFloat = 8
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let width = (collectionView.bounds.width - padding * 2 - spacing) / 2
+            return CGSize(width: width, height: 116)
+        }
         let availableWidth = view.bounds.width - (padding * 2) - spacing * 2
         let width = availableWidth / 3
         let height = (width - 20) * 1.35 + 10 + 4 + 6 + 18 + 20
@@ -1141,8 +1214,17 @@ extension BookshelfViewController: UICollectionViewDataSource, UICollectionViewD
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard UIDevice.current.userInterfaceIdiom != .pad else { return }
         guard indexPath.item < filteredBooks.count else { return }
-        let book = filteredBooks[indexPath.item]
+        selectBook(filteredBooks[indexPath.item], at: indexPath, in: collectionView)
+    }
+
+    private func selectBook(
+        _ book: Book,
+        at indexPath: IndexPath,
+        in collectionView: UICollectionView,
+        transitionSource: BookOpenTransitionSource? = nil
+    ) {
         if isEditingMode {
             if selectedBookIds.contains(book.id) {
                 selectedBookIds.remove(book.id)
@@ -1151,7 +1233,7 @@ extension BookshelfViewController: UICollectionViewDataSource, UICollectionViewD
             }
             collectionView.reloadItems(at: [indexPath])
         } else {
-            openReader(for: book)
+            openReader(for: book, transitionSource: transitionSource)
         }
     }
 

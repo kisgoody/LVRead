@@ -48,6 +48,7 @@
 		7007D936643054824E32C774 /* LanDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9D4D5B4140986B2A1118CA /* LanDevice.swift */; };
 		718640A166034DB440A3846D /* ZodiacPaperCutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 558C7CFF33E6DF084F7A7087 /* ZodiacPaperCutView.swift */; };
 		7890B835E45E8A849B3A8F5B /* LVModuleNavigationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4DBDAD440227995E8BC0B7F /* LVModuleNavigationView.swift */; };
+		7A26D0017A26D0017A26D001 /* LVPadMainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A26D0027A26D0027A26D002 /* LVPadMainViewController.swift */; };
 		8052E4A4063075A3FA8FE8D7 /* Untitled.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372DD1874565DA0321687BD9 /* Untitled.swift */; };
 		81407552BD902C04311A15B6 /* LVEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECA281C6E6CEF779668315C /* LVEmptyStateView.swift */; };
 		815EA3F5FD862CA6F4AAAFC4 /* ImageCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09A725C1BF61EC34402B094D /* ImageCacheManager.swift */; };
@@ -163,6 +164,7 @@
 		66BB98830F7EC0470D93F37B /* ZodiacWheelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZodiacWheelView.swift; sourceTree = "<group>"; };
 		7208E0E32F5754E0D1A6667B /* Book.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book.swift; sourceTree = "<group>"; };
 		75022AD5D67AB53F53372572 /* ContinuousReaderViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuousReaderViewController.swift; sourceTree = "<group>"; };
+		7A26D0027A26D0027A26D002 /* LVPadMainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LVPadMainViewController.swift; sourceTree = "<group>"; };
 		82018A28F3557489496CDF27 /* ParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParserTests.swift; sourceTree = "<group>"; };
 		8682D8DA63C9343924ADBC31 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		8846C8D88927B1EA3A422C68 /* PaperCurlAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperCurlAnimator.swift; sourceTree = "<group>"; };
@@ -350,6 +352,7 @@
 				8ECA281C6E6CEF779668315C /* LVEmptyStateView.swift */,
 				192E950E1BB945CE46273643 /* LVFilterChip.swift */,
 				E4DBDAD440227995E8BC0B7F /* LVModuleNavigationView.swift */,
+				7A26D0027A26D0027A26D002 /* LVPadMainViewController.swift */,
 				5ED8FBD27D41A9967837126E /* LVSkeletonView.swift */,
 				0C4910391A78AFCE00D69A47 /* LVSlider.swift */,
 				A775C381ED8137C4D741BF6D /* LVToast.swift */,
@@ -725,6 +728,7 @@
 				4A6C3DA785080687E0448E4A /* LVFilterChip.swift in Sources */,
 				BB40E01014E5E666406E9F46 /* LVLogger.swift in Sources */,
 				7890B835E45E8A849B3A8F5B /* LVModuleNavigationView.swift in Sources */,
+				7A26D0017A26D0017A26D001 /* LVPadMainViewController.swift in Sources */,
 				F08AA28309FB407B991C3ED9 /* LVSkeletonView.swift in Sources */,
 				398B7AE977D9CEAFF72B8C21 /* LVSlider.swift in Sources */,
 				66CBBC4A16346C4C06415591 /* LVToast.swift in Sources */,

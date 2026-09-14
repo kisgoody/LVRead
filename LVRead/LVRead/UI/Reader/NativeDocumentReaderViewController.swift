@@ -137,6 +137,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     private var windowReachedBeginning = false
     private var windowReachedEnd = false
     private var pendingWindow: PendingWindow?
+    private var pendingRemotePage: (chapterIndex: Int, pageIndex: Int)?
     private var activeReadingStartedAt: Date?
     private var activeReadingCountsTowardPace = false
     private var activeReadingPageID: String?
@@ -820,7 +821,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         ])
     }
 
-    private func replacePageViewController(doublePage: Bool? = nil) {
+    private func replacePageViewController(doublePage: Bool? = nil, preserveVisiblePage: Bool = true) {
         let interruptedTransition = isPageTransitioning
             || isFinalizingPageTransition
             || isWindowCommitInProgress
@@ -829,7 +830,7 @@ final class NativeDocumentReaderViewController: UIViewController {
             let visibleIndex = pageViewControllerRequiresSpread
                 ? spreadAnchor(in: pageViewController.viewControllers ?? [])
                 : visiblePageIndices.first
-            if let visibleIndex, pages.indices.contains(visibleIndex) {
+            if preserveVisiblePage, let visibleIndex, pages.indices.contains(visibleIndex) {
                 currentIndex = visibleIndex
             }
             interactivePageTransition = nil
@@ -1215,6 +1216,11 @@ final class NativeDocumentReaderViewController: UIViewController {
         preserveCurrentPage: Bool = true
     ) {
         guard chapters.indices.contains(chapterIndex), readingSize.width > 0 else { return }
+        // A refresh for the old visible page must not supersede an explicit jump.
+        if preserveCurrentPage,
+           activeWindowLoadRequest?.preserveCurrentPage == false {
+            return
+        }
         let request = WindowLoadRequest(
             chapterIndex: chapterIndex,
             pageIndex: pageIndex,
@@ -1337,13 +1343,14 @@ final class NativeDocumentReaderViewController: UIViewController {
                 var target = localTarget
                 var previous = resolvedChapter - 1
                 var next = resolvedChapter + 1
-                while target < cachePolicy.pagesBefore, previous >= 0 {
+                while preserveCurrentPage, target < cachePolicy.pagesBefore, previous >= 0 {
                     let value = try parse(previous)
                     combined = value + combined
                     target += value.count
                     previous -= 1
                 }
-                while combined.count - target - 1 < cachePolicy.pagesAfter,
+                let requiredPagesAfter = preserveCurrentPage ? cachePolicy.pagesAfter : 1
+                while combined.count - target - 1 < requiredPagesAfter,
                       next < snapshotChapters.count {
                     combined += try parse(next)
                     next += 1
@@ -1472,6 +1479,10 @@ final class NativeDocumentReaderViewController: UIViewController {
         currentIndex = resolvedTarget
         if navigationMode == .continuousVertical {
             renderContinuousWindow(target: currentIndex, intraPageOffset: previousIntraPageOffset)
+            finishWindowCommit()
+        } else if !update.preserveCurrentPage {
+            // Discard UIKit's cached neighbours from the previous reading location.
+            replacePageViewController(doublePage: usesDoublePage, preserveVisiblePage: false)
             finishWindowCommit()
         } else if let controllers = pageControllers(at: currentIndex) {
             let controller = pageViewController!
@@ -1707,6 +1718,10 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     private func settleOnCurrentPage() {
         guard let page = currentPage else { return }
+        if let requested = pendingRemotePage,
+           requested.chapterIndex == page.chapterIndex, requested.pageIndex == page.pageIndex {
+            pendingRemotePage = nil
+        }
         if activeReadingStartedAt != nil,
            let previousPageID = activeReadingPageID,
            previousPageID != page.id {
@@ -1740,8 +1755,11 @@ final class NativeDocumentReaderViewController: UIViewController {
         batteryView.level = max(0, UIDevice.current.batteryLevel)
         updateBookProgress(for: page)
         updateBookmarkButton()
-        WebSyncServer.shared.updateCurrentPage(bookId: book.id, page: webSyncSnapshot(for: page))
-        saveProgress()
+        // Do not broadcast/save the intermediate page of a remote two-page turn.
+        if pendingRemotePage == nil {
+            WebSyncServer.shared.updateCurrentPage(bookId: book.id, page: webSyncSnapshot(for: page))
+            saveProgress()
+        }
         if persistsReadingProgress {
             NativeReaderRestorationStore.save(bookID: book.id)
         }
@@ -2057,40 +2075,61 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     @objc private func webSyncPageTurnRequested(_ notification: Notification) {
-        guard let forward = notification.userInfo?["forward"] as? Bool,
-              let requestedBookId = notification.userInfo?["bookId"] as? String,
+        guard let requestedBookId = notification.userInfo?["bookId"] as? String,
               let chapterIndex = notification.userInfo?["chapterIndex"] as? Int,
               let pageIndex = notification.userInfo?["pageIndex"] as? Int,
-              requestedBookId == book.id else { return }
+              requestedBookId == book.id,
+              chapters.indices.contains(chapterIndex), pageIndex >= 0 else { return }
+        // Keep the newest destination while the current page animation finishes.
+        pendingRemotePage = (chapterIndex, pageIndex)
+        continueRemotePageTurn()
+    }
+
+    private func continueRemotePageTurn() {
+        guard let requested = pendingRemotePage,
+              !isPageTransitioning, !isProgrammaticPageTurn,
+              !isFinalizingPageTransition, !isWindowCommitInProgress else { return }
         guard let target = pages.firstIndex(where: {
-            $0.chapterIndex == chapterIndex && $0.pageIndex == pageIndex
+            $0.chapterIndex == requested.chapterIndex && $0.pageIndex == requested.pageIndex
         }) else {
+            // Load neighbours without replacing the visible page before it can animate.
             loadWindow(
-                chapterIndex: chapterIndex,
-                pageIndex: pageIndex,
+                chapterIndex: requested.chapterIndex,
+                pageIndex: requested.pageIndex,
                 characterOffset: nil,
-                showSkeleton: false,
-                preserveCurrentPage: false
+                showSkeleton: false
             )
             return
         }
-        guard target != currentIndex else { return }
+        guard target != currentIndex else {
+            pendingRemotePage = nil
+            return
+        }
+        let forward = target > currentIndex
         if navigationMode == .continuousVertical {
+            pendingRemotePage = nil
             continuousScrollView.setContentOffset(
                 CGPoint(x: 0, y: continuousOffset(forPageAt: target)),
-                animated: true
+                animated: !UIAccessibility.isReduceMotionEnabled
             )
-        } else if abs(target - currentIndex) == pageTurnDistance {
+        } else if abs(target - currentIndex) <= pageTurnDistance * 2,
+                  abs(target - currentIndex) % pageTurnDistance == 0 {
+            // A web spread advances two phone pages. Finalization starts the second turn.
             turnPage(
                 forward: forward,
                 animated: navigationMode != .none,
                 allowWhileSyncPresented: true
-            )
+            ) { [weak self] completed in
+                guard let self, !completed,
+                      self.pendingRemotePage?.chapterIndex == requested.chapterIndex,
+                      self.pendingRemotePage?.pageIndex == requested.pageIndex else { return }
+                self.pendingRemotePage = nil
+            }
         } else {
-            guard !isPageTransitioning,
-                  !isFinalizingPageTransition,
-                  !isWindowCommitInProgress,
-                  let controllers = pageControllers(at: target) else { return }
+            guard let controllers = pageControllers(at: target) else {
+                pendingRemotePage = nil
+                return
+            }
             isProgrammaticPageTurn = true
             isPageTransitioning = true
             updatePagingInteraction()
@@ -2098,13 +2137,15 @@ final class NativeDocumentReaderViewController: UIViewController {
             controller.setViewControllers(
                 controllers,
                 direction: forward ? .forward : .reverse,
-                animated: false
+                animated: navigationMode != .none && !UIAccessibility.isReduceMotionEnabled
             ) { [weak self, weak controller] completed in
                 guard let self,
                       let controller,
                       controller === self.pageViewController else { return }
                 if completed {
                     self.currentIndex = target
+                } else {
+                    self.pendingRemotePage = nil
                 }
                 self.finishPageTransition(
                     settle: completed,
@@ -2190,6 +2231,9 @@ final class NativeDocumentReaderViewController: UIViewController {
             settleOnCurrentPage()
         }
         restorePagingInteraction()
+        if pendingRemotePage != nil {
+            DispatchQueue.main.async { [weak self] in self?.continueRemotePageTurn() }
+        }
     }
 
     @discardableResult
@@ -2400,6 +2444,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     }
 
     private func presentLoadError(_ error: Error) {
+        pendingRemotePage = nil
         skeleton.stop()
         if preparationCompletion != nil {
             finishPreparation(.failure(error))
@@ -2442,7 +2487,7 @@ final class NativeDocumentReaderViewController: UIViewController {
                 chapterIndex: index,
                 pageIndex: 0,
                 characterOffset: nil,
-                showSkeleton: false,
+                showSkeleton: true,
                 preserveCurrentPage: false
             )
         }

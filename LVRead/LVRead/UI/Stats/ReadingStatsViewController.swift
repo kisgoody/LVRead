@@ -2,8 +2,15 @@ import UIKit
 import UniformTypeIdentifiers
 
 final class ReadingStatsViewController: UIViewController, UIGestureRecognizerDelegate {
+    private struct PadAdaptiveRow {
+        let stack: UIStackView
+        let horizontalWidthConstraint: NSLayoutConstraint?
+        let horizontalDistribution: UIStackView.Distribution
+    }
+
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
+    private var padAdaptiveRows: [PadAdaptiveRow] = []
     private let navigationBackButton = UIButton(type: .system)
     private let navigationActionsButton = UIButton(type: .system)
     private let overviewStreakLabel = UILabel()
@@ -12,6 +19,9 @@ final class ReadingStatsViewController: UIViewController, UIGestureRecognizerDel
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L("阅读统计")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            navigationItem.largeTitleDisplayMode = .never
+        }
         configureNavigationButtons()
         buildInterface()
         reloadStatistics()
@@ -44,30 +54,65 @@ final class ReadingStatsViewController: UIViewController, UIGestureRecognizerDel
         restoreInteractivePopGestureDelegate()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard !padAdaptiveRows.isEmpty else { return }
+        let horizontal = stackView.bounds.width >= 760
+            && !traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+        for row in padAdaptiveRows {
+            if horizontal {
+                row.stack.axis = .horizontal
+                row.stack.alignment = .fill
+                row.stack.distribution = row.horizontalDistribution
+                row.horizontalWidthConstraint?.isActive = true
+            } else {
+                row.horizontalWidthConstraint?.isActive = false
+                row.stack.axis = .vertical
+                row.stack.alignment = .fill
+                row.stack.distribution = .fill
+            }
+        }
+    }
+
     private func buildInterface() {
+        let usesPadLayout = UIDevice.current.userInterfaceIdiom == .pad
         view.backgroundColor = LVBookshelfModuleStyle.pageBackground
         applyNavigationAppearance()
         scrollView.alwaysBounceVertical = true
         stackView.axis = .vertical
-        stackView.spacing = 24
+        stackView.spacing = usesPadLayout ? 16 : 24
         view.addSubview(scrollView)
         scrollView.addSubview(stackView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         stackView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
+        var constraints = [
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 24),
-            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
-            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            scrollView.contentLayoutGuide.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
+            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: usesPadLayout ? 32 : 24),
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -32),
-            stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32)
-        ])
+            stackView.centerXAnchor.constraint(equalTo: scrollView.frameLayoutGuide.centerXAnchor)
+        ]
+        if usesPadLayout {
+            let availableWidth = stackView.widthAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.widthAnchor,
+                constant: -64
+            )
+            availableWidth.priority = .defaultHigh
+            constraints.append(contentsOf: [
+                stackView.widthAnchor.constraint(lessThanOrEqualToConstant: 960),
+                availableWidth
+            ])
+        } else {
+            constraints.append(stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32))
+        }
+        NSLayoutConstraint.activate(constraints)
     }
 
     private func reloadStatistics() {
+        padAdaptiveRows.removeAll()
         stackView.arrangedSubviews.forEach {
             stackView.removeArrangedSubview($0)
             $0.removeFromSuperview()
@@ -78,8 +123,48 @@ final class ReadingStatsViewController: UIViewController, UIGestureRecognizerDel
         let analytics = ReadingAnalytics(stats: stats)
         let books = BookRepository.shared.getAll()
         let bookStats = ReadingStatsRepository.shared.getBookStats()
+        let topBooks = bookStats.sorted { $0.value.readingTimeSeconds > $1.value.readingTimeSeconds }
+            .prefix(5)
+            .compactMap { id, value -> LVStatsBarChartView.Item? in
+                guard let book = books.first(where: { $0.id == id }) else { return nil }
+                let minutes = value.readingTimeSeconds / 60
+                let pace = ReadingPace.wordsPerMinute(
+                    words: value.charactersRead,
+                    effectiveSeconds: value.paceReadingTimeSeconds
+                )
+                return .init(
+                    label: readableBookTitle(for: book),
+                    value: Double(minutes),
+                    valueText: LF("%d 分钟 · %@", minutes, paceText(pace))
+                )
+            }
+        let booksByFormat: [String: [Book]] = Dictionary(grouping: books) { book in
+            book.fileFormat.displayName
+        }
+        let formatItems: [LVStatsBarChartView.Item] = booksByFormat.map {
+            LVStatsBarChartView.Item(
+                label: $0.key,
+                value: Double($0.value.count),
+                valueText: LF("%d 本", $0.value.count)
+            )
+        }
+        let formats = formatItems.sorted { $0.value > $1.value }
+        let suggestions = ReadingAdviceEngine.shared.suggestions().map(\.text)
 
         overviewStreakLabel.text = LF("连续阅读 %d 天", analytics.currentStreak)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            reloadPadStatistics(
+                repository: repository,
+                currentStreak: analytics.currentStreak,
+                longestStreak: analytics.longestStreak,
+                topBooks: Array(topBooks),
+                formats: formats,
+                bookCount: books.count,
+                suggestions: suggestions
+            )
+            return
+        }
+
         stackView.addArrangedSubview(makeOverviewCard(repository: repository))
 
         let hourlyHistory = LVHourlyReadingHistoryView(repository: .shared) { [weak self] date in
@@ -100,21 +185,6 @@ final class ReadingStatsViewController: UIViewController, UIGestureRecognizerDel
             content: timeDistribution
         ))
 
-        let topBooks = bookStats.sorted { $0.value.readingTimeSeconds > $1.value.readingTimeSeconds }
-            .prefix(5)
-            .compactMap { id, value -> LVStatsBarChartView.Item? in
-                guard let book = books.first(where: { $0.id == id }) else { return nil }
-                let minutes = value.readingTimeSeconds / 60
-                let pace = ReadingPace.wordsPerMinute(
-                    words: value.charactersRead,
-                    effectiveSeconds: value.paceReadingTimeSeconds
-                )
-                return .init(
-                    label: readableBookTitle(for: book),
-                    value: Double(minutes),
-                    valueText: LF("%d 分钟 · %@", minutes, paceText(pace))
-                )
-            }
         stackView.addArrangedSubview(makeSection(
             title: L("常读书籍"),
             subtitle: L("按累计阅读有效时长排序"),
@@ -125,26 +195,218 @@ final class ReadingStatsViewController: UIViewController, UIGestureRecognizerDel
             )
         ))
 
-        let booksByFormat: [String: [Book]] = Dictionary(grouping: books) { book in
-            book.fileFormat.displayName
-        }
-        let formatItems: [LVStatsBarChartView.Item] = booksByFormat.map {
-            LVStatsBarChartView.Item(
-                label: $0.key,
-                value: Double($0.value.count),
-                valueText: LF("%d 本", $0.value.count)
-            )
-        }
-        let formats = formatItems.sorted { $0.value > $1.value }
         stackView.addArrangedSubview(makeSection(
             title: L("文件格式分布"),
             subtitle: L("当前书架的内容组成"),
             content: LVStatsBarChartView(items: formats, color: .lvAccent)
         ))
 
-        stackView.addArrangedSubview(makeAdviceCard(
-            ReadingAdviceEngine.shared.suggestions().map(\.text)
+        stackView.addArrangedSubview(makeAdviceCard(suggestions))
+    }
+
+    private func reloadPadStatistics(
+        repository: ReadingStatsRepository,
+        currentStreak: Int,
+        longestStreak: Int,
+        topBooks: [LVStatsBarChartView.Item],
+        formats: [LVStatsBarChartView.Item],
+        bookCount: Int,
+        suggestions: [String]
+    ) {
+        let summaries = [
+            (L("全部"), repository.readingPaceSummary(lastDays: nil)),
+            (L("近7日"), repository.readingPaceSummary(lastDays: 7)),
+            (L("今日"), repository.readingPaceSummary(for: Date()))
+        ]
+        let overview = UIStackView(arrangedSubviews: summaries.map {
+            makePadMetricCard(title: $0.0, summary: $0.1)
+        } + [
+            makePadMetricCard(
+                title: L("连续阅读"),
+                value: LF("%d 天", currentStreak),
+                detail: LF("最长 %d 天", longestStreak),
+                footnote: L("保持阅读节奏")
+            )
+        ])
+        overview.axis = .horizontal
+        overview.alignment = .fill
+        overview.distribution = .fillEqually
+        overview.spacing = 12
+        padAdaptiveRows.append(.init(
+            stack: overview,
+            horizontalWidthConstraint: nil,
+            horizontalDistribution: .fillEqually
         ))
+        stackView.addArrangedSubview(overview)
+
+        // Keep the app's existing single-day table/chart style and all of its interactions.
+        let hourlyHistory = LVHourlyReadingHistoryView(repository: repository) { [weak self] date in
+            self?.confirmDeleteStatistics(on: date)
+        }
+        let dailyCard = makeSection(
+            title: L("单日阅读"),
+            subtitle: "",
+            trailingView: hourlyHistory.sectionDeleteButton,
+            content: hourlyHistory,
+            contentSpacing: 8,
+            alignsContentToTop: true
+        )
+        let timeDistribution = LVReadingTimeDistributionView(repository: repository)
+        let distributionCard = makeSection(
+            title: L("阅读时间分布"),
+            subtitle: "",
+            trailingView: timeDistribution.sectionRangeControl,
+            content: timeDistribution,
+            placesTrailingControlBelowTitle: true,
+            contentSpacing: 8,
+            alignsContentToTop: false
+        )
+        stackView.addArrangedSubview(makePadAdaptiveRow(
+            leading: dailyCard,
+            trailing: distributionCard,
+            leadingToTrailingWidth: 1
+        ))
+
+        let booksCard = makeSection(
+            title: L("常读书籍"),
+            subtitle: L("按累计阅读有效时长排序"),
+            content: LVStatsBarChartView(
+                items: topBooks,
+                color: LVBookshelfModuleStyle.accent,
+                showsFullContent: true
+            )
+        )
+        let formatCard = makeSection(
+            title: L("文件格式分布"),
+            subtitle: LF("当前书架 %d 本", bookCount),
+            content: LVStatsBarChartView(
+                items: formats,
+                color: LVBookshelfModuleStyle.accent
+            )
+        )
+        let insights = UIStackView(arrangedSubviews: [
+            formatCard,
+            makePadAdviceCard(suggestions)
+        ])
+        insights.axis = .vertical
+        insights.spacing = 16
+        stackView.addArrangedSubview(makePadAdaptiveRow(
+            leading: booksCard,
+            trailing: insights,
+            leadingToTrailingWidth: 1
+        ))
+        view.setNeedsLayout()
+    }
+
+    private func makePadAdaptiveRow(
+        leading: UIView,
+        trailing: UIView,
+        leadingToTrailingWidth ratio: CGFloat
+    ) -> UIStackView {
+        let row = UIStackView(arrangedSubviews: [leading, trailing])
+        row.axis = .horizontal
+        row.alignment = .fill
+        row.distribution = .fill
+        row.spacing = 16
+        let widthConstraint = leading.widthAnchor.constraint(
+            equalTo: trailing.widthAnchor,
+            multiplier: ratio
+        )
+        widthConstraint.isActive = true
+        padAdaptiveRows.append(.init(
+            stack: row,
+            horizontalWidthConstraint: widthConstraint,
+            horizontalDistribution: .fill
+        ))
+        return row
+    }
+
+    private func makePadMetricCard(title: String, summary: ReadingPaceSummary) -> UIView {
+        makePadMetricCard(
+            title: title,
+            value: overviewDurationText(summary.effectiveSeconds),
+            detail: "\(paceText(summary.wordsPerMinute)) · \(LF("%d 页", summary.pages))",
+            footnote: LF("%d 字", summary.words)
+        )
+    }
+
+    private func makePadMetricCard(
+        title: String,
+        value: String,
+        detail: String,
+        footnote: String?
+    ) -> UIView {
+        let card = makeCard()
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+
+        let valueLabel = UILabel()
+        valueLabel.text = value
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 20, weight: .bold)
+        valueLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
+        valueLabel.adjustsFontSizeToFitWidth = true
+        valueLabel.minimumScaleFactor = 0.72
+
+        let detailLabel = UILabel()
+        detailLabel.text = detail
+        detailLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        detailLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+        detailLabel.adjustsFontSizeToFitWidth = true
+        detailLabel.minimumScaleFactor = 0.72
+
+        let footnoteLabel = UILabel()
+        footnoteLabel.text = footnote
+        footnoteLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        footnoteLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+        footnoteLabel.isHidden = footnote == nil
+
+        let content = UIStackView(arrangedSubviews: [
+            titleLabel, valueLabel, detailLabel, footnoteLabel
+        ])
+        content.axis = .vertical
+        content.alignment = .leading
+        content.spacing = 4
+        embed(content, in: card)
+        card.heightAnchor.constraint(greaterThanOrEqualToConstant: 112).isActive = true
+        card.isAccessibilityElement = true
+        card.accessibilityLabel = [title, value, detail, footnote]
+            .compactMap { $0 }
+            .joined(separator: "，")
+        return card
+    }
+
+    private func makePadAdviceCard(_ suggestions: [String]) -> UIView {
+        let card = makeCard()
+        let icon = UIImageView(image: UIImage(systemName: "sparkles"))
+        icon.tintColor = LVBookshelfModuleStyle.accent
+        icon.contentMode = .center
+        icon.backgroundColor = LVBookshelfModuleStyle.accent.withAlphaComponent(0.12)
+        icon.layer.cornerRadius = 12
+        icon.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 44).isActive = true
+
+        let title = UILabel()
+        title.text = L("阅读建议")
+        title.font = .systemFont(ofSize: 15, weight: .semibold)
+        title.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
+
+        let body = UILabel()
+        body.text = suggestions.isEmpty ? L("暂无建议") : suggestions.joined(separator: "\n")
+        body.font = .systemFont(ofSize: 12)
+        body.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+        body.numberOfLines = 0
+
+        let copy = UIStackView(arrangedSubviews: [title, body])
+        copy.axis = .vertical
+        copy.spacing = 4
+        let content = UIStackView(arrangedSubviews: [icon, copy])
+        content.axis = .horizontal
+        content.alignment = .top
+        content.spacing = 12
+        embed(content, in: card)
+        return card
     }
 
     private func makeOverviewCard(repository: ReadingStatsRepository) -> UIView {
@@ -272,7 +534,10 @@ final class ReadingStatsViewController: UIViewController, UIGestureRecognizerDel
         title: String,
         subtitle: String,
         trailingView: UIView? = nil,
-        content: UIView
+        content: UIView,
+        placesTrailingControlBelowTitle: Bool = false,
+        contentSpacing: CGFloat = 12,
+        alignsContentToTop: Bool = false
     ) -> UIView {
         let card = makeCard()
         let titleLabel = UILabel()
@@ -283,7 +548,17 @@ final class ReadingStatsViewController: UIViewController, UIGestureRecognizerDel
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let header: UIView
-        if let trailingView {
+        if let trailingView, placesTrailingControlBelowTitle {
+            let trailingRow = UIStackView(arrangedSubviews: [trailingView, UIView()])
+            trailingRow.axis = .horizontal
+            trailingRow.alignment = .center
+            let column = UIStackView(arrangedSubviews: [titleLabel, trailingRow])
+            column.axis = .vertical
+            column.spacing = 8
+            titleLabel.setContentHuggingPriority(.required, for: .vertical)
+            trailingRow.heightAnchor.constraint(equalTo: trailingView.heightAnchor).isActive = true
+            header = column
+        } else if let trailingView {
             let spacer = UIView()
             let row = UIStackView(arrangedSubviews: [titleLabel, spacer, trailingView])
             row.axis = .horizontal
@@ -296,12 +571,22 @@ final class ReadingStatsViewController: UIViewController, UIGestureRecognizerDel
 
         let subtitleLabel = UILabel()
         subtitleLabel.text = subtitle
+        subtitleLabel.numberOfLines = 0
         subtitleLabel.font = .systemFont(ofSize: 12)
         subtitleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
         subtitleLabel.isHidden = subtitle.isEmpty
         let stack = UIStackView(arrangedSubviews: [header, subtitleLabel, content])
         stack.axis = .vertical
-        stack.spacing = 12
+        stack.spacing = contentSpacing
+        if alignsContentToTop {
+            // Equal-height cards give surplus height to this spacer, not their headers.
+            header.setContentHuggingPriority(.required, for: .vertical)
+            content.setContentHuggingPriority(.required, for: .vertical)
+            let spacer = UIView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .vertical)
+            stack.addArrangedSubview(spacer)
+            stack.setCustomSpacing(0, after: content)
+        }
         embed(stack, in: card)
         return card
     }
@@ -1321,7 +1606,12 @@ final class LVReadingTimeDistributionChartView: UIView {
         isAccessibilityElement = true
         accessibilityLabel = L("阅读时间分布柱状图")
         backgroundColor = .clear
-        heightAnchor.constraint(equalToConstant: 240).isActive = true
+        contentMode = .redraw
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 184).isActive = true
+        } else {
+            heightAnchor.constraint(equalToConstant: 240).isActive = true
+        }
         detailLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         detailLabel.textAlignment = .center
         detailLabel.textColor = LVBookshelfModuleStyle.accent
@@ -1363,8 +1653,13 @@ final class LVReadingTimeDistributionChartView: UIView {
         let textColor = LVBookshelfModuleStyle.secondaryText
         let gridColor = LVBookshelfModuleStyle.divider.withAlphaComponent(0.8)
         let accent = LVBookshelfModuleStyle.accent
-        let plot = CGRect(x: 36, y: 38, width: max(bounds.width - 42, 1), height: 164)
-        let maximum = max(10, ceil((minutesByHour.max() ?? 0) / 10) * 10)
+        let plot = CGRect(
+            x: 36,
+            y: 38,
+            width: max(bounds.width - 42, 1),
+            height: max(UIDevice.current.userInterfaceIdiom == .pad ? bounds.height - 62 : min(164, bounds.height - 62), 1)
+        )
+        let maximum = max(UIDevice.current.userInterfaceIdiom == .pad ? 60 : 10, ceil((minutesByHour.max() ?? 0) / 10) * 10)
 
         context.setLineWidth(1 / UIScreen.main.scale)
         context.setStrokeColor(gridColor.cgColor)
@@ -1422,7 +1717,12 @@ final class LVReadingTimeDistributionChartView: UIView {
     }
 
     @objc private func chartTapped(_ gesture: UITapGestureRecognizer) {
-        let plot = CGRect(x: 36, y: 38, width: max(bounds.width - 42, 1), height: 164)
+        let plot = CGRect(
+            x: 36,
+            y: 38,
+            width: max(bounds.width - 42, 1),
+            height: max(UIDevice.current.userInterfaceIdiom == .pad ? bounds.height - 62 : min(164, bounds.height - 62), 1)
+        )
         let x = min(max(gesture.location(in: self).x, plot.minX), plot.maxX)
         let hour = min(max(Int((x - plot.minX) / plot.width * 24), 0), 23)
         selectedHour = hour
@@ -1477,7 +1777,9 @@ final class LVHourlyReadingChartView: UIView {
         isAccessibilityElement = true
         accessibilityLabel = L("今日每小时阅读有效时长、页数和字数图表")
         backgroundColor = .clear
-        heightAnchor.constraint(equalToConstant: 240).isActive = true
+        heightAnchor.constraint(
+            equalToConstant: UIDevice.current.userInterfaceIdiom == .pad ? 184 : 240
+        ).isActive = true
         detailLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         detailLabel.textAlignment = .center
         detailLabel.textColor = LVBookshelfModuleStyle.accent
@@ -1523,7 +1825,12 @@ final class LVHourlyReadingChartView: UIView {
         let textColor = LVBookshelfModuleStyle.secondaryText
         let gridColor = LVBookshelfModuleStyle.divider.withAlphaComponent(0.8)
         let accent = LVBookshelfModuleStyle.accent
-        let plot = CGRect(x: 28, y: 38, width: max(bounds.width - 34, 1), height: 164)
+        let plot = CGRect(
+            x: 28,
+            y: 38,
+            width: max(bounds.width - 34, 1),
+            height: max(min(164, bounds.height - 62), 1)
+        )
 
         context.setLineWidth(1 / UIScreen.main.scale)
         context.setStrokeColor(gridColor.cgColor)
@@ -1595,7 +1902,12 @@ final class LVHourlyReadingChartView: UIView {
     }
 
     @objc private func chartTapped(_ gesture: UITapGestureRecognizer) {
-        let plot = CGRect(x: 28, y: 38, width: max(bounds.width - 34, 1), height: 164)
+        let plot = CGRect(
+            x: 28,
+            y: 38,
+            width: max(bounds.width - 34, 1),
+            height: max(min(164, bounds.height - 62), 1)
+        )
         let x = min(max(gesture.location(in: self).x, plot.minX), plot.maxX)
         let hour = min(max(Int(floor((x - plot.minX) / plot.width * 24)), 0), 23)
         selectedHour = hour
