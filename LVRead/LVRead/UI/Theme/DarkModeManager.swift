@@ -114,6 +114,10 @@ final class DarkModeManager: ObservableObject {
         selectReadingTheme(selected)
     }
 
+    func setAppearanceMode(_ mode: AppearanceMode) {
+        appearanceMode = mode
+    }
+
     // MARK: - Private Methods
 
     private func loadSavedSettings() {
@@ -127,19 +131,36 @@ final class DarkModeManager: ObservableObject {
             settings.nightMode = selected.isDarkAppearance
             ReadingSettingsRepository.shared.save(settings)
         }
-        appearanceMode = selected.isDarkAppearance ? .dark : .light
+        appearanceMode = UserDefaults.standard.string(forKey: Keys.appearanceMode)
+            .flatMap(AppearanceMode.init(rawValue:))
+            ?? (selected.isDarkAppearance ? .dark : .light)
     }
 
     private func updateFromAppearanceMode() {
+        let dark: Bool
         switch appearanceMode {
-        case .system:
-            // Listen to system changes
-            isDarkMode = UITraitCollection.current.userInterfaceStyle == .dark
-        case .light:
-            isDarkMode = false
-        case .dark:
-            isDarkMode = true
+        case .system: dark = UITraitCollection.current.userInterfaceStyle == .dark
+        case .light: dark = false
+        case .dark: dark = true
         }
+        let key = dark ? Keys.lastDarkTheme : Keys.lastLightTheme
+        let fallback: ReadingTheme = dark ? .oled : .bookshelf
+        let selected = UserDefaults.standard.string(forKey: key)
+            .flatMap(ReadingTheme.init(rawValue:))
+            .flatMap { $0.isDarkAppearance == dark ? $0 : nil }
+            ?? fallback
+        let themeChanged = currentTheme != selected
+        currentTheme = selected
+
+        var settings = ReadingSettingsRepository.shared.load()
+        settings.readingTheme = selected
+        settings.backgroundColor = selected.backgroundColor
+        settings.nightMode = dark
+        ReadingSettingsRepository.shared.save(settings)
+
+        let modeChanged = isDarkMode != dark
+        isDarkMode = dark
+        if themeChanged || !modeChanged { applyTheme() }
     }
 
     private func observeSystemAppearance() {
@@ -149,10 +170,7 @@ final class DarkModeManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             guard let self = self, self.appearanceMode == .system else { return }
-            let isDark = UITraitCollection.current.userInterfaceStyle == .dark
-            if self.isDarkMode != isDark {
-                self.isDarkMode = isDark
-            }
+            self.updateFromAppearanceMode()
         }
     }
 
@@ -189,7 +207,9 @@ final class DarkModeManager: ObservableObject {
     }
 
     private func updateWindowTheme() {
-        let style: UIUserInterfaceStyle = isDarkMode ? .dark : .light
+        let style: UIUserInterfaceStyle = appearanceMode == .system
+            ? .unspecified
+            : (isDarkMode ? .dark : .light)
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)

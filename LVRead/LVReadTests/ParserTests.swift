@@ -426,6 +426,122 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(stats.fileSizeBytes, 1024000)
     }
 
+    // MARK: - TXT normalization Tests
+
+    func testTXTParserRemovesRepeatedVolumeDirectoriesAndKeepsNovelChapters() throws {
+        let text = """
+        西游记
+
+        第一回 灵根育孕源流出 心性修持大道生
+
+        第二回 悟彻菩提真妙理 断魔归本合元神
+
+        第一回 灵根育孕源流出 心性修持大道生[1]
+
+        这是第一回正文。这里有足够多的叙事文字，用于确认目录标题不会被识别为正式章节。
+
+        第二回 悟彻菩提真妙理 断魔归本合元神[2]
+
+        这是第二回正文。这里同样包含足够多的叙事文字，必须作为小说正文保留下来。
+
+        第三回 四海千山皆拱伏 九幽十类尽除名
+
+        第四回 官封弼马心何足 名注齐天意未宁
+
+        第三回 四海千山皆拱伏 九幽十类尽除名[3]
+
+        这是第三回正文。第二卷目录应当被排除，正文中的第三回必须保留并维持原始顺序。
+
+        第四回 官封弼马心何足 名注齐天意未宁[4]
+
+        这是第四回正文。处理完成后整本测试书应当只剩四个具有有效正文的章节。
+        """
+        let url = try makeTXT(text)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let parser = TXTParser()
+        let metadata = try parser.parseMetadata(filePath: url.path)
+
+        XCTAssertEqual(metadata.chapters.count, 4)
+        XCTAssertEqual(
+            metadata.chapters.map { TXTParser.canonicalTitle($0.title) },
+            [
+                "第一回灵根育孕源流出心性修持大道生",
+                "第二回悟彻菩提真妙理断魔归本合元神",
+                "第三回四海千山皆拱伏九幽十类尽除名",
+                "第四回官封弼马心何足名注齐天意未宁"
+            ]
+        )
+        for chapter in metadata.chapters {
+            let content = try parser.parseChapterContent(
+                filePath: url.path,
+                chapter: chapter,
+                encoding: "UTF-8"
+            )
+            XCTAssertTrue(content.contains("正文"))
+        }
+    }
+
+    func testTXTParserUsesPublicationLayoutAndNormalizesMixedPunctuation() throws {
+        let text = """
+        第一章 测试
+
+            中文, English 123!
+        这是被硬换行
+        截断的句子。
+
+
+
+        下一段保持原文标点?
+        """
+        let url = try makeTXT(text)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let parser = TXTParser()
+        let chapter = try XCTUnwrap(parser.parseMetadata(filePath: url.path).chapters.first)
+        let content = try parser.parseChapterContent(
+            filePath: url.path,
+            chapter: chapter,
+            encoding: "UTF-8"
+        )
+
+        XCTAssertTrue(content.hasPrefix("第一章 测试\n\n"))
+        XCTAssertTrue(content.contains("　　中文，English 123!"))
+        XCTAssertTrue(content.contains("\n　　这是被硬换行截断的句子。"))
+        XCTAssertTrue(content.contains("\n　　下一段保持原文标点？"))
+        XCTAssertFalse(content.dropFirst("第一章 测试\n\n".count).contains("\n\n"))
+    }
+
+    func testTXTParserCanKeepFrontMatterWhenConfigured() throws {
+        let text = """
+        前言
+
+        这是需要保留的前言正文，内容长度超过二十个有效文字并且包含完整叙述。
+
+        第一章 正文
+
+        这是小说第一章的正文内容，内容长度同样超过二十个有效文字。
+        """
+        let url = try makeTXT(text)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        XCTAssertEqual(try TXTParser().parseMetadata(filePath: url.path).chapters.count, 1)
+        XCTAssertEqual(
+            try TXTParser(keepsFrontAndBackMatter: true)
+                .parseMetadata(filePath: url.path).chapters.count,
+            2
+        )
+    }
+
+    private func makeTXT(_ content: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lvread-txt-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("test.txt")
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     private func makeMinimalEPUB(
         opfXML: String,
         chapterHTML: String,

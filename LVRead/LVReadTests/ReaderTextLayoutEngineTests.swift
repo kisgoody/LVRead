@@ -136,14 +136,21 @@ final class ReaderTextLayoutEngineTests: XCTestCase {
 
     func testBookThicknessMovesFromRightToLeftWithProgress() {
         let beginning = NativeBookThickness.widths(progress: 0)
+        let afterFirstTurn = NativeBookThickness.widths(progress: 0.0001)
         let middle = NativeBookThickness.widths(progress: 0.5)
         let end = NativeBookThickness.widths(progress: 1)
 
         XCTAssertLessThan(beginning.left, beginning.right)
         XCTAssertEqual(middle.left, middle.right, accuracy: 0.001)
         XCTAssertGreaterThan(end.left, end.right)
-        XCTAssertEqual(beginning.left, NativeBookSpreadMetrics.minimumThickness)
+        XCTAssertEqual(beginning.left, 0)
         XCTAssertEqual(beginning.right, NativeBookSpreadMetrics.maximumThickness)
+        XCTAssertGreaterThanOrEqual(
+            afterFirstTurn.left,
+            NativeBookSpreadMetrics.minimumVisibleThickness
+        )
+        XCTAssertEqual(end.left, NativeBookSpreadMetrics.maximumThickness)
+        XCTAssertEqual(end.right, 0)
         XCTAssertGreaterThan(
             NativeBookSpreadMetrics.coverHorizontalOutset,
             NativeBookSpreadMetrics.maximumThickness
@@ -243,6 +250,71 @@ final class ReaderTextLayoutEngineTests: XCTestCase {
         XCTAssertEqual(layout.paragraphStyle.paragraphSpacing, 0, accuracy: 0.001)
     }
 
+    func testNativeChapterTitleScalesWithBodyAndUsesFixedSpacing() throws {
+        var settings = ReadingSettings.default
+        settings.fontSize = 20
+        let text = "第一章 林动\n\n　　正文内容"
+        let value = NativeDocumentTypography.attributed(text, settings: settings, color: .label)
+        let bodyLocation = (text as NSString).range(of: "正文内容").location
+        let titleFont = try XCTUnwrap(value.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+        let bodyFont = try XCTUnwrap(value.attribute(.font, at: bodyLocation, effectiveRange: nil) as? UIFont)
+        let titleStyle = try XCTUnwrap(
+            value.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        )
+
+        XCTAssertEqual(
+            titleFont.pointSize / bodyFont.pointSize,
+            NativeDocumentTypography.chapterTitleScale,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            titleStyle.paragraphSpacing,
+            NativeDocumentTypography.chapterTitleSpacing,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(titleFont.fontDescriptor.symbolicTraits.contains(.traitBold))
+    }
+
+    func testNativeCommentReservesOneLineBelowItsParagraph() throws {
+        let settings = ReadingSettings.default
+        let text = "　　带评论的段落。\n　　后续正文。"
+        let commentRange = (text as NSString).range(of: "带评论的段落")
+        let value = NativeDocumentTypography.attributed(
+            text,
+            settings: settings,
+            color: .label,
+            commentRanges: [commentRange]
+        )
+        let style = try XCTUnwrap(
+            value.attribute(.paragraphStyle, at: commentRange.location, effectiveRange: nil)
+                as? NSParagraphStyle
+        )
+
+        XCTAssertEqual(
+            style.paragraphSpacing,
+            NativeDocumentTypography.commentLineHeight(settings: settings) + 12,
+            accuracy: 0.001
+        )
+    }
+
+    func testNativePaginationMarksAParagraphSplitAcrossPages() throws {
+        let text = String(repeating: "这是一个用于验证跨页段落识别的连续长段落。", count: 120)
+        let chapter = Chapter(bookId: "book-1", title: "测试章节", orderIndex: 0)
+        let pages = try NativeDocumentPaginator.pages(
+            text: text,
+            chapter: chapter,
+            chapterIndex: 0,
+            size: CGSize(width: 320, height: 420),
+            settings: .default
+        )
+
+        XCTAssertGreaterThan(pages.count, 1)
+        XCTAssertTrue(try XCTUnwrap(pages.first).startsAtParagraphBoundary)
+        XCTAssertFalse(try XCTUnwrap(pages.first).endsAtParagraphBoundary)
+        XCTAssertFalse(try XCTUnwrap(pages.last).startsAtParagraphBoundary)
+        XCTAssertTrue(try XCTUnwrap(pages.last).endsAtParagraphBoundary)
+    }
+
     func testPaginationPreservesEveryUTF16CodeUnit() throws {
         let content = String(repeating: "中文🙂e\u{301}，分页不可缺字。\n", count: 80)
         let expected = ReaderTextContentSanitizer.collapsingExcessiveLineBreaks(in: content)
@@ -276,7 +348,7 @@ final class ReaderTextLayoutEngineTests: XCTestCase {
             settings: .default
         )
 
-        let expected = "第一段\n第二段\n第三段\n第四段\n第五段"
+        let expected = "第一段\n\n第二段\n\n第三段\n第四段\n\n第五段"
         XCTAssertEqual(ReaderTextContentSanitizer.collapsingExcessiveLineBreaks(in: content), expected)
         XCTAssertEqual(ranges.last?.endOffset, expected.utf16.count)
     }

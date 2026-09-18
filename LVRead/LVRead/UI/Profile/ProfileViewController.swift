@@ -9,7 +9,9 @@ final class ProfileViewController: UIViewController {
     private let subtitleLabel = UILabel()
     private let overviewMetricsView = LVReadingOverviewMetricsView()
     private let streakMetricLabel = UILabel()
-    private let nightSwitch = UISwitch()
+    private let appearanceControl = UISegmentedControl(
+        items: DarkModeManager.AppearanceMode.allCases.map(\.displayName)
+    )
     private let restoreReadingSwitch = UISwitch()
     private let goalLabel = UILabel()
     private let goalProgressView = UIProgressView(progressViewStyle: .default)
@@ -136,8 +138,12 @@ final class ProfileViewController: UIViewController {
         let card = makeCard()
         let heading = makeHeading(L("阅读偏好"))
 
-        let nightRow = makeRow(title: L("夜间模式"), subtitle: L("降低界面亮度，适合暗光环境"), control: nightSwitch)
-        nightSwitch.addTarget(self, action: #selector(nightChanged), for: .valueChanged)
+        let nightRow = makeRow(
+            title: L("主题样式"),
+            subtitle: nil,
+            control: appearanceControl
+        )
+        appearanceControl.addTarget(self, action: #selector(appearanceChanged), for: .valueChanged)
 
         let restoreRow = makeRow(
             title: L("恢复上次阅读"),
@@ -210,17 +216,20 @@ final class ProfileViewController: UIViewController {
         return label
     }
 
-    private func makeRow(title: String, subtitle: String, control: UIView) -> UIView {
+    private func makeRow(title: String, subtitle: String?, control: UIView) -> UIView {
         let titleLabel = UILabel()
         titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 14, weight: .medium)
         titleLabel.textColor = LVBookshelfModuleStyle.adaptivePrimaryText
-        let subtitleLabel = UILabel()
-        subtitleLabel.text = subtitle
-        subtitleLabel.font = .systemFont(ofSize: 12)
-        subtitleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
-        subtitleLabel.numberOfLines = 0
-        let labels = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        let labels = UIStackView(arrangedSubviews: [titleLabel])
+        if let subtitle, !subtitle.isEmpty {
+            let subtitleLabel = UILabel()
+            subtitleLabel.text = subtitle
+            subtitleLabel.font = .systemFont(ofSize: 12)
+            subtitleLabel.textColor = LVBookshelfModuleStyle.adaptiveSecondaryText
+            subtitleLabel.numberOfLines = 0
+            labels.addArrangedSubview(subtitleLabel)
+        }
         labels.axis = .vertical
         labels.spacing = 4
         let row = UIStackView(arrangedSubviews: [labels, control])
@@ -259,7 +268,9 @@ final class ProfileViewController: UIViewController {
         streakMetricLabel.text = LF("连续阅读 %d 天", analytics.currentStreak)
         let savedGoal = UserDefaults.standard.integer(forKey: Keys.dailyGoalMinutes)
         let goal = savedGoal > 0 ? savedGoal : 30
-        nightSwitch.isOn = DarkModeManager.shared.isDarkMode
+        appearanceControl.selectedSegmentIndex = DarkModeManager.AppearanceMode.allCases.firstIndex(
+            of: DarkModeManager.shared.appearanceMode
+        ) ?? 0
         restoreReadingSwitch.isOn = NativeReaderRestorationStore.isEnabled()
         goalStepper.value = Double(savedGoal > 0 ? savedGoal : 30)
         goalLabel.text = LF("目标：%d 分钟/天", Int(goalStepper.value))
@@ -275,8 +286,10 @@ final class ProfileViewController: UIViewController {
         navigationController?.pushViewController(ReadingStatsViewController(), animated: true)
     }
 
-    @objc private func nightChanged() {
-        DarkModeManager.shared.setNightMode(nightSwitch.isOn)
+    @objc private func appearanceChanged() {
+        let modes = DarkModeManager.AppearanceMode.allCases
+        guard modes.indices.contains(appearanceControl.selectedSegmentIndex) else { return }
+        DarkModeManager.shared.setAppearanceMode(modes[appearanceControl.selectedSegmentIndex])
     }
 
     @objc private func restoreReadingChanged() {
@@ -299,7 +312,15 @@ final class ProfileViewController: UIViewController {
         view.backgroundColor = LVBookshelfModuleStyle.pageBackground
         LVBookshelfModuleStyle.refreshCards(in: view)
         LVBookshelfModuleStyle.refreshAccents(in: view)
-        nightSwitch.onTintColor = LVBookshelfModuleStyle.accent
+        appearanceControl.selectedSegmentTintColor = LVBookshelfModuleStyle.accent
+        appearanceControl.setTitleTextAttributes(
+            [.foregroundColor: LVBookshelfModuleStyle.pageBackground],
+            for: .selected
+        )
+        appearanceControl.setTitleTextAttributes(
+            [.foregroundColor: LVBookshelfModuleStyle.primaryText],
+            for: .normal
+        )
         restoreReadingSwitch.onTintColor = LVBookshelfModuleStyle.accent
         goalProgressView.progressTintColor = LVBookshelfModuleStyle.accent
         goalProgressView.trackTintColor = LVBookshelfModuleStyle.divider

@@ -2,6 +2,25 @@ import Foundation
 
 final class TXTParser: FileParserProtocol {
 
+    private let keepsFrontAndBackMatter: Bool
+
+    init(keepsFrontAndBackMatter: Bool = false) {
+        self.keepsFrontAndBackMatter = keepsFrontAndBackMatter
+    }
+
+    private struct ChapterCandidate {
+        let title: String
+        let startOffset: Int
+        let endOffset: Int
+        let body: String
+
+        var meaningfulBodyLength: Int {
+            body.unicodeScalars.reduce(into: 0) { count, scalar in
+                if CharacterSet.alphanumerics.contains(scalar) { count += 1 }
+            }
+        }
+    }
+
     // MARK: - Chapter Detection Patterns
 
     private let chapterPatterns: [NSRegularExpression] = {
@@ -9,10 +28,8 @@ final class TXTParser: FileParserProtocol {
             #"^[　\s]*第[0-9零一二三四五六七八九十百千]+[章节回部卷集篇].*"#,
             #"^[　\s]*[Cc][Hh][Aa][Pp][Tt][Ee][Rr]\s+\d+.*"#,
             #"^[　\s]*[Pp][Aa][Rr][Tt]\s+\d+.*"#,
+            #"^[　\s]*卷[0-9零一二三四五六七八九十百千]+.*"#,
             #"^[　\s]*(序言|前言|楔子|引言|尾声|后记|番外|附录|尾声|终章|题记|引子).*"#,
-            #"^[　\s]*[一二三四五六七八九十]+、.*"#,
-            #"^[　\s]*\d+[\.\)、]\s+\S.*"#,
-            #"^[　\s]*[IVX]+[\.\)、]\s+\S.*"#,
         ]
         return raw.compactMap { try? NSRegularExpression(pattern: $0, options: []) }
     }()
@@ -85,7 +102,7 @@ final class TXTParser: FileParserProtocol {
         let content = String(fullText[lo..<hi])
         print("[TXT] Content sliced: \(content.count) chars")
 
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Self.standardizedBody(content)
     }
 
     func getBookStats(filePath: String) throws -> BookStats {
@@ -112,47 +129,313 @@ final class TXTParser: FileParserProtocol {
     // MARK: - Private: Chapter Detection
 
     private func detectChapters(from lines: [String], fullText: String, encoding: String) -> [Chapter] {
-        var chapters: [Chapter] = []
         let utf16 = fullText.utf16
 
-        var candidates: [(lineIndex: Int, line: String, offset: Int)] = []
+        var rawCandidates: [(title: String, offset: Int)] = []
         var cumulativeOffset = 0
-        for (idx, line) in lines.enumerated() {
+        for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             let lineLen = line.utf16.count
             let isCandidate = chapterPatterns.contains { regex in
                 regex.firstMatch(in: trimmed, range: NSRange(0..<trimmed.utf16.count)) != nil
             }
             if isCandidate {
-                candidates.append((lineIndex: idx, line: trimmed, offset: cumulativeOffset))
+                rawCandidates.append((title: trimmed, offset: cumulativeOffset))
             }
             cumulativeOffset += lineLen + 1
         }
 
-        if candidates.isEmpty {
-            chapters.append(Chapter(bookId: "", title: "正文", level: 1, orderIndex: 0, startOffset: 0, endOffset: Int64(utf16.count), pageCount: 0))
-            return chapters
+        guard !rawCandidates.isEmpty else {
+            return [Chapter(
+                bookId: "",
+                title: "正文",
+                level: 1,
+                orderIndex: 0,
+                startOffset: 0,
+                endOffset: Int64(utf16.count),
+                pageCount: 0
+            )]
         }
 
-        // Deduplicate contiguous candidates
-        var filtered: [(lineIndex: Int, line: String, offset: Int)] = []
-        for cand in candidates {
-            if let last = filtered.last, cand.lineIndex - last.lineIndex <= 1 { continue }
-            filtered.append(cand)
+        let source = fullText as NSString
+        let candidates = rawCandidates.enumerated().map { index, value in
+            let end = index + 1 < rawCandidates.count
+                ? rawCandidates[index + 1].offset
+                : source.length
+            let block = source.substring(
+                with: NSRange(location: value.offset, length: max(0, end - value.offset))
+            )
+            let body = block.components(separatedBy: .newlines).dropFirst().joined(separator: "\n")
+            return ChapterCandidate(
+                title: value.title,
+                startOffset: value.offset,
+                endOffset: end,
+                body: body
+            )
         }
 
-        // Preamble
-        if let first = filtered.first, first.offset > 0 {
-            chapters.append(Chapter(bookId: "", title: "前言", level: 1, orderIndex: 0, startOffset: 0, endOffset: Int64(first.offset), pageCount: 0))
+        let filtered = removingDirectoryAndDuplicateCandidates(candidates)
+        guard !filtered.isEmpty else {
+            return [Chapter(
+                bookId: "",
+                title: "正文",
+                level: 1,
+                orderIndex: 0,
+                startOffset: 0,
+                endOffset: Int64(utf16.count),
+                pageCount: 0
+            )]
         }
 
-        for (i, cand) in filtered.enumerated() {
-            let end = (i + 1 < filtered.count) ? filtered[i + 1].offset : utf16.count
-            chapters.append(Chapter(
-                bookId: "", title: cand.line, level: 1, orderIndex: chapters.count,
-                startOffset: Int64(cand.offset), endOffset: Int64(end), pageCount: 0
-            ))
+        return filtered.enumerated().map { index, candidate in
+            Chapter(
+                bookId: "",
+                title: candidate.title,
+                level: 1,
+                orderIndex: index,
+                startOffset: Int64(candidate.startOffset),
+                endOffset: Int64(candidate.endOffset),
+                pageCount: 0
+            )
         }
-        return chapters
+    }
+
+    /// Detects chapter tables created by older TXT rules so an already imported
+    /// book can rebuild its chapter index without changing the source file.
+    static func requiresChapterRebuild(_ chapters: [Chapter]) -> Bool {
+        let groups = Dictionary(grouping: chapters, by: { canonicalTitle($0.title) })
+        return groups.values.contains { values in
+            guard values.count > 1 else { return false }
+            let lengths = values.map { max(0, $0.endOffset - $0.startOffset) }
+            return lengths.contains(where: { $0 < 200 })
+                && lengths.contains(where: { $0 >= 200 })
+        }
+    }
+
+    static func canonicalTitle(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: #"[\[［]\d+[\]］]"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\u{FEFF}", with: "")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+    }
+
+    private func removingDirectoryAndDuplicateCandidates(
+        _ candidates: [ChapterCandidate]
+    ) -> [ChapterCandidate] {
+        let grouped = Dictionary(grouping: candidates.indices) {
+            Self.canonicalTitle(candidates[$0].title)
+        }
+        var kept = Set<Int>()
+
+        for indices in grouped.values {
+            let meaningful = indices.filter { isMeaningfulNovelBody(candidates[$0]) }
+            guard !meaningful.isEmpty else { continue }
+
+            var accepted: [Int] = []
+            for index in meaningful {
+                let duplicate = accepted.contains {
+                    Self.bodiesAreEquivalent(candidates[$0].body, candidates[index].body)
+                }
+                if !duplicate { accepted.append(index) }
+            }
+            kept.formUnion(accepted)
+        }
+
+        return candidates.indices.compactMap { kept.contains($0) ? candidates[$0] : nil }
+    }
+
+    private func isMeaningfulNovelBody(_ candidate: ChapterCandidate) -> Bool {
+        guard candidate.meaningfulBodyLength >= 20 else { return false }
+        let title = Self.canonicalTitle(candidate.title)
+        let excludedTitles = ["目录", "前言", "序言", "后记", "版权声明", "读者评论"]
+        if !keepsFrontAndBackMatter,
+           excludedTitles.contains(where: { title.hasPrefix($0) }) {
+            return false
+        }
+
+        let compact = candidate.body
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+            .lowercased()
+        let noise = ["下载地址", "最新网址", "手机用户请访问", "本章未完", "请收藏本站"]
+        return !(compact.count < 500 && noise.contains(where: compact.contains))
+    }
+
+    private static func bodiesAreEquivalent(_ lhs: String, _ rhs: String) -> Bool {
+        let left = fingerprintText(lhs)
+        let right = fingerprintText(rhs)
+        guard !left.isEmpty, !right.isEmpty else { return left == right }
+        if left == right { return true }
+        let shorter = min(left.count, right.count)
+        let longer = max(left.count, right.count)
+        guard Double(shorter) / Double(longer) >= 0.9 else { return false }
+        return left.prefix(min(256, shorter)) == right.prefix(min(256, shorter))
+    }
+
+    private static func fingerprintText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: #"[\[［]\d+[\]］]"#, with: "", options: .regularExpression)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+    }
+
+    /// Publication layout: one paragraph per line, no blank lines between body
+    /// paragraphs, and a two-em indentation for Chinese prose.
+    private static func standardizedBody(_ content: String) -> String {
+        let normalized = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{2028}", with: "\n")
+        let lines = normalized.components(separatedBy: "\n")
+        var paragraphs: [String] = []
+        var current = ""
+
+        func finishParagraph() {
+            let value = current.trimmingCharacters(in: .whitespaces)
+            if !value.isEmpty { paragraphs.append(value) }
+            current = ""
+        }
+
+        for rawLine in lines {
+            var line = rawLine
+                .replacingOccurrences(of: "\t", with: " ")
+                .trimmingCharacters(in: .whitespaces)
+            line = line.replacingOccurrences(
+                of: #"^#{1,6}\s*"#,
+                with: "",
+                options: .regularExpression
+            )
+            line = line.replacingOccurrences(
+                of: #" {2,}"#,
+                with: " ",
+                options: .regularExpression
+            )
+            if line.isEmpty {
+                finishParagraph()
+                continue
+            }
+            if line.range(of: #"^[-=_*]{3,}$"#, options: .regularExpression) != nil {
+                finishParagraph()
+                continue
+            }
+            if line.range(of: #"^[\[［][^\]］]+[\]］]$"#, options: .regularExpression) != nil {
+                finishParagraph()
+                continue
+            }
+            if current.isEmpty {
+                current = line
+            } else if shouldStartNewParagraph(after: current, next: line) {
+                finishParagraph()
+                current = line
+            } else {
+                current += joiner(between: current, and: line) + line
+            }
+        }
+        finishParagraph()
+        guard let title = paragraphs.first else { return "" }
+        let body = paragraphs.dropFirst().map { paragraph in
+            let normalized = normalizeMixedText(paragraph)
+            let indentation = containsCJK(normalized) ? "　　" : "    "
+            return indentation + normalized
+        }
+        guard !body.isEmpty else { return title }
+        return title + "\n\n" + body.joined(separator: "\n")
+    }
+
+    private static func shouldStartNewParagraph(after current: String, next: String) -> Bool {
+        let paragraphEnd = CharacterSet(charactersIn: "。！？!?…；;：:”’」』）)")
+        if let last = current.unicodeScalars.last, paragraphEnd.contains(last) { return true }
+        return next.hasPrefix("“") || next.hasPrefix("「") || next.hasPrefix("『")
+    }
+
+    private static func joiner(between lhs: String, and rhs: String) -> String {
+        guard let left = lhs.unicodeScalars.last,
+              let right = rhs.unicodeScalars.first else { return "" }
+        return CharacterSet.alphanumerics.contains(left)
+            && left.isASCII
+            && CharacterSet.alphanumerics.contains(right)
+            && right.isASCII ? " " : ""
+    }
+
+    private static func normalizeMixedText(_ value: String) -> String {
+        var result = value
+        let replacements = [
+            (#"(?<=[\p{Han}]),"#, "，"),
+            (#"(?<=[\p{Han}])\."#, "。"),
+            (#"(?<=[\p{Han}])!"#, "！"),
+            (#"(?<=[\p{Han}])\?"#, "？"),
+            (#"\((?=[\p{Han}])"#, "（"),
+            (#"(?<=[\p{Han}])\)"#, "）"),
+            (#"(?<=[A-Za-z0-9])，"#, ","),
+            (#"(?<=[A-Za-z0-9])。"#, "."),
+            (#"(?<=[A-Za-z0-9])！"#, "!"),
+            (#"(?<=[A-Za-z0-9])？"#, "?"),
+            (#"（(?=[A-Za-z0-9])"#, "("),
+            (#"(?<=[A-Za-z0-9])）"#, ")")
+        ]
+        for (pattern, replacement) in replacements {
+            result = result.replacingOccurrences(
+                of: pattern,
+                with: replacement,
+                options: .regularExpression
+            )
+        }
+        result = result.replacingOccurrences(
+            of: #"([\p{Han}])([A-Za-z0-9])"#,
+            with: "$1 $2",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"([A-Za-z0-9])([\p{Han}])"#,
+            with: "$1 $2",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"([A-Za-z])([0-9])"#,
+            with: "$1 $2",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"\s+([，。！？；：,.!?;:）)])"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"([（(])\s+"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        return normalizeQuotes(in: result, usesCJKStyle: containsCJK(result))
+    }
+
+    private static func containsCJK(_ value: String) -> Bool {
+        value.range(of: #"\p{Han}"#, options: .regularExpression) != nil
+    }
+
+    private static func normalizeQuotes(in value: String, usesCJKStyle: Bool) -> String {
+        guard usesCJKStyle else {
+            return value
+                .replacingOccurrences(of: "“", with: "\"")
+                .replacingOccurrences(of: "”", with: "\"")
+                .replacingOccurrences(of: "‘", with: "'")
+                .replacingOccurrences(of: "’", with: "'")
+        }
+        var doubleOpen = true
+        var singleOpen = true
+        var result = ""
+        for character in value {
+            switch character {
+            case "\"":
+                result.append(doubleOpen ? "“" : "”")
+                doubleOpen.toggle()
+            case "'":
+                result.append(singleOpen ? "‘" : "’")
+                singleOpen.toggle()
+            default:
+                result.append(character)
+            }
+        }
+        return result
     }
 }

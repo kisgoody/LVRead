@@ -4,12 +4,12 @@ final class LVToast {
     enum ToastStyle {
         case info, success, warning, error
         
-        var backgroundColor: UIColor {
+        var iconColor: UIColor {
             switch self {
-            case .info: return UIColor(hex: "#3B82F6")
-            case .success: return UIColor(hex: "#10B981")
-            case .warning: return UIColor(hex: "#F59E0B")
-            case .error: return UIColor(hex: "#EF4444")
+            case .info: return LVBookshelfModuleStyle.accent
+            case .success: return .lvSuccess
+            case .warning: return .lvWarning
+            case .error: return .lvError
             }
         }
         
@@ -34,24 +34,24 @@ final class LVToast {
         currentToast?.removeFromSuperview()
         
         let container = UIView()
-        container.backgroundColor = style.backgroundColor
+        container.backgroundColor = LVBookshelfModuleStyle.cardBackground
         container.layer.cornerRadius = 12
         container.layer.shadowColor = UIColor.black.cgColor
         container.layer.shadowOffset = CGSize(width: 0, height: 4)
         container.layer.shadowRadius = 12
-        container.layer.shadowOpacity = 0.15
+        container.layer.shadowOpacity = DarkModeManager.shared.isDarkMode ? 0.32 : 0.15
         
         // Icon
         let iconView = UIImageView()
         iconView.image = UIImage(systemName: style.icon)
-        iconView.tintColor = .white
+        iconView.tintColor = style.iconColor
         iconView.contentMode = .scaleAspectFit
         
         // Message label
         let label = UILabel()
         label.text = message
         label.font = .systemFont(ofSize: 14, weight: .medium)
-        label.textColor = .white
+        label.textColor = LVBookshelfModuleStyle.primaryText
         label.numberOfLines = 2
         
         // Stack view

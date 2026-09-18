@@ -35,7 +35,7 @@ private final class NativeTextActionButton: UIButton {
 final class NativeTextActionBubbleView: UIView {
     var onAction: ((NativeTextAction) -> Void)?
 
-    init(settings: ReadingSettings) {
+    init(settings: ReadingSettings, actions: [NativeTextAction] = NativeTextAction.allCases) {
         super.init(frame: .zero)
         let foreground = UIColor(hex: settings.readingTheme.textColor)
         let accent = UIColor(hex: settings.readingTheme.accentColor)
@@ -49,7 +49,7 @@ final class NativeTextActionBubbleView: UIView {
         let stack = UIStackView()
         stack.axis = .horizontal
         stack.distribution = .fillEqually
-        for action in NativeTextAction.allCases {
+        for action in actions {
             let button = NativeTextActionButton(type: .system)
             button.tag = action.rawValue
             button.setTitle(action.title, for: .normal)
@@ -115,7 +115,123 @@ protocol NativeDocumentPageDelegate: AnyObject {
         _ controller: NativeDocumentPageViewController,
         selectionInteractionChanged active: Bool
     )
-    func documentPageDidTapComment(_ controller: NativeDocumentPageViewController)
+    func documentPage(_ controller: NativeDocumentPageViewController, didTapComment comment: Highlight)
+    func documentPage(
+        _ controller: NativeDocumentPageViewController,
+        didRequestDeleteComment comment: Highlight
+    )
+}
+
+private final class NativeReaderCommentBadgeLabel: UILabel {
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(width: size.width + 14, height: size.height + 6)
+    }
+}
+
+private final class NativeReaderCommentCardView: UIControl {
+    static let fontSize: CGFloat = 15
+    var onEdit: (() -> Void)?
+    var onDelete: (() -> Void)?
+
+    private let badgeLabel = NativeReaderCommentBadgeLabel()
+    private let commentLabel = UILabel()
+    private let editButton = UIButton(type: .custom)
+    private let deleteButton = UIButton(type: .system)
+    private let pointerLayer = CAShapeLayer()
+
+    init(settings: ReadingSettings) {
+        super.init(frame: .zero)
+        let palette = NativeBookSpreadPalette(settings: settings)
+        let isDark = settings.readingTheme.isDarkAppearance
+        // Match the reader's settings-state navigation bars exactly.
+        let cardColor = palette.control
+        let badgeColor = palette.text.withAlphaComponent(isDark ? 0.16 : 0.10)
+        backgroundColor = cardColor
+        layer.cornerRadius = 12
+        layer.cornerCurve = .continuous
+        layer.shadowColor = palette.text.cgColor
+        layer.shadowOpacity = isDark ? 0 : 0.12
+        layer.shadowRadius = 8
+        layer.shadowOffset = CGSize(width: 0, height: 3)
+        layer.addSublayer(pointerLayer)
+        pointerLayer.fillColor = cardColor.cgColor
+
+        badgeLabel.text = L("评论")
+        badgeLabel.font = .systemFont(ofSize: Self.fontSize, weight: .semibold)
+        badgeLabel.textColor = palette.text.withAlphaComponent(isDark ? 0.90 : 0.78)
+        badgeLabel.backgroundColor = badgeColor
+        badgeLabel.textAlignment = .center
+        badgeLabel.layer.cornerRadius = 5
+        badgeLabel.layer.masksToBounds = true
+        badgeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        badgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        commentLabel.font = .systemFont(ofSize: Self.fontSize, weight: .regular)
+        commentLabel.textColor = palette.text.withAlphaComponent(0.78)
+        commentLabel.numberOfLines = 1
+        commentLabel.lineBreakMode = .byTruncatingTail
+        commentLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        commentLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        deleteButton.setImage(
+            UIImage(systemName: "trash", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14)),
+            for: .normal
+        )
+        deleteButton.tintColor = palette.text.withAlphaComponent(0.58)
+        deleteButton.accessibilityLabel = L("删除评论")
+        deleteButton.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
+        deleteButton.setContentHuggingPriority(.required, for: .horizontal)
+        deleteButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let stack = UIStackView(arrangedSubviews: [badgeLabel, commentLabel, deleteButton])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 8
+        addSubview(stack)
+        addSubview(editButton)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        editButton.translatesAutoresizingMaskIntoConstraints = false
+        editButton.backgroundColor = .clear
+        editButton.accessibilityHint = L("轻点修改评论")
+        editButton.addTarget(self, action: #selector(editTapped), for: .touchUpInside)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            badgeLabel.heightAnchor.constraint(equalToConstant: 24),
+            editButton.topAnchor.constraint(equalTo: topAnchor),
+            editButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            editButton.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor),
+            editButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            deleteButton.widthAnchor.constraint(equalToConstant: 44),
+            deleteButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let x = min(max(bounds.width * 0.32, 20), bounds.width - 20)
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: x - 8, y: 0))
+        path.addLine(to: CGPoint(x: x, y: -9))
+        path.addLine(to: CGPoint(x: x + 8, y: 0))
+        path.close()
+        pointerLayer.path = path.cgPath
+    }
+
+    func configure(comment: String) {
+        commentLabel.text = comment
+        editButton.accessibilityLabel = LF("评论：%@", comment)
+    }
+
+    @objc private func editTapped() { onEdit?() }
+
+    @objc private func deleteTapped() { onDelete?() }
 }
 
 final class NativeDocumentPageViewController: UIViewController {
@@ -137,7 +253,9 @@ final class NativeDocumentPageViewController: UIViewController {
     private let timeLabel = UILabel()
     private let batteryView = LVBatteryView()
     private let bookmark = UIImageView(image: UIImage(systemName: "bookmark.fill"))
-    private let comment = UIButton(type: .system)
+    private var commentCards: [String: NativeReaderCommentCardView] = [:]
+    private var commentCardTopConstraints: [String: NSLayoutConstraint] = [:]
+    private let spineShadowLayer = CAGradientLayer()
     private var pullDistance: CGFloat = 0
     private var isBookmarked: Bool
     private var activeSelection: NativeTextSelection?
@@ -169,7 +287,6 @@ final class NativeDocumentPageViewController: UIViewController {
         self.isBookmarked = bookmarked
         super.init(nibName: nil, bundle: nil)
         bookmark.isHidden = !bookmarked
-        comment.isHidden = !highlights.contains(where: \.isComment)
     }
 
     @available(*, unavailable)
@@ -227,10 +344,6 @@ final class NativeDocumentPageViewController: UIViewController {
         timeLabel.isHidden = !chrome.showsTimeAndBattery
         batteryView.isHidden = !chrome.showsTimeAndBattery
         bookmark.tintColor = palette.accent
-        comment.setImage(UIImage(systemName: "text.bubble.fill"), for: .normal)
-        comment.tintColor = palette.accent
-        comment.accessibilityLabel = L("查看或修改评论")
-        comment.addTarget(self, action: #selector(commentTapped), for: .touchUpInside)
         view.addSubview(canvas)
         view.addSubview(backButton)
         view.addSubview(chapterLabel)
@@ -238,8 +351,7 @@ final class NativeDocumentPageViewController: UIViewController {
         view.addSubview(timeLabel)
         view.addSubview(batteryView)
         view.addSubview(bookmark)
-        view.addSubview(comment)
-        [canvas, backButton, chapterLabel, progressLabel, timeLabel, batteryView, bookmark, comment].forEach {
+        [canvas, backButton, chapterLabel, progressLabel, timeLabel, batteryView, bookmark].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         let progressHorizontalConstraint = chrome == .single
@@ -276,12 +388,10 @@ final class NativeDocumentPageViewController: UIViewController {
             bookmark.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
             bookmark.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
             bookmark.widthAnchor.constraint(equalToConstant: 24),
-            bookmark.heightAnchor.constraint(equalToConstant: 32),
-            comment.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-            comment.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            comment.widthAnchor.constraint(equalToConstant: 44),
-            comment.heightAnchor.constraint(equalToConstant: 44)
+            bookmark.heightAnchor.constraint(equalToConstant: 32)
         ])
+        updateCommentPresentation(animated: false)
+        configureSpineShadow(palette: palette)
         configureGestures()
         canvas.onSelectionAdjustmentBegan = { [weak self] in
             self?.actionBubble?.removeFromSuperview()
@@ -296,6 +406,41 @@ final class NativeDocumentPageViewController: UIViewController {
         }
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateCommentCardPositions()
+        let width: CGFloat = 32
+        switch chrome {
+        case .single:
+            spineShadowLayer.frame = .zero
+        case .spreadLeft:
+            spineShadowLayer.frame = CGRect(
+                x: max(0, view.bounds.width - width),
+                y: 0,
+                width: width,
+                height: view.bounds.height
+            )
+        case .spreadRight:
+            spineShadowLayer.frame = CGRect(x: 0, y: 0, width: width, height: view.bounds.height)
+        }
+    }
+
+    private func configureSpineShadow(palette: NativeBookSpreadPalette) {
+        guard chrome != .single else { return }
+        spineShadowLayer.colors = chrome == .spreadLeft
+            ? [UIColor.clear.cgColor, palette.text.withAlphaComponent(0.08).cgColor,
+               palette.text.withAlphaComponent(0.28).cgColor]
+            : [palette.text.withAlphaComponent(0.28).cgColor,
+               palette.text.withAlphaComponent(0.08).cgColor, UIColor.clear.cgColor]
+        spineShadowLayer.locations = chrome == .spreadLeft
+            ? [0, 0.68, 1]
+            : [0, 0.32, 1]
+        spineShadowLayer.startPoint = CGPoint(x: 0, y: 0.5)
+        spineShadowLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        spineShadowLayer.isOpaque = false
+        view.layer.addSublayer(spineShadowLayer)
+    }
+
     func setBookmarked(_ value: Bool) {
         isBookmarked = value
         bookmark.isHidden = !value
@@ -304,8 +449,6 @@ final class NativeDocumentPageViewController: UIViewController {
     func setPullBookmarkPreviewVisible(_ visible: Bool) {
         bookmark.isHidden = !(isBookmarked || visible)
     }
-    func setCommentVisible(_ value: Bool) { comment.isHidden = !value }
-
     func setSpokenRange(_ range: NSRange?) {
         canvas.spokenRange = range
     }
@@ -313,13 +456,70 @@ final class NativeDocumentPageViewController: UIViewController {
     func reloadHighlights(_ values: [Highlight]) {
         highlights = values
         canvas.highlights = values
-        comment.isHidden = !values.contains(where: \.isComment)
+        updateCommentPresentation(animated: true)
         canvas.setNeedsDisplay()
     }
 
+    private func updateCommentPresentation(animated: Bool) {
+        commentCards.values.forEach { $0.removeFromSuperview() }
+        commentCards.removeAll()
+        commentCardTopConstraints.removeAll()
+        let inset = textInsets?.left ?? 20
+        let height = NativeDocumentTypography.commentLineHeight(settings: settings)
+        for comment in highlights.filter(\.isComment) {
+            let card = NativeReaderCommentCardView(settings: settings)
+            card.configure(comment: comment.note ?? "")
+            card.onEdit = { [weak self] in
+                guard let self else { return }
+                self.delegate?.documentPage(self, didTapComment: comment)
+            }
+            card.onDelete = { [weak self] in
+                guard let self else { return }
+                self.delegate?.documentPage(self, didRequestDeleteComment: comment)
+            }
+            view.addSubview(card)
+            card.translatesAutoresizingMaskIntoConstraints = false
+            let top = card.topAnchor.constraint(equalTo: view.topAnchor)
+            NSLayoutConstraint.activate([
+                card.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: inset),
+                card.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -inset),
+                top,
+                card.heightAnchor.constraint(equalToConstant: height)
+            ])
+            commentCards[comment.id] = card
+            commentCardTopConstraints[comment.id] = top
+            card.alpha = animated && !UIAccessibility.isReduceMotionEnabled ? 0 : 1
+        }
+        updateCommentCardPositions()
+        guard animated, !UIAccessibility.isReduceMotionEnabled else { return }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.commentCards.values.forEach { $0.alpha = 1 }
+        }
+    }
+
+    private func updateCommentCardPositions() {
+        let height = NativeDocumentTypography.commentLineHeight(settings: settings)
+        for comment in highlights.filter(\.isComment) {
+            guard let paragraphRect = canvas.commentAnchorRect(for: comment) else { continue }
+            commentCardTopConstraints[comment.id]?.constant = min(
+                paragraphRect.maxY + 10,
+                view.bounds.height - readingSafeAreaInsets.bottom
+                    - NativeDocumentTypography.bottomReadingStatusHeight - height - 8
+            )
+        }
+    }
+
     private func configureGestures() {
-        view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
-        view.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:))))
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+        tap.delegate = self
+        view.addGestureRecognizer(tap)
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
+        longPress.delegate = self
+        view.addGestureRecognizer(longPress)
         let pan = UIPanGestureRecognizer(target: self, action: #selector(pulled(_:)))
         pan.delegate = self
         view.addGestureRecognizer(pan)
@@ -352,7 +552,10 @@ final class NativeDocumentPageViewController: UIViewController {
     private func showSelectionMenu() {
         guard let activeSelection else { return }
         delegate?.documentPage(self, selectionInteractionChanged: true)
-        let bubble = NativeTextActionBubbleView(settings: settings)
+        let actions = canvas.isParagraphEndVisible(activeSelection)
+            ? NativeTextAction.allCases
+            : NativeTextAction.allCases.filter { $0 != .comment }
+        let bubble = NativeTextActionBubbleView(settings: settings, actions: actions)
         bubble.onAction = { [weak self] action in self?.performSelectionAction(action) }
         actionBubble = bubble
         bubble.show(in: view, avoiding: canvas.convert(activeSelection.anchorRect, to: view))
@@ -396,8 +599,6 @@ final class NativeDocumentPageViewController: UIViewController {
             break
         }
     }
-
-    @objc private func commentTapped() { delegate?.documentPageDidTapComment(self) }
 
     @objc private func backTapped() { delegate?.documentPageDidTapBack() }
 }
@@ -491,6 +692,13 @@ final class NativeDocumentBlankPageViewController: UIViewController {
 }
 
 extension NativeDocumentPageViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let touchedView = touch.view else { return true }
+        return !commentCards.values.contains {
+            touchedView === $0 || touchedView.isDescendant(of: $0)
+        }
+    }
+
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
         guard activeSelection == nil else { return false }

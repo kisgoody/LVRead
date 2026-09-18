@@ -1,5 +1,207 @@
 import UIKit
 
+final class NativeReaderCommentEditorViewController: UIViewController, UITextViewDelegate {
+    var onSave: ((String) -> Void)?
+
+    private let initialComment: String
+    private let quotedText: String
+    private let settings: ReadingSettings
+    private let contentStack = UIStackView()
+    private let textView = UITextView()
+    private let placeholderLabel = UILabel()
+    private let countLabel = UILabel()
+    private var restingBottomConstraint: NSLayoutConstraint?
+    private var keyboardBottomConstraint: NSLayoutConstraint?
+
+    init(title: String, quotedText: String, comment: String?, settings: ReadingSettings) {
+        self.initialComment = comment ?? ""
+        self.quotedText = quotedText
+        self.settings = settings
+        super.init(nibName: nil, bundle: nil)
+        self.title = title
+        modalPresentationStyle = .formSheet
+        preferredContentSize = CGSize(width: 520, height: 360)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        buildView()
+        updateTextState()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        restingBottomConstraint?.isActive = false
+        keyboardBottomConstraint?.isActive = true
+        textView.becomeFirstResponder()
+        guard animated, !UIAccessibility.isReduceMotionEnabled else { return }
+        contentStack.alpha = 0
+        contentStack.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
+        UIView.animate(
+            withDuration: 0.22,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.contentStack.alpha = 1
+            self.contentStack.transform = .identity
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        keyboardBottomConstraint?.isActive = false
+        restingBottomConstraint?.isActive = true
+        view.endEditing(true)
+        super.viewWillDisappear(animated)
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        if textView.text.utf16.count > 1000 {
+            textView.text = String(textView.text.prefix(1000))
+        }
+        updateTextState()
+    }
+
+    private func buildView() {
+        let palette = NativeBookSpreadPalette(settings: settings)
+        view.backgroundColor = palette.control
+        view.layer.cornerRadius = 20
+        view.layer.cornerCurve = .continuous
+
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
+        titleLabel.textColor = palette.text
+
+        let quoteLabel = UILabel()
+        quoteLabel.text = quotedText
+        quoteLabel.font = .systemFont(ofSize: 14)
+        quoteLabel.textColor = palette.text.withAlphaComponent(0.64)
+        quoteLabel.numberOfLines = 3
+        quoteLabel.lineBreakMode = .byTruncatingTail
+
+        let quoteContainer = UIView()
+        quoteContainer.backgroundColor = palette.text.withAlphaComponent(0.06)
+        quoteContainer.layer.cornerRadius = 10
+        quoteContainer.addSubview(quoteLabel)
+        quoteLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            quoteLabel.topAnchor.constraint(equalTo: quoteContainer.topAnchor, constant: 10),
+            quoteLabel.leadingAnchor.constraint(equalTo: quoteContainer.leadingAnchor, constant: 12),
+            quoteLabel.trailingAnchor.constraint(equalTo: quoteContainer.trailingAnchor, constant: -12),
+            quoteLabel.bottomAnchor.constraint(equalTo: quoteContainer.bottomAnchor, constant: -10)
+        ])
+
+        textView.text = initialComment
+        textView.font = .systemFont(ofSize: 16)
+        textView.textColor = palette.text
+        textView.tintColor = palette.accent
+        textView.backgroundColor = palette.paper.withAlphaComponent(0.72)
+        textView.layer.cornerRadius = 12
+        textView.layer.borderWidth = 1
+        textView.layer.borderColor = palette.text.withAlphaComponent(0.14).cgColor
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
+        textView.delegate = self
+        let keyboardBar = UIToolbar()
+        keyboardBar.sizeToFit()
+        keyboardBar.tintColor = palette.accent
+        keyboardBar.items = [
+            UIBarButtonItem(systemItem: .flexibleSpace),
+            UIBarButtonItem(title: L("完成"), style: .done, target: self, action: #selector(dismissKeyboard))
+        ]
+        textView.inputAccessoryView = keyboardBar
+
+        placeholderLabel.text = L("写下你的评论…")
+        placeholderLabel.font = textView.font
+        placeholderLabel.textColor = palette.text.withAlphaComponent(0.38)
+        textView.addSubview(placeholderLabel)
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 12),
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 15)
+        ])
+
+        countLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        countLabel.textColor = palette.text.withAlphaComponent(0.48)
+        countLabel.textAlignment = .right
+
+        let cancel = UIButton(type: .system)
+        cancel.setTitle(L("取消"), for: .normal)
+        cancel.setTitleColor(palette.text.withAlphaComponent(0.72), for: .normal)
+        cancel.backgroundColor = palette.text.withAlphaComponent(
+            settings.readingTheme.isDarkAppearance ? 0.14 : 0.08
+        )
+        cancel.titleLabel?.font = .systemFont(ofSize: 16, weight: .medium)
+        cancel.layer.cornerRadius = 10
+        cancel.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+
+        let save = UIButton(type: .system)
+        save.setTitle(L("保存"), for: .normal)
+        save.setTitleColor(palette.control, for: .normal)
+        save.backgroundColor = palette.accent
+        save.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        save.layer.cornerRadius = 10
+        save.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
+
+        let actions = UIStackView(arrangedSubviews: [cancel, save])
+        actions.axis = .horizontal
+        actions.spacing = 12
+        actions.distribution = .fillEqually
+        [cancel, save].forEach { $0.heightAnchor.constraint(equalToConstant: 44).isActive = true }
+
+        contentStack.axis = .vertical
+        contentStack.spacing = 12
+        contentStack.addArrangedSubview(titleLabel)
+        contentStack.addArrangedSubview(quoteContainer)
+        contentStack.addArrangedSubview(textView)
+        contentStack.addArrangedSubview(countLabel)
+        contentStack.addArrangedSubview(actions)
+        view.addSubview(contentStack)
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        let restingBottomConstraint = contentStack.bottomAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+            constant: -24
+        )
+        let keyboardBottomConstraint = contentStack.bottomAnchor.constraint(
+            equalTo: view.keyboardLayoutGuide.topAnchor,
+            constant: -16
+        )
+        self.restingBottomConstraint = restingBottomConstraint
+        self.keyboardBottomConstraint = keyboardBottomConstraint
+        NSLayoutConstraint.activate([
+            contentStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 24),
+            contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            restingBottomConstraint,
+            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 112)
+        ])
+    }
+
+    private func updateTextState() {
+        placeholderLabel.isHidden = !textView.text.isEmpty
+        countLabel.text = "\(textView.text.utf16.count)/1000"
+    }
+
+    @objc private func cancelTapped() { dismiss(animated: true) }
+
+    @objc private func dismissKeyboard() { view.endEditing(true) }
+
+    @objc private func saveTapped() {
+        let value = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            LVToast.show(message: L("评论内容不能为空"), style: .error)
+            return
+        }
+        let save = onSave
+        onSave = nil
+        dismiss(animated: true) {
+            save?(value)
+        }
+    }
+}
+
 final class NativeReaderLookupViewController: UIViewController {
     private let text: String
     private let settings: ReadingSettings
@@ -213,8 +415,9 @@ final class NativeReaderCatalogViewController: UIViewController {
         }
     }
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        view.layoutIfNeeded()
         positionCurrentEntryIfNeeded()
     }
 

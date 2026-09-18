@@ -174,6 +174,12 @@ final class NativeDocumentReaderViewController: UIViewController {
     private let menuTitle = UILabel()
     private let menuBookmarkButton = UIButton(type: .system)
     private let menuSyncButton = UIButton(type: .system)
+    private let chapterNavigationContainer = UIView()
+    private let chapterCard = UIView()
+    private let chapterIndexLabel = UILabel()
+    private let chapterNameLabel = UILabel()
+    private let previousChapterButton = UIButton(type: .system)
+    private let nextChapterButton = UIButton(type: .system)
     private let listeningPill = UIView()
     private let listenButton = UIButton(type: .system)
     private let listeningControls = UIStackView()
@@ -772,7 +778,7 @@ final class NativeDocumentReaderViewController: UIViewController {
     private func installPageViewController() {
         addChild(pageViewController)
         view.insertSubview(pageViewController.view, belowSubview: topStatus)
-        view.insertSubview(bookSpreadView, aboveSubview: pageViewController.view)
+        view.insertSubview(bookSpreadView, belowSubview: pageViewController.view)
         pageViewController.view.translatesAutoresizingMaskIntoConstraints = false
         bookSpreadView.translatesAutoresizingMaskIntoConstraints = false
         pageTopConstraint = pageViewController.view.topAnchor.constraint(equalTo: view.topAnchor)
@@ -811,7 +817,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         pagingInteractionShield.isHidden = true
         pagingInteractionShield.isAccessibilityElement = false
         pagingInteractionShield.accessibilityElementsHidden = true
-        view.insertSubview(pagingInteractionShield, aboveSubview: bookSpreadView)
+        view.insertSubview(pagingInteractionShield, aboveSubview: pageViewController.view)
         pagingInteractionShield.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             pagingInteractionShield.topAnchor.constraint(equalTo: view.topAnchor),
@@ -861,8 +867,9 @@ final class NativeDocumentReaderViewController: UIViewController {
             )
         }
         installPageViewController()
-        view.insertSubview(pagingInteractionShield, aboveSubview: bookSpreadView)
-        [topStatus, bottomStatus, topMenu, bottomMenu, eyeCareOverlay, brightnessOverlay, skeleton]
+        view.insertSubview(pagingInteractionShield, aboveSubview: pageViewController.view)
+        [topStatus, bottomStatus, topMenu, bottomMenu, chapterNavigationContainer,
+         listeningPill, footerListeningButton, eyeCareOverlay, brightnessOverlay, skeleton]
             .forEach(view.bringSubviewToFront)
         if interruptedTransition {
             isWindowCommitInProgress = false
@@ -976,6 +983,11 @@ final class NativeDocumentReaderViewController: UIViewController {
         ])
         stack.axis = .horizontal
         stack.distribution = .fillEqually
+        configureChapterNavigation()
+        let chapterTextStack = UIStackView(arrangedSubviews: [chapterIndexLabel, chapterNameLabel])
+        chapterTextStack.axis = .vertical
+        chapterTextStack.spacing = 1
+        chapterTextStack.alignment = .fill
         listeningPill.layer.cornerRadius = NativeListeningPillLayout.buttonSize / 2
         listeningPill.layer.masksToBounds = false
         listeningPill.isOpaque = true
@@ -998,20 +1010,41 @@ final class NativeDocumentReaderViewController: UIViewController {
         listeningControls.axis = .horizontal
         listeningControls.distribution = .fillEqually
         listeningControls.spacing = 0
+        [previousChapterButton, chapterCard, nextChapterButton].forEach {
+            chapterNavigationContainer.addSubview($0)
+        }
+        chapterCard.addSubview(chapterTextStack)
         bottomMenu.addSubview(stack)
         view.addSubview(topMenu)
         view.addSubview(bottomMenu)
+        view.addSubview(chapterNavigationContainer)
         view.addSubview(listeningPill)
         view.addSubview(footerListeningButton)
         listeningPill.addSubview(listenButton)
         listeningPill.addSubview(listeningControls)
-        [topMenu, bottomMenu, menuBack, menuTitle, menuBookmarkButton, menuSyncButton, stack,
+        [topMenu, bottomMenu, menuBack, menuTitle, menuBookmarkButton, menuSyncButton,
+         chapterNavigationContainer, previousChapterButton,
+         chapterCard, chapterTextStack,
+         nextChapterButton, stack,
          listeningPill, listenButton, listeningControls, footerListeningButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         listeningPillWidthConstraint = listeningPill.widthAnchor.constraint(
             equalToConstant: NativeListeningPillLayout.collapsedWidth
         )
+        let chapterHorizontalConstraints: [NSLayoutConstraint]
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            chapterHorizontalConstraints = [
+                chapterNavigationContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                chapterNavigationContainer.widthAnchor.constraint(equalToConstant: 520)
+            ]
+        } else {
+            chapterHorizontalConstraints = [
+                chapterNavigationContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 22),
+                chapterNavigationContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -22)
+            ]
+        }
+        NSLayoutConstraint.activate(chapterHorizontalConstraints)
         NSLayoutConstraint.activate([
             topMenu.topAnchor.constraint(equalTo: view.topAnchor),
             topMenu.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -1037,12 +1070,29 @@ final class NativeDocumentReaderViewController: UIViewController {
             bottomMenu.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomMenu.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             bottomMenu.heightAnchor.constraint(equalToConstant: 96),
+            chapterNavigationContainer.bottomAnchor.constraint(equalTo: bottomMenu.topAnchor, constant: -8),
+            chapterNavigationContainer.heightAnchor.constraint(equalToConstant: 48),
+            previousChapterButton.leadingAnchor.constraint(equalTo: chapterNavigationContainer.leadingAnchor),
+            previousChapterButton.widthAnchor.constraint(equalToConstant: 44),
+            previousChapterButton.heightAnchor.constraint(equalToConstant: 44),
+            nextChapterButton.trailingAnchor.constraint(equalTo: chapterNavigationContainer.trailingAnchor),
+            nextChapterButton.widthAnchor.constraint(equalToConstant: 44),
+            nextChapterButton.heightAnchor.constraint(equalToConstant: 44),
+            chapterCard.topAnchor.constraint(equalTo: chapterNavigationContainer.topAnchor),
+            chapterCard.leadingAnchor.constraint(equalTo: previousChapterButton.trailingAnchor, constant: 8),
+            chapterCard.trailingAnchor.constraint(equalTo: nextChapterButton.leadingAnchor, constant: -8),
+            chapterCard.heightAnchor.constraint(equalToConstant: 48),
+            previousChapterButton.centerYAnchor.constraint(equalTo: chapterCard.centerYAnchor),
+            nextChapterButton.centerYAnchor.constraint(equalTo: chapterCard.centerYAnchor),
+            chapterTextStack.centerYAnchor.constraint(equalTo: chapterCard.centerYAnchor),
+            chapterTextStack.leadingAnchor.constraint(equalTo: chapterCard.leadingAnchor, constant: 16),
+            chapterTextStack.trailingAnchor.constraint(equalTo: chapterCard.trailingAnchor, constant: -16),
             stack.topAnchor.constraint(equalTo: bottomMenu.topAnchor, constant: 8),
             stack.leadingAnchor.constraint(equalTo: bottomMenu.leadingAnchor, constant: 8),
             stack.trailingAnchor.constraint(equalTo: bottomMenu.trailingAnchor, constant: -8),
             stack.heightAnchor.constraint(equalToConstant: 64),
             listeningPill.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            listeningPill.bottomAnchor.constraint(equalTo: bottomMenu.topAnchor, constant: -8),
+            listeningPill.bottomAnchor.constraint(equalTo: chapterNavigationContainer.topAnchor, constant: -8),
             listeningPill.heightAnchor.constraint(equalToConstant: NativeListeningPillLayout.buttonSize),
             listeningPillWidthConstraint,
             listenButton.topAnchor.constraint(equalTo: listeningPill.topAnchor),
@@ -1060,9 +1110,46 @@ final class NativeDocumentReaderViewController: UIViewController {
         ])
         topMenu.alpha = 0
         bottomMenu.alpha = 0
+        chapterNavigationContainer.alpha = 0
         listeningPill.alpha = 0
         listeningControls.alpha = 0
         footerListeningButton.alpha = 0
+    }
+
+    private func configureChapterNavigation() {
+        chapterCard.layer.cornerRadius = 24
+        chapterCard.layer.cornerCurve = .continuous
+        chapterIndexLabel.font = .monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        chapterIndexLabel.textAlignment = .center
+        chapterNameLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        chapterNameLabel.textAlignment = .center
+        chapterNameLabel.numberOfLines = 1
+        chapterNameLabel.lineBreakMode = .byTruncatingTail
+        previousChapterButton.accessibilityLabel = L("上一章")
+        nextChapterButton.accessibilityLabel = L("下一章")
+        previousChapterButton.setImage(
+            UIImage(
+                systemName: "chevron.left",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+            ),
+            for: .normal
+        )
+        previousChapterButton.addTarget(self, action: #selector(previousChapterTapped), for: .touchUpInside)
+        nextChapterButton.setImage(
+            UIImage(
+                systemName: "chevron.right",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+            ),
+            for: .normal
+        )
+        nextChapterButton.addTarget(self, action: #selector(nextChapterTapped), for: .touchUpInside)
+        [previousChapterButton, nextChapterButton].forEach {
+            var configuration = UIButton.Configuration.filled()
+            configuration.cornerStyle = .capsule
+            configuration.contentInsets = .zero
+            configuration.image = $0.image(for: .normal)
+            $0.configuration = configuration
+        }
     }
 
     private func iconButton(_ symbol: String, label: String, action: Selector) -> UIButton {
@@ -1143,7 +1230,10 @@ final class NativeDocumentReaderViewController: UIViewController {
         pullBookmarkReveal.backgroundColor = panel
         pullBookmarkLabel.textColor = foreground
         headerBackButton.tintColor = foreground
-        [chapterLabel, progressLabel, timeLabel, menuTitle].forEach { $0.textColor = foreground }
+        [chapterLabel, progressLabel, timeLabel, menuTitle, chapterNameLabel].forEach {
+            $0.textColor = foreground
+        }
+        chapterIndexLabel.textColor = foreground.withAlphaComponent(0.58)
         batteryView.strokeColor = foreground.withAlphaComponent(0.7)
         batteryView.fillColor = foreground.withAlphaComponent(0.8)
         eyeCareOverlay.backgroundColor = UIColor(hex: settings.eyeCareFilter.filterColor)
@@ -1153,9 +1243,27 @@ final class NativeDocumentReaderViewController: UIViewController {
             CGFloat(1 - relativeBrightness)
         )
         view.tintColor = UIColor(hex: settings.readingTheme.accentColor)
+        chapterNavigationContainer.backgroundColor = .clear
+        chapterCard.backgroundColor = panel
+        chapterCard.layer.shadowColor = UIColor.black.cgColor
+        chapterCard.layer.shadowOpacity = settings.readingTheme.isDarkAppearance ? 0 : 0.10
+        chapterCard.layer.shadowRadius = 12
+        chapterCard.layer.shadowOffset = CGSize(width: 0, height: 5)
+        previousChapterButton.configuration?.baseForegroundColor = foreground
+        previousChapterButton.configuration?.baseBackgroundColor = panel
+        nextChapterButton.configuration?.baseForegroundColor = foreground
+        nextChapterButton.configuration?.baseBackgroundColor = panel
+        [previousChapterButton, nextChapterButton].forEach {
+            $0.layer.cornerRadius = 22
+            $0.layer.shadowColor = UIColor.black.cgColor
+            $0.layer.shadowOpacity = settings.readingTheme.isDarkAppearance ? 0 : 0.10
+            $0.layer.shadowRadius = 10
+            $0.layer.shadowOffset = CGSize(width: 0, height: 4)
+        }
         applyTint(UIColor(hex: settings.readingTheme.textColor), in: topMenu)
         applyTint(UIColor(hex: settings.readingTheme.textColor), in: bottomMenu)
         updateReaderSyncButton()
+        updateChapterNavigation()
         listenButton.setTitleColor(foreground, for: .normal)
         pauseListeningButton.setTitleColor(foreground, for: .normal)
         stopListeningButton.setTitleColor(foreground, for: .normal)
@@ -1194,6 +1302,7 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     private func loadBook() {
         chapters = BookRepository.shared.getChapters(for: book.id)
+        rebuildTXTChaptersIfNeeded()
         if chapters.isEmpty {
             chapters = [Chapter(bookId: book.id, title: L("正文"), orderIndex: 0)]
         }
@@ -1206,6 +1315,50 @@ final class NativeDocumentReaderViewController: UIViewController {
             characterOffset: nil,
             showSkeleton: false
         )
+    }
+
+    private func rebuildTXTChaptersIfNeeded() {
+        guard book.fileFormat == .txt,
+              TXTParser.requiresChapterRebuild(chapters),
+              let metadata = try? TXTParser().parseMetadata(filePath: book.resolvedFilePath()) else {
+            return
+        }
+        let rebuilt = metadata.chapters.enumerated().map { index, chapter in
+            Chapter(
+                bookId: book.id,
+                title: chapter.title,
+                level: chapter.level,
+                orderIndex: index,
+                startOffset: chapter.startOffset,
+                endOffset: chapter.endOffset,
+                pageCount: chapter.pageCount
+            )
+        }
+        guard !rebuilt.isEmpty else { return }
+
+        let newIndices = Dictionary(
+            rebuilt.enumerated().map { (TXTParser.canonicalTitle($0.element.title), $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let indexPairs: [(Int, Int)] = chapters.enumerated().compactMap {
+            guard let newIndex = newIndices[TXTParser.canonicalTitle($0.element.title)] else {
+                return nil
+            }
+            return ($0.offset, newIndex)
+        }
+        let indexMap: [Int: Int] = Dictionary(uniqueKeysWithValues: indexPairs)
+        guard BookRepository.shared.replaceChapters(
+            rebuilt,
+            for: book.id,
+            remapping: indexMap
+        ) else { return }
+
+        if var progress = BookRepository.shared.getById(book.id)?.readingProgress,
+           let mapped = indexMap[progress.currentChapterIndex] {
+            progress.currentChapterIndex = mapped
+            BookRepository.shared.updateProgress(bookId: book.id, progress: progress)
+        }
+        chapters = rebuilt
     }
 
     private func loadWindow(
@@ -1343,7 +1496,9 @@ final class NativeDocumentReaderViewController: UIViewController {
                 var target = localTarget
                 var previous = resolvedChapter - 1
                 var next = resolvedChapter + 1
-                while preserveCurrentPage, target < cachePolicy.pagesBefore, previous >= 0 {
+                // Explicit chapter jumps still need preceding pages in the window;
+                // otherwise UIKit sees the target as the beginning of the book.
+                while target < cachePolicy.pagesBefore, previous >= 0 {
                     let value = try parse(previous)
                     combined = value + combined
                     target += value.count
@@ -1750,6 +1905,7 @@ final class NativeDocumentReaderViewController: UIViewController {
         }
         chapterLabel.text = page.chapterTitle
         progressLabel.text = progressText(for: page)
+        updateChapterNavigation()
         timeLabel.text = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryView.level = max(0, UIDevice.current.batteryLevel)
@@ -1801,7 +1957,7 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     private func updateBookProgress(for page: NativeDocumentPage) {
         let pageCount = max(chapterPageCounts[page.chapterIndex] ?? page.pageIndex + 1, 1)
-        let chapterFraction = Double(page.pageIndex + 1) / Double(pageCount)
+        let chapterFraction = Double(page.pageIndex) / Double(pageCount)
         let percent = (Double(page.chapterIndex) + chapterFraction) / Double(max(chapters.count, 1))
         bookSpreadView.progress = CGFloat(min(max(percent, 0), 1))
     }
@@ -1832,10 +1988,12 @@ final class NativeDocumentReaderViewController: UIViewController {
         if reduceMotion {
             topMenu.transform = .identity
             bottomMenu.transform = .identity
+            chapterNavigationContainer.transform = .identity
             listeningPill.transform = .identity
         } else if showing && topMenu.alpha < 0.01 {
             topMenu.transform = topHiddenTransform
             bottomMenu.transform = bottomHiddenTransform
+            chapterNavigationContainer.transform = bottomHiddenTransform
             listeningPill.transform = bottomHiddenTransform
         }
         let curve: UIView.AnimationOptions = showing ? .curveEaseOut : .curveEaseIn
@@ -1846,11 +2004,13 @@ final class NativeDocumentReaderViewController: UIViewController {
         ) {
             self.topMenu.alpha = showing ? 1 : 0
             self.bottomMenu.alpha = showing ? 1 : 0
+            self.chapterNavigationContainer.alpha = showing ? 1 : 0
             self.listeningPill.alpha = visibility.pillVisible ? 1 : 0
             self.footerListeningButton.alpha = visibility.footerVisible ? 1 : 0
             guard !reduceMotion else { return }
             self.topMenu.transform = showing ? .identity : topHiddenTransform
             self.bottomMenu.transform = showing ? .identity : bottomHiddenTransform
+            self.chapterNavigationContainer.transform = showing ? .identity : bottomHiddenTransform
             self.listeningPill.transform = showing ? .identity : bottomHiddenTransform
         }
     }
@@ -2263,32 +2423,48 @@ final class NativeDocumentReaderViewController: UIViewController {
 
     private func highlights(for page: NativeDocumentPage) -> [Highlight] {
         BookRepository.shared.getHighlights(for: book.id).filter {
-            $0.chapterIndex == page.chapterIndex && $0.pageOffset == page.pageIndex
+            $0.chapterIndex == page.chapterIndex
+                && $0.endCharOffset > page.startOffset
+                && $0.startCharOffset < page.endOffset
         }
     }
 
     private func editComment(
         page: NativeDocumentPage,
         pageController: NativeDocumentPageViewController? = nil,
-        selection: NativeTextSelection?
+        selection: NativeTextSelection?,
+        existingComment: Highlight? = nil
     ) {
-        let existing = highlights(for: page).first {
+        let existing = existingComment ?? highlights(for: page).first {
             $0.isComment && (selection == nil || $0.text == selection?.text)
         }
         let selected = selection?.text ?? existing?.text ?? page.text
-        let alert = UIAlertController(title: existing == nil ? L("添加评论") : L("修改评论"), message: selected, preferredStyle: .alert)
-        alert.addTextField {
-            $0.placeholder = L("评论不能为空，最多1000字")
-            $0.text = existing?.note
-        }
-        alert.addAction(UIAlertAction(title: L("保存"), style: .default) { [weak self, weak alert] _ in
-            guard let self,
-                  let note = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !note.isEmpty else {
-                LVToast.show(message: L("评论内容不能为空"), style: .error)
+        let editor = NativeReaderCommentEditorViewController(
+            title: existing == nil ? L("添加评论") : L("修改评论"),
+            quotedText: selected,
+            comment: existing?.note,
+            settings: settings
+        )
+        editor.onSave = { [weak self, weak editor] note in
+            guard let self else { return }
+            if let existing {
+                guard BookRepository.shared.updateHighlightNote(existing.id, note: note) else {
+                    LVToast.show(message: L("评论保存失败"), style: .error)
+                    return
+                }
+                if let pageController {
+                    pageController.reloadHighlights(self.highlights(for: page))
+                } else {
+                    self.refreshVisiblePages()
+                }
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("LVReadSettingsChanged"),
+                    object: nil
+                )
+                LVToast.show(message: L("评论已保存"), style: .success)
+                editor?.onSave = nil
                 return
             }
-            if let existing { BookRepository.shared.deleteHighlight(existing.id) }
             BookRepository.shared.insertHighlight(
                 Highlight(
                     bookId: self.book.id,
@@ -2301,19 +2477,21 @@ final class NativeDocumentReaderViewController: UIViewController {
                     ),
                     text: selected,
                     color: self.settings.readingTheme.accentColor,
-                    note: String(note.prefix(1000))
+                    note: note
                 )
             )
-            if let pageController {
-                pageController.reloadHighlights(self.highlights(for: page))
-            } else {
-                self.refreshVisiblePages()
-            }
+            self.loadWindow(
+                chapterIndex: page.chapterIndex,
+                pageIndex: page.pageIndex,
+                characterOffset: page.startOffset + (selection?.range.location ?? 0),
+                showSkeleton: false,
+                preserveCurrentPage: true
+            )
             NotificationCenter.default.post(name: NSNotification.Name("LVReadSettingsChanged"), object: nil)
             LVToast.show(message: L("评论已保存"), style: .success)
-        })
-        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
-        present(alert, animated: true)
+            editor?.onSave = nil
+        }
+        present(editor, animated: true)
     }
 
     private func saveExcerpt(
@@ -2487,11 +2665,39 @@ final class NativeDocumentReaderViewController: UIViewController {
                 chapterIndex: index,
                 pageIndex: 0,
                 characterOffset: nil,
-                showSkeleton: true,
+                showSkeleton: false,
                 preserveCurrentPage: false
             )
         }
         present(catalog, animated: true)
+    }
+
+    @objc private func previousChapterTapped() { openChapter(offset: -1) }
+
+    @objc private func nextChapterTapped() { openChapter(offset: 1) }
+
+    private func openChapter(offset: Int) {
+        guard let page = currentPage else { return }
+        let target = page.chapterIndex + offset
+        guard chapters.indices.contains(target) else { return }
+        loadWindow(
+            chapterIndex: target,
+            pageIndex: 0,
+            characterOffset: nil,
+            showSkeleton: false,
+            preserveCurrentPage: false
+        )
+    }
+
+    private func updateChapterNavigation() {
+        guard let chapter = currentPage?.chapterIndex else { return }
+        chapterIndexLabel.text = LF("第 %d / %d 章", chapter + 1, chapters.count)
+        chapterNameLabel.text = chapters[safe: chapter]?.title ?? currentPage?.chapterTitle
+        chapterNameLabel.accessibilityLabel = chapterNameLabel.text
+        previousChapterButton.isEnabled = chapter > 0
+        nextChapterButton.isEnabled = chapter + 1 < chapters.count
+        previousChapterButton.alpha = previousChapterButton.isEnabled ? 1 : 0.35
+        nextChapterButton.alpha = nextChapterButton.isEnabled ? 1 : 0.35
     }
 
     @objc private func nightTapped() {
@@ -2824,7 +3030,10 @@ final class NativeDocumentReaderViewController: UIViewController {
         guard let value = continuousSelection else { return }
         isTextSelectionActive = true
         updatePagingInteraction()
-        let bubble = NativeTextActionBubbleView(settings: settings)
+        let actions = value.canvas.isParagraphEndVisible(value.selection)
+            ? NativeTextAction.allCases
+            : NativeTextAction.allCases.filter { $0 != .comment }
+        let bubble = NativeTextActionBubbleView(settings: settings, actions: actions)
         bubble.onAction = { [weak self] action in self?.performContinuousSelectionAction(action) }
         continuousActionBubble = bubble
         bubble.show(
@@ -3083,7 +3292,11 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
     func documentPageDidTapCenter() { toggleMenu() }
 
     func documentPageDidTapEdge(forward: Bool) {
-        guard !menuVisible, presentedViewController == nil else { return }
+        if menuVisible {
+            toggleMenu()
+            return
+        }
+        guard presentedViewController == nil else { return }
         switch navigationMode {
         case .simulation, .horizontal, .horizontalCover:
             turnPage(forward: forward, animated: true)
@@ -3149,8 +3362,39 @@ extension NativeDocumentReaderViewController: NativeDocumentPageDelegate {
         updatePagingInteraction()
     }
 
-    func documentPageDidTapComment(_ controller: NativeDocumentPageViewController) {
-        editComment(page: controller.page, pageController: controller, selection: nil)
+    func documentPage(_ controller: NativeDocumentPageViewController, didTapComment comment: Highlight) {
+        editComment(
+            page: controller.page,
+            pageController: controller,
+            selection: nil,
+            existingComment: comment
+        )
+    }
+
+    func documentPage(
+        _ controller: NativeDocumentPageViewController,
+        didRequestDeleteComment comment: Highlight
+    ) {
+        let alert = UIAlertController(
+            title: L("删除评论"),
+            message: L("确定要删除这条评论吗？"),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L("取消"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L("删除"), style: .destructive) { [weak self, weak controller] _ in
+            guard let self else { return }
+            BookRepository.shared.deleteHighlight(comment.id)
+            self.loadWindow(
+                chapterIndex: controller?.page.chapterIndex ?? comment.chapterIndex,
+                pageIndex: controller?.page.pageIndex ?? comment.pageOffset,
+                characterOffset: comment.startCharOffset,
+                showSkeleton: false,
+                preserveCurrentPage: false
+            )
+            NotificationCenter.default.post(name: NSNotification.Name("LVReadSettingsChanged"), object: nil)
+            LVToast.show(message: L("评论已删除"), style: .success)
+        })
+        present(alert, animated: true)
     }
 }
 

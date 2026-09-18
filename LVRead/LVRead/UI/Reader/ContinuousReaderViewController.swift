@@ -870,7 +870,7 @@ final class ContinuousReaderViewController: UIViewController {
     @objc private func catalogTapped() {
         let vc = ChapterListViewController(book: book, chapters: chapters, currentIndex: currentKey.chapterIndex)
         vc.onChapterSelected = { [weak self] index in
-            self?.loadWindow(chapterIndex: index, pageIndex: 0, showLoading: true)
+            self?.loadWindow(chapterIndex: index, pageIndex: 0, showLoading: false)
         }
         present(UINavigationController(rootViewController: vc), animated: true)
     }

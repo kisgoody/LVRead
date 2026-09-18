@@ -72,7 +72,7 @@ final class LVModuleNavigationView: UIView {
         addSubview(stackView)
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
-        configure(shelfButton, title: "LVRead", symbol: "book.closed", module: .shelf)
+        configure(shelfButton, title: L("书架"), symbol: "book.closed", module: .shelf)
         configure(notesButton, title: L("笔记"), symbol: "bookmark", module: .notes)
         configure(profileButton, title: L("我的"), symbol: "person", module: .profile)
         [shelfButton, notesButton, profileButton].forEach(stackView.addArrangedSubview)

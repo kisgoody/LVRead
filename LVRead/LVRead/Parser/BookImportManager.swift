@@ -287,13 +287,16 @@ final class BookImportManager {
         guard !operation.isCancelled else { return }
 
         // Step 80% → 90%: Save chapters.
-        let chapters = metadata.chapters.map { chapter in
+        let chapters = metadata.chapters.enumerated().map { index, chapter in
             Chapter(
                 id: chapter.id,
                 bookId: bookId,
                 title: chapter.title,
                 level: chapter.level,
-                orderIndex: chapter.orderIndex,
+                // The parser array is the canonical reading order. Persist a
+                // dense, unique index so malformed source metadata cannot
+                // create tied positions and an unstable chapter sequence.
+                orderIndex: index,
                 startOffset: chapter.startOffset,
                 endOffset: chapter.endOffset,
                 pageCount: chapter.pageCount,

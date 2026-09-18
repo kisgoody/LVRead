@@ -58,6 +58,25 @@ final class DatabaseManager {
         }
     }
 
+    /// Runs related writes atomically on the database queue.
+    func transaction(_ work: () -> Bool) -> Bool {
+        if DispatchQueue.getSpecific(key: dbQueueKey) == true {
+            return performTransaction(work)
+        }
+        return withoutActuallyEscaping(work) { escapableWork in
+            dbQueue.sync { performTransaction(escapableWork) }
+        }
+    }
+
+    private func performTransaction(_ work: () -> Bool) -> Bool {
+        guard executeUnsafe("BEGIN IMMEDIATE;") else { return false }
+        guard work(), executeUnsafe("COMMIT;") else {
+            _ = executeUnsafe("ROLLBACK;")
+            return false
+        }
+        return true
+    }
+
     // MARK: - Private: unsafe — must already be inside dbQueue
 
     /// Caller must hold `dbQueue` (called from within `dbQueue.sync { }` only).
@@ -241,7 +260,25 @@ final class DatabaseManager {
         }
     }
 
-    private func runMigrations() {}
+    private func runMigrations() {
+        // Older builds could leave more than one chapter at the same logical
+        // position after rebuilding a book's table of contents.  SQLite is
+        // free to return those tied rows in any order, which mixes both the
+        // catalog and the reader's chapter sequence.  Keep the newest row for
+        // each position, then prevent the invalid state from recurring.
+        executeUnsafe("""
+            DELETE FROM chapters
+            WHERE rowid NOT IN (
+                SELECT MAX(rowid)
+                FROM chapters
+                GROUP BY book_id, order_index
+            );
+        """)
+        executeUnsafe("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_chapters_book_order
+            ON chapters(book_id, order_index);
+        """)
+    }
 
     deinit {
         if let db = db { sqlite3_close(db) }

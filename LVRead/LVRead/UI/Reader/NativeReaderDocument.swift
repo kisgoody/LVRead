@@ -9,7 +9,31 @@ struct NativeDocumentPage {
     let endOffset: Int
     let text: String
     let image: UIImage?
+    let startsAtParagraphBoundary: Bool
+    let endsAtParagraphBoundary: Bool
     var id: String { "\(chapterIndex):\(pageIndex):\(startOffset):\(endOffset)" }
+
+    init(
+        chapterIndex: Int,
+        pageIndex: Int,
+        chapterTitle: String,
+        startOffset: Int,
+        endOffset: Int,
+        text: String,
+        image: UIImage?,
+        startsAtParagraphBoundary: Bool = false,
+        endsAtParagraphBoundary: Bool = false
+    ) {
+        self.chapterIndex = chapterIndex
+        self.pageIndex = pageIndex
+        self.chapterTitle = chapterTitle
+        self.startOffset = startOffset
+        self.endOffset = endOffset
+        self.text = text
+        self.image = image
+        self.startsAtParagraphBoundary = startsAtParagraphBoundary
+        self.endsAtParagraphBoundary = endsAtParagraphBoundary
+    }
 }
 
 struct NativeDocumentCachePolicy: Equatable {
@@ -93,6 +117,8 @@ private final class NativeSelectionHandleView: UIView {
 enum NativeDocumentTypography {
     static let topReadingStatusHeight: CGFloat = 44
     static let bottomReadingStatusHeight: CGFloat = 24
+    static let chapterTitleScale: CGFloat = 1.10
+    static let chapterTitleSpacing: CGFloat = 24
     static let headerFont = UIFont.systemFont(ofSize: 13, weight: .medium)
     static let headerSymbolConfiguration = UIImage.SymbolConfiguration(font: headerFont)
 
@@ -100,7 +126,24 @@ enum NativeDocumentTypography {
         CGPoint(x: origin.x + pathOrigin.x, y: origin.y + pathOrigin.y)
     }
 
-    static func attributed(_ text: String, settings: ReadingSettings, color: UIColor) -> NSAttributedString {
+    static func bodyLineHeight(settings: ReadingSettings) -> CGFloat {
+        let font = FontManager.shared.font(
+            named: settings.fontFamily,
+            size: CGFloat(min(max(settings.fontSize, 12), 32))
+        )
+        return font.lineHeight * CGFloat(max(settings.lineSpacing, 1))
+    }
+
+    static func commentLineHeight(settings: ReadingSettings) -> CGFloat {
+        max(44, bodyLineHeight(settings: settings))
+    }
+
+    static func attributed(
+        _ text: String,
+        settings: ReadingSettings,
+        color: UIColor,
+        commentRanges: [NSRange] = []
+    ) -> NSAttributedString {
         let font = FontManager.shared.font(
             named: settings.fontFamily,
             size: CGFloat(min(max(settings.fontSize, 12), 32))
@@ -112,10 +155,62 @@ enum NativeDocumentTypography {
         style.lineSpacing = y
         style.paragraphSpacing = x - y
         style.alignment = .justified
-        return NSAttributedString(
+        let attributed = NSMutableAttributedString(
             string: text,
             attributes: [.font: font, .paragraphStyle: style, .foregroundColor: color]
         )
+        let source = text as NSString
+        if let titleRange = chapterTitleRange(in: text) {
+            let titleStyle = style.mutableCopy() as! NSMutableParagraphStyle
+            titleStyle.alignment = .left
+            titleStyle.firstLineHeadIndent = 0
+            titleStyle.headIndent = 0
+            titleStyle.paragraphSpacing = chapterTitleSpacing
+            let titleParagraphRange = source.paragraphRange(for: titleRange)
+            attributed.addAttributes(
+                [
+                    .font: UIFont.systemFont(ofSize: font.pointSize * chapterTitleScale, weight: .bold),
+                    .paragraphStyle: titleStyle
+                ],
+                range: titleParagraphRange
+            )
+
+            // TXT source keeps one blank line after a heading. Collapse only that
+            // visual line so the title-to-body gap is the fixed paragraph spacing.
+            let blankLocation = NSMaxRange(titleParagraphRange)
+            if blankLocation < source.length,
+               source.character(at: blankLocation) == 10 {
+                let blankStyle = style.mutableCopy() as! NSMutableParagraphStyle
+                blankStyle.minimumLineHeight = 1
+                blankStyle.maximumLineHeight = 1
+                blankStyle.lineSpacing = 0
+                blankStyle.paragraphSpacing = 0
+                attributed.addAttributes(
+                    [.font: UIFont.systemFont(ofSize: 1), .paragraphStyle: blankStyle],
+                    range: NSRange(location: blankLocation, length: 1)
+                )
+            }
+        }
+        for range in commentRanges where range.location >= 0 && NSMaxRange(range) <= source.length {
+            let commentStyle = style.mutableCopy() as! NSMutableParagraphStyle
+            // Reserve one comment row plus the small pointer that visually
+            // connects the card to its source paragraph.
+            commentStyle.paragraphSpacing = commentLineHeight(settings: settings) + 12
+            attributed.addAttribute(
+                .paragraphStyle,
+                value: commentStyle,
+                range: source.paragraphRange(for: range)
+            )
+        }
+        return attributed
+    }
+
+    static func chapterTitleRange(in text: String) -> NSRange? {
+        let pattern = #"^\s*(?:第[0-9零一二三四五六七八九十百千]+[章节回部卷集篇]|[Cc][Hh][Aa][Pp][Tt][Ee][Rr]\s+\d+|卷[0-9零一二三四五六七八九十百千]+|序言|前言|楔子|引言|尾声|后记|番外|附录|终章|题记|引子)[^\n]*"#
+        return try? NSRegularExpression(pattern: pattern).firstMatch(
+            in: text,
+            range: NSRange(location: 0, length: (text as NSString).length)
+        )?.range
     }
 
     static func insets(
@@ -214,7 +309,8 @@ enum NativeDocumentPaginator {
         size: CGSize,
         safeAreaInsets: UIEdgeInsets = .zero,
         textInsets: UIEdgeInsets? = nil,
-        settings: ReadingSettings
+        settings: ReadingSettings,
+        comments: [Highlight] = []
     ) throws -> [NativeDocumentPage] {
         guard size.width > 0, size.height > 0 else { throw PaginationError.invalidSize }
         let source = text as NSString
@@ -232,7 +328,20 @@ enum NativeDocumentPaginator {
         var offset = 0
         while offset < source.length {
             let remaining = source.substring(from: offset)
-            let value = NativeDocumentTypography.attributed(remaining, settings: settings, color: .label)
+            let commentRanges = comments.compactMap { comment -> NSRange? in
+                let location = comment.startCharOffset - offset
+                let length = comment.endCharOffset - comment.startCharOffset
+                guard location >= 0, length > 0, location + length <= (remaining as NSString).length else {
+                    return nil
+                }
+                return NSRange(location: location, length: length)
+            }
+            let value = NativeDocumentTypography.attributed(
+                remaining,
+                settings: settings,
+                color: .label,
+                commentRanges: commentRanges
+            )
             let setter = CTFramesetterCreateWithAttributedString(value)
             let path = CGPath(rect: CGRect(origin: .zero, size: textSize), transform: nil)
             let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil)
@@ -242,18 +351,27 @@ enum NativeDocumentPaginator {
             )
             guard visible.length > 0 else { throw PaginationError.cannotFit }
             let length = min(visible.length, source.length - offset)
+            let endOffset = offset + length
+            let startsAtParagraphBoundary = offset == 0
+                || source.character(at: offset - 1) == 10
+                || source.character(at: offset - 1) == 13
+            let endsAtParagraphBoundary = endOffset >= source.length
+                || source.character(at: endOffset) == 10
+                || source.character(at: endOffset) == 13
             result.append(
                 NativeDocumentPage(
                     chapterIndex: chapterIndex,
                     pageIndex: result.count,
                     chapterTitle: chapter.title,
                     startOffset: offset,
-                    endOffset: offset + length,
+                    endOffset: endOffset,
                     text: source.substring(with: NSRange(location: offset, length: length)),
-                    image: nil
+                    image: nil,
+                    startsAtParagraphBoundary: startsAtParagraphBoundary,
+                    endsAtParagraphBoundary: endsAtParagraphBoundary
                 )
             )
-            offset += length
+            offset = endOffset
         }
         return result
     }
@@ -308,7 +426,10 @@ final class NativeDocumentChapterPaginator {
             size: size,
             safeAreaInsets: safeAreaInsets,
             textInsets: textInsets,
-            settings: settings
+            settings: settings,
+            comments: BookRepository.shared.getHighlights(for: book.id).filter {
+                $0.chapterIndex == chapterIndex && $0.isComment
+            }
         )
         pageCache[chapterIndex] = pages
         return pages
@@ -609,7 +730,8 @@ final class NativeCoreTextView: UIView {
         let attributed = NSMutableAttributedString(attributedString: NativeDocumentTypography.attributed(
             page.text,
             settings: settings,
-            color: UIColor(hex: settings.readingTheme.textColor)
+            color: UIColor(hex: settings.readingTheme.textColor),
+            commentRanges: commentRanges(for: page)
         ))
         let textLength = attributed.length
         if let spokenRange {
@@ -744,7 +866,8 @@ final class NativeCoreTextView: UIView {
         let attributed = NativeDocumentTypography.attributed(
             page.text,
             settings: settings,
-            color: UIColor(hex: settings.readingTheme.textColor)
+            color: UIColor(hex: settings.readingTheme.textColor),
+            commentRanges: commentRanges(for: page)
         )
         let frame = CTFramesetterCreateFrame(
             CTFramesetterCreateWithAttributedString(attributed),
@@ -785,6 +908,12 @@ final class NativeCoreTextView: UIView {
         return selection(for: range)
     }
 
+    func isParagraphEndVisible(_ selection: NativeTextSelection) -> Bool {
+        guard let page else { return false }
+        let sourceLength = (page.text as NSString).length
+        return NSMaxRange(selection.range) < sourceLength || page.endsAtParagraphBoundary
+    }
+
     static func localRange(for highlight: Highlight, page: NativeDocumentPage) -> NSRange? {
         let source = page.text as NSString
         let proposed = NSRange(
@@ -797,6 +926,17 @@ final class NativeCoreTextView: UIView {
         }
         let recovered = source.range(of: highlight.text)
         return recovered.location == NSNotFound ? nil : recovered
+    }
+
+    func commentAnchorRect(for highlight: Highlight) -> CGRect? {
+        guard let page,
+              let range = Self.localRange(for: highlight, page: page) else { return nil }
+        let paragraph = (page.text as NSString).paragraphRange(for: range)
+        return selectionBounds(for: paragraph)
+    }
+
+    private func commentRanges(for page: NativeDocumentPage) -> [NSRange] {
+        highlights.filter(\.isComment).compactMap { Self.localRange(for: $0, page: page) }
     }
 
     private func configureSelectionHandles() {
@@ -941,7 +1081,8 @@ final class NativeCoreTextView: UIView {
         let attributed = NativeDocumentTypography.attributed(
             page.text,
             settings: settings,
-            color: UIColor(hex: settings.readingTheme.textColor)
+            color: UIColor(hex: settings.readingTheme.textColor),
+            commentRanges: commentRanges(for: page)
         )
         let pathRect = NativeDocumentTypography.coreTextPathRect(size: bounds.size, insets: insets)
         let frame = CTFramesetterCreateFrame(

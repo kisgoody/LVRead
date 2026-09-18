@@ -143,9 +143,9 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
         case .warmYellow: return "#F4E5C8"
         case .mint: return "#DCEFE1"
         case .latte: return "#E7D2BA"
-        case .bookshelf: return "#FFFDF8"
-        case .bookshelfNight: return "#1A1410"
-        case .midnight: return "#1A1D2E"
+        case .bookshelf: return "#FCFAF5"
+        case .bookshelfNight: return "#191D1B"
+        case .midnight: return "#1B1F2B"
         case .oled: return "#000000"
         case .custom: return "#F7F7F5"
         }
@@ -153,10 +153,11 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
 
     var textColor: String {
         switch self {
-        case .white, .mint: return "#1A1A1A"
-        case .warmYellow: return "#3D3226"
-        case .latte: return "#4A3728"
-        case .bookshelf: return "#24211D"
+        case .white: return "#000000"
+        case .mint: return "#000000"
+        case .warmYellow: return "#000000"
+        case .latte: return "#000000"
+        case .bookshelf: return "#000000"
         case .bookshelfNight: return "#F5F0E8"
         case .midnight: return "#C8CCD8"
         case .oled: return "#B0B0B0"
@@ -166,14 +167,14 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
 
     var accentColor: String {
         switch self {
-        case .white: return "#C94F32"
-        case .oled: return "#FF5E3A"
-        case .warmYellow: return "#E8784A"
-        case .mint: return "#00A86B"
-        case .latte: return "#C67B5C"
-        case .bookshelf: return "#236D67"
-        case .bookshelfNight: return "#8FD8D0"
-        case .midnight: return "#7B8FFF"
+        case .white: return "#465C82"
+        case .oled: return "#A6B8D8"
+        case .warmYellow: return "#9A4C2D"
+        case .mint: return "#2F7056"
+        case .latte: return "#925438"
+        case .bookshelf: return "#286D65"
+        case .bookshelfNight: return "#8CC4B8"
+        case .midnight: return "#9BAAEB"
         case .custom: return "#FF5E3A"
         }
     }
@@ -181,27 +182,27 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
     var panelColor: String {
         switch self {
         case .white: return "#FFFFFF"
-        case .warmYellow: return "#FBF0D9"
-        case .mint: return "#E8F5E9"
-        case .latte: return "#EFE3D3"
-        case .bookshelf: return "#F5F2EC"
-        case .bookshelfNight: return "#20231F"
-        case .midnight: return "#24283A"
-        case .oled: return "#111111"
+        case .warmYellow: return "#FAF1E0"
+        case .mint: return "#F0F5EE"
+        case .latte: return "#F3EADF"
+        case .bookshelf: return "#F1EFE7"
+        case .bookshelfNight: return "#232925"
+        case .midnight: return "#252B39"
+        case .oled: return "#121212"
         case .custom: return "#FFFFFF"
         }
     }
 
     var controlSurfaceColor: String {
         switch self {
-        case .white: return "#FFFFFF"
-        case .warmYellow: return "#FFF6E5"
-        case .mint: return "#F0FAF2"
-        case .latte: return "#F5E7D8"
-        case .bookshelf: return "#FFFDF8"
-        case .bookshelfNight: return "#292D28"
-        case .midnight: return "#30364D"
-        case .oled: return "#1C1C1C"
+        case .white: return "#F0F0ED"
+        case .warmYellow: return "#FFF8EA"
+        case .mint: return "#F8FAF5"
+        case .latte: return "#FAF3EA"
+        case .bookshelf: return "#FFFDFA"
+        case .bookshelfNight: return "#2E3630"
+        case .midnight: return "#30394A"
+        case .oled: return "#202020"
         case .custom: return "#FFFFFF"
         }
     }
@@ -210,14 +211,14 @@ enum ReadingTheme: String, Codable, CaseIterable, Hashable {
     /// 与正面保持同一色相，并通过轻微明度差表现纸张背面。
     var pageBackColor: String {
         switch self {
-        case .white: return "#F2EFE8"
-        case .warmYellow: return "#EAD7B5"
-        case .mint: return "#D5E8D8"
-        case .latte: return "#DCC4AA"
-        case .bookshelf: return "#E8E0D4"
-        case .bookshelfNight: return "#15110E"
-        case .midnight: return "#141725"
-        case .oled: return "#050505"
+        case .white: return "#EFEFEB"
+        case .warmYellow: return "#EBDDC3"
+        case .mint: return "#DCE7DC"
+        case .latte: return "#DFCFBC"
+        case .bookshelf: return "#EFEAE0"
+        case .bookshelfNight: return "#141815"
+        case .midnight: return "#161A25"
+        case .oled: return "#080808"
         case .custom: return backgroundColor
         }
     }

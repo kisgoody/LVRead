@@ -215,8 +215,50 @@ final class BookRepository {
         }
     }
 
+    @discardableResult
+    func replaceChapters(
+        _ chapters: [Chapter],
+        for bookId: String,
+        remapping oldIndices: [Int: Int] = [:]
+    ) -> Bool {
+        db.transaction {
+            for (oldIndex, newIndex) in oldIndices {
+                guard db.execute(
+                    "UPDATE bookmarks SET chapter_index = ? WHERE book_id = ? AND chapter_index = ?;",
+                    params: [-(newIndex + 1), bookId, oldIndex]
+                ), db.execute(
+                    "UPDATE highlights SET chapter_index = ? WHERE book_id = ? AND chapter_index = ?;",
+                    params: [-(newIndex + 1), bookId, oldIndex]
+                ) else { return false }
+            }
+            guard db.execute(
+                "UPDATE bookmarks SET chapter_index = -chapter_index - 1 WHERE book_id = ? AND chapter_index < 0;",
+                params: [bookId]
+            ), db.execute(
+                "UPDATE highlights SET chapter_index = -chapter_index - 1 WHERE book_id = ? AND chapter_index < 0;",
+                params: [bookId]
+            ) else { return false }
+            guard db.execute("DELETE FROM chapters WHERE book_id = ?;", params: [bookId]) else {
+                return false
+            }
+            return chapters.allSatisfy { chapter in
+                db.execute("""
+                    INSERT INTO chapters (id, book_id, title, level, order_index,
+                        start_offset, end_offset, page_count, internal_href)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """, params: [chapter.id, chapter.bookId, chapter.title, chapter.level,
+                              chapter.orderIndex, chapter.startOffset, chapter.endOffset,
+                              chapter.pageCount, chapter.internalHref ?? NSNull()])
+            }
+        }
+    }
+
     func getChapters(for bookId: String) -> [Chapter] {
-        let rows = db.query("SELECT * FROM chapters WHERE book_id = ? ORDER BY order_index ASC;",
+        let rows = db.query("""
+            SELECT * FROM chapters
+            WHERE book_id = ?
+            ORDER BY order_index ASC, rowid ASC;
+        """,
                            params: [bookId])
         return rows.map(mapChapter)
     }

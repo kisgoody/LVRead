@@ -81,7 +81,7 @@ enum NativeBookSpreadMetrics {
     static let pageVerticalInset: CGFloat = 24
     static let coverHorizontalOutset: CGFloat = 32
     static let coverVerticalOutset: CGFloat = 16
-    static let minimumThickness: CGFloat = 8
+    static let minimumVisibleThickness: CGFloat = 4
     static let maximumThickness: CGFloat = 24
     static let extraTextInset: CGFloat = 16
     static let pageCornerRadius: CGFloat = 12
@@ -144,9 +144,13 @@ enum NativeBookThickness {
         maximum: CGFloat = NativeBookSpreadMetrics.maximumThickness
     ) -> (left: CGFloat, right: CGFloat) {
         let value = min(max(progress, 0), 1)
-        let minimum = min(NativeBookSpreadMetrics.minimumThickness, maximum)
-        let range = max(0, maximum - minimum)
-        return (minimum + range * value, minimum + range * (1 - value))
+        let thickness = max(0, maximum)
+        let minimum = min(NativeBookSpreadMetrics.minimumVisibleThickness, thickness)
+        let range = thickness - minimum
+        let left = value == 0 ? 0 : minimum + range * value
+        let rightProgress = 1 - value
+        let right = rightProgress == 0 ? 0 : minimum + range * rightProgress
+        return (left, right)
     }
 }
 
@@ -341,10 +345,21 @@ final class NativeBookSpreadView: UIView {
         context.restoreGState()
 
         palette.outline.withAlphaComponent(0.20).setStroke()
-        UIBezierPath(
-            roundedRect: edge.insetBy(dx: 0.5, dy: 0.5),
-            byRoundingCorners: outerCorners,
-            cornerRadii: CGSize(width: min(radius, edge.width), height: radius)
-        ).stroke()
+        let outlineRect = edge.insetBy(dx: 0.5, dy: 0.5)
+        guard outlineRect.width > 0 else { return }
+        if leftSide {
+            let outline = UIBezierPath()
+            outline.move(to: CGPoint(x: outlineRect.maxX, y: outlineRect.minY))
+            outline.addLine(to: CGPoint(x: outlineRect.maxX, y: outlineRect.maxY))
+            outline.move(to: CGPoint(x: outlineRect.minX, y: outlineRect.minY + radius))
+            outline.addLine(to: CGPoint(x: outlineRect.minX, y: outlineRect.maxY - radius))
+            outline.stroke()
+        } else {
+            UIBezierPath(
+                roundedRect: outlineRect,
+                byRoundingCorners: outerCorners,
+                cornerRadii: CGSize(width: min(radius, edge.width), height: radius)
+            ).stroke()
+        }
     }
 }

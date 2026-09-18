@@ -67,6 +67,7 @@
 "复制链接" = "Copy Link";
 "夜间" = "Night";
 "夜间模式" = "Night Mode";
+"主题样式" = "Theme Style";
 "失败" = "Failed";
 "字体" = "Font";
 "中文" = "Chinese";
@@ -234,6 +235,10 @@
 "请确保两台设备已连接同一 Wi-Fi 且均打开 LVRead" = "Use the same Wi-Fi and keep LVRead open on both devices.";
 "读取失败" = "Couldn't Read";
 "跟随系统" = "System";
+"选择浅色、深色或跟随系统外观" = "Choose light, dark, or system appearance";
+"上一章" = "Previous chapter";
+"下一章" = "Next chapter";
+"第 %d / %d 章" = "Chapter %d / %d";
 "返回" = "Back";
 "返回书架" = "Back to Shelf";
 "还没有笔记" = "No Notes Yet";
@@ -537,3 +542,9 @@
 "7日" = "7 Days";
 "近7日" = "7 Days";
 "范围" = "Range";
+"删除评论" = "Delete Comment";
+"确定要删除这条评论吗？" = "Are you sure you want to delete this comment?";
+"评论已删除" = "Comment deleted";
+"轻点修改评论" = "Tap to edit comment";
+"评论：%@" = "Comment: %@";
+"书架" = "Bookshelf";

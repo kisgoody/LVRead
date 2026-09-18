@@ -1,5 +1,9 @@
 import UIKit
 
+private final class ReaderRestorationState {
+    var didTransition = false
+}
+
 final class BookshelfNavigationBar: UINavigationBar {
     private let bookshelfHeight: CGFloat = 78
 
@@ -59,33 +63,23 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = (scene as? UIWindowScene) else { return }
         window = UIWindow(windowScene: windowScene)
 
-        if connectionOptions.urlContexts.isEmpty,
-           let book = NativeReaderRestorationStore.restorableBook() {
-            let navigationController = makeBookshelfNavigationController()
-            let reader = NativeDocumentReaderViewController(book: book)
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                DispatchQueue.main.async {
-                    navigationController.pushViewController(reader, animated: false)
-                }
-            } else {
-                navigationController.viewControllers.append(reader)
-            }
-            window?.rootViewController = makeRootViewController(contentNavigationController: navigationController)
-            window?.makeKeyAndVisible()
-            DarkModeManager.shared.applyTheme()
-            return
-        }
-
         let splash = SplashViewController()
         splash.onComplete = { [weak self] in
             guard let self else { return }
             let navigationController = self.makeBookshelfNavigationController()
-
             guard let window = self.window else { return }
-            UIView.transition(with: window, duration: 0.4, options: .transitionCrossDissolve) {
-                self.window?.rootViewController = self.makeRootViewController(contentNavigationController: navigationController)
+
+            if connectionOptions.urlContexts.isEmpty,
+               let book = NativeReaderRestorationStore.restorableBook() {
+                self.restoreReader(
+                    for: book,
+                    in: navigationController,
+                    window: window
+                )
+                return
             }
-            DarkModeManager.shared.applyTheme()
+
+            self.showRootViewController(with: navigationController, in: window)
 
             if let url = connectionOptions.urlContexts.first?.url {
                 self.handleIncomingFile(url)
@@ -94,6 +88,103 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         window?.rootViewController = splash
         window?.makeKeyAndVisible()
+    }
+
+    private func restoreReader(
+        for book: Book,
+        in navigationController: UINavigationController,
+        window: UIWindow
+    ) {
+        let reader = NativeDocumentReaderViewController(book: book)
+        let restorationState = ReaderRestorationState()
+        reader.prepareForPresentation(
+            in: window.bounds,
+            safeAreaInsets: window.safeAreaInsets
+        ) { [weak self, weak window] result in
+            guard let self, let window else { return }
+            guard !restorationState.didTransition else { return }
+            restorationState.didTransition = true
+            switch result {
+            case .success:
+                self.showPreparedReader(reader, in: navigationController, window: window)
+            case .failure(let error):
+                LVLogger.error(
+                    "Failed to restore prepared reader: \(error.localizedDescription)",
+                    category: .ui
+                )
+                self.showRootViewController(with: navigationController, in: window)
+            }
+        }
+
+        // The first off-screen layout can rebuild the page controller and request
+        // another pass. Since the reader is not in the window yet, run that pass
+        // explicitly so preparation can finish while the splash remains visible.
+        DispatchQueue.main.async {
+            reader.view.setNeedsLayout()
+            reader.view.layoutIfNeeded()
+        }
+
+        // Never leave the app trapped on the splash if a damaged file or an
+        // unexpected reader error prevents the preparation callback from firing.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self, weak window] in
+            guard let self, let window else { return }
+            guard !restorationState.didTransition else { return }
+            restorationState.didTransition = true
+            LVLogger.error("Reader restoration timed out", category: .ui)
+            self.showPreparedReader(reader, in: navigationController, window: window)
+        }
+    }
+
+    private func showPreparedReader(
+        _ reader: NativeDocumentReaderViewController,
+        in navigationController: UINavigationController,
+        window: UIWindow
+    ) {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            navigationController.viewControllers.append(reader)
+            showRootViewController(with: navigationController, in: window)
+            return
+        }
+
+        let splashOverlay = window.snapshotView(afterScreenUpdates: true)
+        showRootViewController(with: navigationController, in: window, animated: false)
+        if let splashOverlay {
+            splashOverlay.frame = window.bounds
+            splashOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            window.addSubview(splashOverlay)
+        }
+
+        DispatchQueue.main.async {
+            navigationController.pushViewController(reader, animated: false)
+            UIView.animate(
+                withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.25,
+                animations: { splashOverlay?.alpha = 0 },
+                completion: { _ in splashOverlay?.removeFromSuperview() }
+            )
+        }
+    }
+
+    private func showRootViewController(
+        with navigationController: UINavigationController,
+        in window: UIWindow,
+        animated: Bool = true
+    ) {
+        let updateRoot = {
+            window.rootViewController = self.makeRootViewController(
+                contentNavigationController: navigationController
+            )
+        }
+        if animated && !UIAccessibility.isReduceMotionEnabled {
+            UIView.transition(
+                with: window,
+                duration: 0.4,
+                options: .transitionCrossDissolve,
+                animations: updateRoot
+            )
+        } else {
+            updateRoot()
+        }
+        DarkModeManager.shared.applyTheme()
     }
 
     private func makeBookshelfNavigationController() -> UINavigationController {

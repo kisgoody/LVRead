@@ -2,19 +2,22 @@ import UIKit
 import CoreText
 
 enum ReaderTextContentSanitizer {
-    /// 将连续的换行序列统一折叠为一个 `\n`，保留正常段落边界并去除多余空行。
+    /// 统一换行符并将连续空白行压缩为一行，保留段落间距。
     static func collapsingExcessiveLineBreaks(in content: String) -> String {
+        let normalized = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{2028}", with: "\n")
         var result = ""
-        result.reserveCapacity(content.count)
-        var previousWasLineBreak = false
-        for character in content {
-            let isLineBreak = character.unicodeScalars.allSatisfy { CharacterSet.newlines.contains($0) }
-            if isLineBreak {
-                if !previousWasLineBreak { result.append("\n") }
-                previousWasLineBreak = true
+        result.reserveCapacity(normalized.count)
+        var consecutiveLineBreaks = 0
+        for character in normalized {
+            if character == "\n" {
+                consecutiveLineBreaks += 1
+                if consecutiveLineBreaks <= 2 { result.append(character) }
             } else {
                 result.append(character)
-                previousWasLineBreak = false
+                consecutiveLineBreaks = 0
             }
         }
         return result

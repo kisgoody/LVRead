@@ -166,7 +166,7 @@ final class BookshelfViewController: UIViewController {
         navigationItem.largeTitleDisplayMode = .never
         navigationController?.navigationBar.prefersLargeTitles = false
 
-        titleLabel.text = usesPadSidebar ? L("书架") : "LVRead"
+        titleLabel.text = L("书架")
         titleLabel.font = .systemFont(ofSize: 30, weight: .bold)
         titleLabel.textAlignment = .left
         titleLabel.backgroundColor = .clear
@@ -533,7 +533,7 @@ final class BookshelfViewController: UIViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         bottomNavView.addSubview(stack)
 
-        configureBottomNavButton(bottomShelfButton, title: "LVRead", icon: "book.closed", active: true)
+        configureBottomNavButton(bottomShelfButton, title: L("书架"), icon: "book.closed", active: true)
         configureBottomNavButton(bottomNotesButton, title: L("笔记"), icon: "bookmark", active: false)
         configureBottomNavButton(bottomMineButton, title: L("我的"), icon: "person", active: false)
         bottomNotesButton.addTarget(self, action: #selector(openNotesModule), for: .touchUpInside)
@@ -662,7 +662,7 @@ final class BookshelfViewController: UIViewController {
         fabButton.backgroundColor = accent
         fabButton.layer.shadowColor = accent.cgColor
 
-        configureBottomNavButton(bottomShelfButton, title: "LVRead", icon: "book.closed", active: true)
+        configureBottomNavButton(bottomShelfButton, title: L("书架"), icon: "book.closed", active: true)
         configureBottomNavButton(bottomNotesButton, title: L("笔记"), icon: "bookmark", active: false)
         configureBottomNavButton(bottomMineButton, title: L("我的"), icon: "person", active: false)
 
